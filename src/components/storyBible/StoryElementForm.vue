@@ -123,7 +123,9 @@ function addRelation(): void {
           class="relation-row"
         >
           <NTag size="small" :bordered="false">{{ relation.type }}</NTag>
-          <span class="relation-row__target">{{ props.relationTargetName(relation.targetId) }}</span>
+          <span class="relation-row__target">{{
+            props.relationTargetName(relation.targetId)
+          }}</span>
           <NButton size="tiny" quaternary type="error" @click="emit('removeRelation', index)">
             移除
           </NButton>

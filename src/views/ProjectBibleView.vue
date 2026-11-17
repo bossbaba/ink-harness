@@ -54,11 +54,7 @@ const {
         </p>
       </div>
       <NSpace>
-        <MacButton
-          size="regular"
-          :disabled="busy || !projectTitle"
-          @click="checkConsistency"
-        >
+        <MacButton size="regular" :disabled="busy || !projectTitle" @click="checkConsistency">
           {{ busy ? "检查中…" : "一致性检查" }}
         </MacButton>
         <MacButton

@@ -44,7 +44,11 @@ const needModel = computed(() => props.parseError.includes("模型管理"));
         <h2 class="proposal__title">方案预览</h2>
         <p v-if="props.modelLabel" class="proposal__meta">由 {{ props.modelLabel }} 生成</p>
       </div>
-      <MacButton size="regular" :disabled="props.generating || props.applying" @click="emit('generate')">
+      <MacButton
+        size="regular"
+        :disabled="props.generating || props.applying"
+        @click="emit('generate')"
+      >
         {{ props.generating ? "生成中…" : "重新生成" }}
       </MacButton>
     </header>
@@ -136,12 +140,7 @@ const needModel = computed(() => props.parseError.includes("模型管理"));
       </section>
 
       <div class="apply">
-        <MacButton
-          size="regular"
-          variant="prominent"
-          :disabled="!canApply"
-          @click="emit('apply')"
-        >
+        <MacButton size="regular" variant="prominent" :disabled="!canApply" @click="emit('apply')">
           {{ props.applying ? "写入中…" : "写入作品" }}
         </MacButton>
         <span class="hint">写入会覆盖作品当前的标题、梗概、简介、读者画像与风格。</span>

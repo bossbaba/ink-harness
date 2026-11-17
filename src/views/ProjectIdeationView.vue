@@ -90,7 +90,12 @@ function backWorkspace(): void {
               </template>
             </p>
             <div class="done__actions">
-              <MacButton v-if="outlineCreated" size="regular" variant="prominent" @click="openOutline">
+              <MacButton
+                v-if="outlineCreated"
+                size="regular"
+                variant="prominent"
+                @click="openOutline"
+              >
                 去大纲调整
               </MacButton>
               <MacButton size="regular" @click="openBible">打开设定库</MacButton>

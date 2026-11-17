@@ -61,7 +61,9 @@ const emit = defineEmits<{
         </span>
       </button>
       <p v-if="filteredElements.length === 0" class="element-list__empty">
-        {{ elements.length === 0 ? "还没有设定条目，点击「新建设定」开始。" : "没有匹配的设定条目。" }}
+        {{
+          elements.length === 0 ? "还没有设定条目，点击「新建设定」开始。" : "没有匹配的设定条目。"
+        }}
       </p>
     </div>
   </aside>

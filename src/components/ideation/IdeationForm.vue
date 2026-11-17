@@ -30,7 +30,11 @@ const lengthOptions: Array<{ label: string; value: NovelLength }> = [
       <div class="row">
         <label class="field">
           <span class="field__label">类型</span>
-          <NInput v-model:value="answers.genre" placeholder="悬疑 / 科幻 / 奇幻 / 现实" size="small" />
+          <NInput
+            v-model:value="answers.genre"
+            placeholder="悬疑 / 科幻 / 奇幻 / 现实"
+            size="small"
+          />
         </label>
         <label class="field">
           <span class="field__label">目标读者</span>
@@ -98,7 +102,8 @@ const lengthOptions: Array<{ label: string; value: NovelLength }> = [
         </label>
       </div>
       <p class="form__note">
-        下一步会让 AI 基于以上信息生成书名候选、梗概、简介、读者画像与三幕大纲骨架；生成后仍可逐项修改。
+        下一步会让 AI
+        基于以上信息生成书名候选、梗概、简介、读者画像与三幕大纲骨架；生成后仍可逐项修改。
       </p>
     </template>
   </div>

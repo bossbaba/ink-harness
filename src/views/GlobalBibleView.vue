@@ -92,9 +92,7 @@ const {
               <h2 class="detail-head__title serif">{{ selected.name }}</h2>
               <p class="detail-head__project">所属作品：{{ selected.projectTitle }}</p>
             </div>
-            <MacButton size="regular" @click="openProject(selected)">
-              进入该作品设定库
-            </MacButton>
+            <MacButton size="regular" @click="openProject(selected)"> 进入该作品设定库 </MacButton>
           </div>
 
           <div class="detail-body">
@@ -116,8 +114,14 @@ const {
             </section>
             <section class="detail-section">
               <h3 class="detail-section__title">关联设定</h3>
-              <p v-if="!selected.detail.relations?.length" class="detail-section__empty">暂无关联。</p>
-              <p v-for="relation in selected.detail.relations" :key="relation.targetId" class="relation">
+              <p v-if="!selected.detail.relations?.length" class="detail-section__empty">
+                暂无关联。
+              </p>
+              <p
+                v-for="relation in selected.detail.relations"
+                :key="relation.targetId"
+                class="relation"
+              >
                 <NTag size="tiny" :bordered="false">{{ relation.type }}</NTag>
                 {{ relationName(relation.targetId) }}
               </p>

@@ -47,7 +47,9 @@ function onSceneDrop(target: Scene): void {
     <header class="chapter__head" @click="emit('select', chapter)">
       <span class="chapter__order">{{ chapter.sortOrder + 1 }}</span>
       <span class="chapter__title">{{ chapter.title }}</span>
-      <span v-if="chapter.wordCount" class="chapter__words">{{ formatCount(chapter.wordCount) }} 字</span>
+      <span v-if="chapter.wordCount" class="chapter__words"
+        >{{ formatCount(chapter.wordCount) }} 字</span
+      >
       <NTag size="tiny" :bordered="false" :type="CHAPTER_STATUS_TAG_TYPE[chapter.status]">
         {{ CHAPTER_STATUS_LABEL[chapter.status] }}
       </NTag>
@@ -61,7 +63,11 @@ function onSceneDrop(target: Scene): void {
       </NTag>
     </div>
 
-    <div class="chapter__scenes" @dragover.stop.prevent @drop.stop.prevent="emit('drop-scene', chapter, scenes.length)">
+    <div
+      class="chapter__scenes"
+      @dragover.stop.prevent
+      @drop.stop.prevent="emit('drop-scene', chapter, scenes.length)"
+    >
       <OutlineSceneCard
         v-for="scene in scenes"
         :key="scene.id"

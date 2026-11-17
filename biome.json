@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/src-tauri/target", "!**/dist", "!**/node_modules", "!**/docs"]
+    "includes": ["**", "!**/src-tauri/target", "!**/src-tauri/gen", "!**/dist", "!**/node_modules"]
   },
   "formatter": {
     "enabled": true,
@@ -17,6 +17,9 @@
   },
   "linter": {
     "enabled": true,
+    "domains": {
+      "vue": "recommended"
+    },
     "rules": {
       "preset": "recommended"
     }
@@ -33,6 +36,22 @@
       "enabled": true
     }
   },
+  "html": {
+    "experimentalFullSupportEnabled": true,
+    "formatter": {
+      "enabled": true,
+      "indentScriptAndStyle": false
+    }
+  },
+  "markdown": {
+    "formatter": {
+      "enabled": true,
+      "proseWrap": "preserve"
+    },
+    "linter": {
+      "enabled": true
+    }
+  },
   "overrides": [
     {
       "includes": ["**/*.vue"],
@@ -41,6 +60,10 @@
           "correctness": {
             "noUnusedImports": "off",
             "noUnusedVariables": "off"
+          },
+          "a11y": {
+            "noLabelWithoutControl": "off",
+            "noStaticElementInteractions": "off"
           }
         }
       }

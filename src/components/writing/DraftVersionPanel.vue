@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { NButton, NModal, NPopconfirm, NSpin } from "naive-ui";
+import { computed } from "vue";
 import type { DraftVersion, DraftVersionBrief } from "@/types";
 import { formatCount, formatDateTime } from "@/utils/text";
 import { documentToPlainText } from "@/utils/tiptap";
@@ -23,9 +24,9 @@ const emit = defineEmits<{
 }>();
 
 /** 预览正文：把 TipTap JSON 提纯后再显示，避免在弹窗里再跑一遍编辑器。 */
-function previewText(): string {
-  return props.preview ? documentToPlainText(props.preview.content) : "";
-}
+const previewText = computed(() =>
+  props.preview ? documentToPlainText(props.preview.content) : "",
+);
 </script>
 
 <template>
@@ -35,9 +36,7 @@ function previewText(): string {
       <NButton size="tiny" quaternary :loading="busy" @click="emit('snapshot')">保存快照</NButton>
     </div>
 
-    <p class="versions__hint">
-      自动保存会在字数大幅变化时留版；想固定一个节点时点「保存快照」。
-    </p>
+    <p class="versions__hint">自动保存会在字数大幅变化时留版；想固定一个节点时点「保存快照」。</p>
 
     <NSpin v-if="loading" size="small" />
     <p v-else-if="versions.length === 0" class="versions__empty">
@@ -70,7 +69,7 @@ function previewText(): string {
       style="width: 720px; max-width: 92vw"
       @update:show="emit('close-preview')"
     >
-      <pre class="version-preview__text">{{ previewText() }}</pre>
+      <pre class="version-preview__text">{{ previewText }}</pre>
       <template #footer>
         <div class="version-preview__footer">
           <NButton size="small" @click="emit('close-preview')">关闭</NButton>
