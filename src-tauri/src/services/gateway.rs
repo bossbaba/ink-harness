@@ -1,58 +1,18 @@
 //! 模型网关领域服务：provider 解析、隐私分级、SSE 流式代理。
 //! 不依赖任何 Tauri 类型——流式输出通过回调注入，便于纯 Rust 单测。
 
-use std::collections::HashMap;
-use std::sync::Mutex;
-
 use futures_util::StreamExt;
 
-use crate::infrastructure::{keychain, llm_http};
+use crate::infrastructure::{db::DbState, keychain, llm_http};
 use crate::models::{ChatChunk, ChatParams, ProviderConfig};
-
-#[derive(Default)]
-pub struct GatewayState {
-    providers: Mutex<HashMap<String, ProviderConfig>>,
-}
-
-pub fn default_providers() -> Vec<ProviderConfig> {
-    vec![ProviderConfig {
-        id: "ollama-local".into(),
-        name: "本地 Ollama".into(),
-        source: "local".into(),
-        base_url: "http://localhost:11434/v1".into(),
-        api_key_ref: None,
-        enabled: true,
-    }]
-}
-
-// ── Provider 管理（领域逻辑，与传输层无关） ───────────────────
-
-pub fn list_providers(state: &GatewayState) -> Result<Vec<ProviderConfig>, String> {
-    let map = state.providers.lock().map_err(|e| e.to_string())?;
-    if map.is_empty() {
-        return Ok(default_providers());
-    }
-    Ok(map.values().cloned().collect())
-}
-
-pub fn save_provider(state: &GatewayState, config: ProviderConfig) -> Result<(), String> {
-    let mut map = state.providers.lock().map_err(|e| e.to_string())?;
-    map.insert(config.id.clone(), config);
-    Ok(())
-}
-
-pub fn remove_provider(state: &GatewayState, id: &str) -> Result<(), String> {
-    let mut map = state.providers.lock().map_err(|e| e.to_string())?;
-    map.remove(id);
-    Ok(())
-}
+use crate::services::provider;
 
 // ── 核心：流式对话 ────────────────────────────────────────────
 
 /// 发起流式对话，每收到一块就调用 `on_chunk`。
 /// `on_chunk` 由调用方（commands 层）注入，service 不关心它落到 Channel 还是别处。
 pub async fn stream_chat<F>(
-    state: &GatewayState,
+    state: &DbState,
     params: &ChatParams,
     mut on_chunk: F,
 ) -> Result<(), String>
@@ -118,27 +78,35 @@ where
 }
 
 fn resolve_provider(
-    state: &GatewayState,
+    state: &DbState,
     params: &ChatParams,
 ) -> Result<(ProviderConfig, Option<String>), String> {
-    let map = state.providers.lock().map_err(|e| e.to_string())?;
+    let providers = provider::list(state)?;
 
-    let provider = if let Some((pid, _)) = params.model.split_once(':') {
-        map.get(pid).cloned()
-    } else {
-        None
-    }
-    .or_else(|| {
-        map.values()
-            .find(|p| p.enabled && params.model.starts_with(&p.id))
-            .cloned()
-    })
-    .or_else(|| {
-        default_providers()
-            .into_iter()
-            .find(|p| p.id == "ollama-local")
-    })
-    .ok_or_else(|| format!("未找到模型 {} 对应的 Provider", params.model))?;
+    // 约定模型标识为 `providerId:modelId`；兼容旧调用（只有模型名）时退到第一个可用 Provider。
+    let provider = params
+        .model
+        .split_once(':')
+        .and_then(|(provider_id, _)| providers.iter().find(|p| p.id == provider_id).cloned())
+        .or_else(|| {
+            providers
+                .iter()
+                .find(|p| p.enabled && params.model.starts_with(&p.id))
+                .cloned()
+        })
+        .or_else(|| {
+            providers
+                .iter()
+                .find(|p| p.enabled && p.source == "local")
+                .cloned()
+        })
+        .or_else(|| providers.iter().find(|p| p.enabled).cloned())
+        .ok_or_else(|| {
+            format!(
+                "未找到模型 {} 对应的 Provider，请先在模型管理中配置",
+                params.model
+            )
+        })?;
 
     let api_key = provider
         .api_key_ref

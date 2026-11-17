@@ -4,12 +4,19 @@ import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAppStore } from "@/stores/app";
 
+/**
+ * 应用外壳：标题栏 + 左侧导航 + 右侧 AI 面板 + 内容插槽。
+ * 这里最关键的是按路由作用域切换侧栏——全局页显示全局菜单，进入某个作品后
+ * 换成该作品的二级导航并带「返回工作台」，两者不混排，保证功能页面唯一性。
+ * 专注模式下标题栏、侧栏、AI 面板全部隐藏，只留正文和一个悬浮退出按钮。
+ */
 const app = useAppStore();
 const route = useRoute();
 const router = useRouter();
 
-// 主题按钮显示的是「切换后」的图标：当前浅色则给出月亮，暗示将进入深色。
+// 主题按钮显示的是「切换后」的图标：当前浅色则给出月亮，暗示点下去进入深色；反之给太阳。
 const appearanceIcon = computed(() => (app.appearance === "light" ? "☾" : "☀"));
+// 专注模式按钮的 tooltip 同样显示「切换后」的动作文案。
 const focusTitle = computed(() => (app.focusMode ? "退出专注模式" : "进入专注模式"));
 
 // 全局导航。path 为空的是尚未开放的模块，渲染为禁用态，不参与路由跳转。
@@ -20,7 +27,7 @@ const navItems = [
   { key: "write", label: "写作台", icon: "✎", path: "" },
   { key: "review", label: "编辑审稿", icon: "◎", path: "" },
   { key: "publish", label: "出版中心", icon: "⇧", path: "" },
-  { key: "models", label: "模型管理", icon: "⚙", path: "" },
+  { key: "models", label: "模型管理", icon: "⚙", path: "/models" },
 ];
 
 // 是否处于作品作用域。进入作品后侧栏要换成该作品的二级导航，
@@ -30,20 +37,36 @@ const projectId = computed(() => String(route.params.projectId ?? ""));
 
 // 作品内二级导航。name 为空的模块尚未开放，只作占位。
 const projectNavItems = [
+  { key: "ideation", label: "构思向导", icon: "✷", name: "project-ideation" },
   { key: "bible", label: "设定库", icon: "▤", name: "project-bible" },
-  { key: "outline", label: "大纲", icon: "☷", name: "" },
-  { key: "write", label: "写作台", icon: "✎", name: "" },
+  { key: "outline", label: "大纲", icon: "☷", name: "project-outline" },
+  { key: "write", label: "写作台", icon: "✎", name: "project-writing" },
   { key: "review", label: "编辑审稿", icon: "◎", name: "" },
 ];
 
+/**
+ * 判断某个全局菜单项是否是当前页。
+ * 必须排除 path 为空的占位项：否则 /projects/... 之类的路径若与空串比较，
+ * 会错误地把「大纲」等未开放项高亮。这里用精确相等，不做前缀匹配。
+ */
 function isGlobalActive(path: string): boolean {
-  // path 为空代表模块未开放，不应因为路径恰好为空而误判为当前页。
   return path !== "" && route.path === path;
 }
 
-// 标题栏中间显示当前作用域；进入作品时直接标明是作品内的设定库。
+/** 当前命中的作品内二级导航；未命中时标题只显示「作品」。 */
+const activeProjectNav = computed(() =>
+  projectNavItems.find((item) => item.name !== "" && item.name === route.name),
+);
+
+/**
+ * 标题栏中间的作用域标签。
+ * 在作品路由下按二级路由显示「作品 · 大纲 / 作品 · 设定库」，让用户一眼看出当前是实体内视角；
+ * 全局路由下显示命中的菜单名，都没命中（如首页）则回落「工作台」。
+ */
 const activeLabel = computed(() => {
-  if (isProjectRoute.value) return "作品 · 设定库";
+  if (isProjectRoute.value) {
+    return activeProjectNav.value ? `作品 · ${activeProjectNav.value.label}` : "作品";
+  }
   return navItems.find((item) => isGlobalActive(item.path))?.label ?? "工作台";
 });
 

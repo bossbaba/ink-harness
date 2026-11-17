@@ -4,9 +4,32 @@ import type {
   ChatMessage,
   ModelInfo,
   PrivacyScope,
+  ProviderConfig,
+  ProviderModel,
   RouteStrategy,
   TaskKind,
 } from "@/types";
+
+/**
+ * 把 Provider 下配置的模型映射成路由用的 ModelInfo。
+ * tools/json/vision 暂未在模型管理里采集，先按 false 处理，接入对应能力时再补。
+ */
+export function toModelInfo(provider: ProviderConfig, model: ProviderModel): ModelInfo {
+  return {
+    id: model.id,
+    provider: provider.id,
+    source: provider.source,
+    displayName: model.displayName || model.id,
+    capabilities: {
+      contextWindow: model.contextWindow,
+      tools: false,
+      json: false,
+      vision: false,
+      streaming: true,
+    },
+    costPer1kTokens: model.costPer1kTokens,
+  };
+}
 
 /**
  * 任务 → 模型偏好。实际选择由可用 Provider 与策略共同决定。
@@ -50,7 +73,7 @@ class ModelRouterImpl {
     const candidates = this.providers
       .filter((p) => p.enabled)
       .filter((p) => !localOnly || p.source === "local")
-      .flatMap((p) => p.models);
+      .flatMap((p) => p.models.map((model) => toModelInfo(p, model)));
 
     if (candidates.length === 0) return null;
 

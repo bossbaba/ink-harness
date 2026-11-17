@@ -1,0 +1,176 @@
+//! 场景 CRUD 与跨章拖拽：场景是章节下的最小上下文单元，排序按所属章节各自维护。
+
+use rusqlite::{params, Connection, OptionalExtension};
+
+use crate::infrastructure::db::DbState;
+use crate::infrastructure::id::gen_id;
+use crate::models::{MoveScene, NewScene, Scene};
+
+use super::chapter_project;
+
+pub(super) const SCENE_COLUMNS: &str =
+    "id, chapter_id, title, pov, location, time_mark, summary, sort_order";
+/// join 章节表时必须带表别名，否则 id/project_id 等列名冲突。
+pub(super) const SCENE_JOIN_COLUMNS: &str =
+    "s.id, s.chapter_id, s.title, s.pov, s.location, s.time_mark, s.summary, s.sort_order";
+
+pub(super) fn row_to_scene(row: &rusqlite::Row<'_>) -> rusqlite::Result<Scene> {
+    Ok(Scene {
+        id: row.get(0)?,
+        chapter_id: row.get(1)?,
+        title: row.get(2)?,
+        pov: row.get(3)?,
+        location: row.get(4)?,
+        time_mark: row.get(5)?,
+        summary: row.get(6)?,
+        sort_order: row.get(7)?,
+    })
+}
+
+fn next_scene_order(conn: &Connection, chapter_id: &str) -> Result<i64, String> {
+    conn.query_row(
+        "select coalesce(max(sort_order), -1) + 1 from scene where chapter_id = ?1",
+        params![chapter_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn query_scenes_of_chapter(conn: &Connection, chapter_id: &str) -> Result<Vec<Scene>, String> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "select {SCENE_COLUMNS} from scene where chapter_id = ?1 order by sort_order, rowid"
+        ))
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params![chapter_id], row_to_scene)
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
+}
+
+fn renumber_scenes(conn: &Connection, scenes: &[Scene]) -> Result<(), String> {
+    for (index, scene) in scenes.iter().enumerate() {
+        conn.execute(
+            "update scene set sort_order = ?2 where id = ?1",
+            params![scene.id, index as i64],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+pub fn create_scene(state: &DbState, input: NewScene) -> Result<Scene, String> {
+    let title = input.title.trim();
+    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+    if chapter_project(&conn, &input.chapter_id)?.is_none() {
+        return Err("章节不存在".into());
+    }
+    let sort_order = next_scene_order(&conn, &input.chapter_id)?;
+    let id = gen_id("sc");
+    // 快速添加场景时允许不填标题，用占位名保证卡片可点击编辑。
+    let title = if title.is_empty() {
+        "未命名场景"
+    } else {
+        title
+    };
+    conn.execute(
+        r#"insert into scene
+           (id, chapter_id, title, sort_order, pov, location, time_mark, summary)
+           values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"#,
+        params![
+            id,
+            input.chapter_id,
+            title,
+            sort_order,
+            input.pov,
+            input.location,
+            input.time_mark,
+            input.summary
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    conn.query_row(
+        &format!("select {SCENE_COLUMNS} from scene where id = ?1"),
+        params![id],
+        row_to_scene,
+    )
+    .map_err(|e| e.to_string())
+}
+
+pub fn update_scene(state: &DbState, scene: &Scene) -> Result<(), String> {
+    let title = scene.title.trim();
+    if title.is_empty() {
+        return Err("场景标题不能为空".into());
+    }
+    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+    let changed = conn
+        .execute(
+            r#"update scene set title=?2, pov=?3, location=?4, time_mark=?5, summary=?6
+               where id=?1"#,
+            params![
+                scene.id,
+                title,
+                scene.pov,
+                scene.location,
+                scene.time_mark,
+                scene.summary
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    if changed == 0 {
+        return Err("场景不存在".into());
+    }
+    Ok(())
+}
+
+pub fn delete_scene(state: &DbState, id: &str) -> Result<(), String> {
+    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+    conn.execute("delete from scene where id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 场景拖拽：支持同章内换位与跨章移动，源/目标章节都重新编号。
+pub fn move_scene(state: &DbState, input: &MoveScene) -> Result<(), String> {
+    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+    let source: Option<(String,)> = conn
+        .query_row(
+            "select chapter_id from scene where id = ?1",
+            params![input.scene_id],
+            |row| Ok((row.get(0)?,)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    let source_chapter = source.ok_or_else(|| "场景不存在".to_string())?.0;
+    if chapter_project(&conn, &input.target_chapter_id)?.is_none() {
+        return Err("目标章节不存在".into());
+    }
+
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    if source_chapter != input.target_chapter_id {
+        tx.execute(
+            "update scene set chapter_id = ?2 where id = ?1",
+            params![input.scene_id, input.target_chapter_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    // 移动完成后目标章节列表已包含该场景，再按目标下标重新插入。
+    let mut target_list = query_scenes_of_chapter(&tx, &input.target_chapter_id)?;
+    let moving_index = target_list
+        .iter()
+        .position(|scene| scene.id == input.scene_id)
+        .ok_or_else(|| "场景不存在".to_string())?;
+    let moving = target_list.remove(moving_index);
+    let insert_at = input.target_index.min(target_list.len());
+    target_list.insert(insert_at, moving);
+    renumber_scenes(&tx, &target_list)?;
+
+    if source_chapter != input.target_chapter_id {
+        let source_list = query_scenes_of_chapter(&tx, &source_chapter)?;
+        renumber_scenes(&tx, &source_list)?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}

@@ -6,7 +6,6 @@ mod services;
 use tauri::Manager;
 
 use infrastructure::db;
-use services::gateway::GatewayState;
 
 #[tauri::command]
 fn ping() -> String {
@@ -17,7 +16,6 @@ fn ping() -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::default().build())
-        .manage(GatewayState::default())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             let db_state = db::open(&dir).map_err(|e| e.to_string())?;
@@ -29,6 +27,7 @@ pub fn run() {
             commands::model::list_providers,
             commands::model::save_provider,
             commands::model::remove_provider,
+            commands::model::probe_provider,
             commands::model::chat_completions,
             commands::ollama::check_ollama,
             commands::keychain::keychain_set,
@@ -47,6 +46,24 @@ pub fn run() {
             commands::story_element::update_story_element,
             commands::story_element::delete_story_element,
             commands::story_element::check_story_consistency,
+            commands::outline::outline_snapshot,
+            commands::outline::create_chapter,
+            commands::outline::update_chapter,
+            commands::outline::delete_chapter,
+            commands::outline::create_scene,
+            commands::outline::update_scene,
+            commands::outline::delete_scene,
+            commands::outline::create_foreshadow,
+            commands::outline::update_foreshadow,
+            commands::outline::delete_foreshadow,
+            commands::outline::move_chapter,
+            commands::outline::move_scene,
+            commands::outline::build_project_context,
+            commands::draft::get_chapter_content,
+            commands::draft::save_chapter_content,
+            commands::draft::list_draft_versions,
+            commands::draft::get_draft_version,
+            commands::draft::restore_draft_version,
         ])
         .run(tauri::generate_context!())
         .expect("启动 INK-HARNESS 失败");

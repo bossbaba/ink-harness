@@ -35,23 +35,38 @@ onMounted(async () => {
       </div>
     </header>
 
-    <p v-if="error" class="project-shell__error">{{ error }}</p>
-    <RouterView v-else-if="project" />
+    <div class="project-shell__body">
+      <p v-if="error" class="project-shell__error">{{ error }}</p>
+      <RouterView v-else-if="project" />
+    </div>
   </div>
 </template>
 
 <style scoped lang="scss">
 @use "../styles/tokens" as t;
 
+// 外壳撑满内容区高度：写作台这类「编辑区自己滚动」的页面需要确定的 100% 高度，
+// 其余页面（大纲/设定库）仍按内容自然增长，由外层 .content 统一滚动。
 .project-shell {
-  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
   background: var(--bg-app);
 
   &__header {
     display: flex;
+    flex: none;
     align-items: center;
     padding: t.$space-3 t.$space-6;
     border-bottom: 1px solid var(--divider, #{t.$divider});
+  }
+
+  &__body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
   }
 
   &__crumb {

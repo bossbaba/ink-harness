@@ -11,13 +11,14 @@ import { type DatabaseInfo, PROJECT_STATUS_LABEL, type Project } from "@/types";
 
 const app = useAppStore();
 const router = useRouter();
-const backend = ref("检测中…");
-const ollamaRunning = ref(false);
-const ollamaModels = ref<string[]>([]);
-const projects = ref<Project[]>([]);
-const dbInfo = ref<DatabaseInfo | null>(null);
-const showNew = ref(false);
-const error = ref("");
+// 页面状态：作品列表是主体，其余三项只服务于顶部/底部的状态卡片。
+const backend = ref("检测中…"); // 后端 ping 结果文案，初始值先给「检测中」
+const ollamaRunning = ref(false); // 本机 Ollama 是否在跑
+const ollamaModels = ref<string[]>([]); // 已发现的本地模型名列表
+const projects = ref<Project[]>([]); // 作品卡片数据
+const dbInfo = ref<DatabaseInfo | null>(null); // 数据库路径，null 表示没取到，模板据此不显示
+const showNew = ref(false); // 新建作品弹窗开关
+const error = ref(""); // 作品列表读取失败文案
 
 // 工作台：展示作品卡片，以及后端、Ollama、主题等本地运行状态。
 // 这些状态探测失败都不影响页面主体，各自单独兜底。
@@ -39,6 +40,31 @@ function openBible(projectId: string): void {
   void router.push({ name: "project-bible", params: { projectId } });
 }
 
+function openOutline(projectId: string): void {
+  // 大纲同样是作品内页面，入口直接带上 projectId 跳转。
+  void router.push({ name: "project-outline", params: { projectId } });
+}
+
+function openIdeation(projectId: string): void {
+  // 构思向导挂在作品下，复用同一套作品作用域与面包屑。
+  void router.push({ name: "project-ideation", params: { projectId } });
+}
+
+function openWriting(projectId: string): void {
+  // 写作台不带章节 id 进入，避免替用户默认选中某一章。
+  void router.push({ name: "project-writing", params: { projectId } });
+}
+
+function openModels(): void {
+  // 模型管理是全局页，与当前作品无关，直接按路由名跳转。
+  void router.push({ name: "models" });
+}
+
+/**
+ * 首屏初始化：把主题同步到 document，再并行探测本地运行时环境。
+ * 三个探测（后端、Ollama、数据库路径）彼此独立且都能失败，所以各自 try/catch，
+ * 任何一个挂掉都只让对应状态卡片降级显示，绝不阻断作品列表这个主体内容。
+ */
 onMounted(async () => {
   app.initAppearance();
   // 后端探测失败也只影响状态卡片，不阻断作品列表加载。
@@ -93,9 +119,20 @@ onMounted(async () => {
             <span>{{ p.genre || "未分类" }}</span>
             <span v-if="p.privacy === 'local-only'">仅本地</span>
           </div>
-          <button class="project-card__open" type="button" @click="openBible(p.id)">
-            进入设定库 →
-          </button>
+          <div class="project-card__actions">
+            <button class="project-card__open" type="button" @click="openIdeation(p.id)">
+              构思向导 →
+            </button>
+            <button class="project-card__open" type="button" @click="openOutline(p.id)">
+              进入大纲 →
+            </button>
+            <button class="project-card__open" type="button" @click="openWriting(p.id)">
+              进入写作台 →
+            </button>
+            <button class="project-card__open" type="button" @click="openBible(p.id)">
+              进入设定库 →
+            </button>
+          </div>
         </article>
       </div>
     </section>
@@ -113,6 +150,7 @@ onMounted(async () => {
           </NTag>
           <span v-if="ollamaModels.length" class="card__note">{{ ollamaModels.length }} 个本地模型</span>
         </div>
+        <button class="card__link" type="button" @click="openModels">配置模型 →</button>
       </div>
       <div class="card">
         <div class="card__label">主题</div>
@@ -207,6 +245,7 @@ onMounted(async () => {
     line-height: 1.6;
     color: var(--text-soft);
     display: -webkit-box;
+    line-clamp: 2;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
@@ -217,8 +256,12 @@ onMounted(async () => {
     font-size: 11px;
     color: var(--text-faint);
   }
-  &__open {
+  &__actions {
+    display: flex;
+    gap: t.$space-3;
     margin-top: t.$space-3;
+  }
+  &__open {
     padding: 0;
     border: none;
     background: transparent;
@@ -268,6 +311,15 @@ onMounted(async () => {
   &__note {
     font-size: 11px;
     color: var(--text-faint);
+  }
+  &__link {
+    margin-top: t.$space-2;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--accent);
+    font-size: 11px;
+    cursor: pointer;
   }
 }
 

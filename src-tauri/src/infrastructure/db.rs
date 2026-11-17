@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 use std::sync::{Mutex, Once};
 
-use rusqlite::{ffi::sqlite3_auto_extension, Connection};
+use rusqlite::{ffi::sqlite3_auto_extension, Connection, OptionalExtension};
 
 /// 全局注册一次 sqlite-vec（进程级 auto extension，对所有连接生效）。
 fn register_vec_once() {
@@ -41,6 +41,23 @@ pub fn open(app_data_dir: &PathBuf) -> Result<DbState, String> {
     }
 
     init_schema(&biz)?;
+    // 老库的 chapter 表没有 act 列，建表语句的 if not exists 不会补列，需显式迁移。
+    ensure_column(&biz, "chapter", "act", "act integer not null default 1")?;
+    // 写作台（P4）新增：章节正文与字数、版本快照的字数，老库同样需要补列。
+    ensure_column(&biz, "chapter", "content", "content text not null default ''")?;
+    ensure_column(
+        &biz,
+        "chapter",
+        "word_count",
+        "word_count integer not null default 0",
+    )?;
+    ensure_column(
+        &biz,
+        "draft_version",
+        "word_count",
+        "word_count integer not null default 0",
+    )?;
+    seed_default_provider(&biz)?;
     init_vec_schema(&vec)?;
 
     Ok(DbState {
@@ -69,10 +86,13 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
         create table if not exists chapter (
             id          text primary key,
             project_id  text not null references project(id) on delete cascade,
+            act         integer not null default 1,   -- 1/2/3 对应三幕
             title       text not null,
             sort_order  integer not null default 0,
             summary     text not null default '',
             status      text not null default 'planned',
+            content     text not null default '',     -- TipTap 文档 JSON，列表查询不读这一列
+            word_count  integer not null default 0,   -- 正文非空白字符数，列表页直接显示
             created_at  text not null,
             updated_at  text not null
         );
@@ -106,6 +126,7 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
             id          text primary key,
             chapter_id  text not null references chapter(id) on delete cascade,
             content     text not null default '',
+            word_count  integer not null default 0,
             version     integer not null,
             created_at  text not null
         );
@@ -130,9 +151,59 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
             tokens        integer not null default 0,
             created_at    text not null
         );
+
+        -- 应用级键值元数据：目前记录一次性种子是否已执行。
+        create table if not exists app_meta (
+            key   text primary key,
+            value text not null
+        );
+
+        -- Provider 配置落库，避免重启后模型管理页的设置全部丢失。
+        -- models_json 存 ProviderModel 数组（id/displayName/contextWindow/costPer1kTokens）。
+        create table if not exists provider_config (
+            id          text primary key,
+            name        text not null,
+            source      text not null default 'local',   -- local | remote
+            base_url    text not null,
+            api_key_ref text,
+            enabled     integer not null default 1,
+            models_json text not null default '[]',
+            updated_at  text not null
+        );
         "#,
     )
     .map_err(|e| e.to_string())
+}
+
+/// 只种一次本地 Ollama 默认配置：用 app_meta 标记，避免用户删除后每次启动又冒出来。
+fn seed_default_provider(conn: &Connection) -> Result<(), String> {
+    let seeded: Option<String> = conn
+        .query_row(
+            "select value from app_meta where key = 'provider_seeded'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    if seeded.is_some() {
+        return Ok(());
+    }
+
+    conn.execute(
+        r#"insert or ignore into provider_config
+           (id, name, source, base_url, api_key_ref, enabled, models_json, updated_at)
+           values ('ollama-local', '本地 Ollama', 'local',
+                   'http://localhost:11434/v1', null, 1, '[]',
+                   strftime('%Y-%m-%dT%H:%M:%fZ','now'))"#,
+        [],
+    )
+    .map_err(|e| e.to_string())?;
+    conn.execute(
+        "insert or replace into app_meta(key, value) values ('provider_seeded', '1')",
+        [],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 fn init_vec_schema(conn: &Connection) -> Result<(), String> {
@@ -146,4 +217,64 @@ fn init_vec_schema(conn: &Connection) -> Result<(), String> {
         "#,
     )
     .map_err(|e| e.to_string())
+}
+
+/// 轻量列迁移：仅当表已存在且缺列时执行 `alter table add column`。
+/// SQLite 的 `create table if not exists` 不会给老表补列，升级时必须走这里。
+fn ensure_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<(), String> {
+    let mut stmt = conn
+        .prepare(&format!("pragma table_info({table})"))
+        .map_err(|e| e.to_string())?;
+    let exists = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .any(|name| name == column);
+    drop(stmt);
+    if exists {
+        return Ok(());
+    }
+    conn.execute_batch(&format!("alter table {table} add column {definition}"))
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ensure_column;
+
+    /// 老库的 chapter 表没有 act 列，迁移必须补上，且重复执行保持幂等。
+    #[test]
+    fn ensure_column_migrates_legacy_chapter_table() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "create table chapter (
+                id text primary key,
+                project_id text not null,
+                title text not null,
+                sort_order integer not null default 0,
+                summary text not null default '',
+                status text not null default 'planned',
+                created_at text not null,
+                updated_at text not null
+            );",
+        )
+        .unwrap();
+
+        ensure_column(&conn, "chapter", "act", "act integer not null default 1").unwrap();
+        ensure_column(&conn, "chapter", "act", "act integer not null default 1").unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "select count(*) from pragma_table_info('chapter') where name = 'act'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+    }
 }

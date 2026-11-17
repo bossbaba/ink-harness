@@ -1,0 +1,106 @@
+<script setup lang="ts">
+import { MacButton } from "@macvue/core";
+import { NInput, NModal, NSelect, NSpace } from "naive-ui";
+import { CHAPTER_STATUS_OPTIONS, type ChapterDraft, OUTLINE_ACTS } from "@/types";
+
+// 章节弹窗：只编辑草稿，提交动作 emit save 交给页面/composable 发请求。
+const props = defineProps<{
+  isNew: boolean;
+  busy: boolean;
+  error: string;
+}>();
+
+const emit = defineEmits<(e: "save") => void>();
+
+const show = defineModel<boolean>("show", { required: true });
+const draft = defineModel<ChapterDraft>("draft", { required: true });
+
+function close(): void {
+  show.value = false;
+}
+</script>
+
+<template>
+  <NModal
+    v-model:show="show"
+    preset="card"
+    :title="props.isNew ? '新增章节' : '编辑章节'"
+    :style="{ width: '520px', maxWidth: 'calc(100vw - 48px)' }"
+    :bordered="false"
+  >
+    <div class="form">
+      <label class="field">
+        <span class="field__label">所属幕</span>
+        <NSelect
+          v-model:value="draft.act"
+          :options="OUTLINE_ACTS.map((act) => ({ label: act.label, value: act.value }))"
+          size="small"
+        />
+      </label>
+      <label class="field">
+        <span class="field__label">章节标题</span>
+        <NInput
+          v-model:value="draft.title"
+          placeholder="例如：雨夜破庙"
+          size="small"
+          @keydown.enter.prevent="emit('save')"
+        />
+      </label>
+      <label class="field">
+        <span class="field__label">本章梗概</span>
+        <NInput
+          v-model:value="draft.summary"
+          type="textarea"
+          :rows="3"
+          placeholder="这一章发生什么、推进了什么冲突"
+        />
+      </label>
+      <label class="field">
+        <span class="field__label">状态</span>
+        <NSelect v-model:value="draft.status" :options="CHAPTER_STATUS_OPTIONS" size="small" />
+      </label>
+      <p v-if="props.error" class="error">{{ props.error }}</p>
+    </div>
+
+    <template #footer>
+      <NSpace justify="end">
+        <MacButton size="regular" :disabled="props.busy" @click="close">取消</MacButton>
+        <MacButton
+          size="regular"
+          variant="prominent"
+          :disabled="props.busy || !draft.title.trim()"
+          @click="emit('save')"
+        >
+          {{ props.busy ? "保存中…" : props.isNew ? "创建章节" : "保存修改" }}
+        </MacButton>
+      </NSpace>
+    </template>
+  </NModal>
+</template>
+
+<style scoped lang="scss">
+@use "../../styles/tokens" as t;
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: t.$space-4;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: t.$space-2;
+
+  &__label {
+    font-size: 11px;
+    color: var(--text-soft, #{t.$ink-soft});
+  }
+}
+
+.error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--error, #{t.$error});
+}
+</style>

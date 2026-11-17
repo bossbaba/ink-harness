@@ -76,6 +76,18 @@ export type TaskKind =
 /** 路由策略。 */
 export type RouteStrategy = "quality" | "cost" | "privacy";
 
+/** Provider 下被启用的模型；能力先只保留路由必需字段。 */
+export interface ProviderModel {
+  id: string;
+  displayName: string;
+  /** 上下文窗口（token），任务路由据此过滤模型。 */
+  contextWindow: number;
+  costPer1kTokens?: number;
+}
+
+/** 新勾选模型的默认上下文窗口，弹窗里可再调整。 */
+export const DEFAULT_CONTEXT_WINDOW = 8192;
+
 /** Provider 配置（不含密钥本体，密钥存系统钥匙串）。 */
 export interface ProviderConfig {
   id: string;
@@ -86,7 +98,15 @@ export interface ProviderConfig {
   /** 系统钥匙串中的条目键名，非密钥明文。 */
   apiKeyRef?: string;
   enabled: boolean;
-  models: ModelInfo[];
+  models: ProviderModel[];
+}
+
+/** 探测连接入参：允许在保存前用未落库的密钥测试。 */
+export interface ProbeProviderInput {
+  baseUrl: string;
+  apiKey?: string;
+  /** 已保存过密钥时只传引用，由后端从系统钥匙串取明文。 */
+  apiKeyRef?: string;
 }
 
 /** 作品是否仅允许本地模型处理。 */

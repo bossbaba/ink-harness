@@ -1,5 +1,24 @@
 use serde::{Deserialize, Serialize};
 
+/// Provider 下被启用的模型。能力字段先只存路由必需的上下文窗口与成本，
+/// tools/json/vision 等能力等真正接入时再扩展，避免现在填一堆假值。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModel {
+    pub id: String,
+    #[serde(default)]
+    pub display_name: String,
+    #[serde(default = "default_context_window")]
+    pub context_window: i64,
+    #[serde(default)]
+    pub cost_per_1k_tokens: Option<f64>,
+}
+
+fn default_context_window() -> i64 {
+    8192
+}
+
+/// Provider 配置（不含密钥本体，密钥存系统钥匙串）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderConfig {
@@ -13,6 +32,21 @@ pub struct ProviderConfig {
     #[serde(default)]
     pub api_key_ref: Option<String>,
     pub enabled: bool,
+    /// 已启用模型列表；由模型管理页探测后勾选写入。
+    #[serde(default)]
+    pub models: Vec<ProviderModel>,
+}
+
+/// 探测连接用的入参：允许在保存前用未落库的密钥测试。
+/// 已保存过密钥的 Provider 可只传 `api_key_ref`，由后端从钥匙串取明文。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProbeProviderInput {
+    pub base_url: String,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub api_key_ref: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
