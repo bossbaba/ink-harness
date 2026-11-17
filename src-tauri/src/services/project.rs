@@ -216,8 +216,8 @@ mod tests {
     #[test]
     fn vec_upsert_validates_dimension() {
         let (state, dir) = temp_state("vec");
-        assert!(upsert_fragment(&state, "e1", &vec![0.0; 768]).is_ok());
-        assert!(upsert_fragment(&state, "e2", &vec![0.0; 3]).is_err());
+        assert!(upsert_fragment(&state, "e1", &[0.0; 768]).is_ok());
+        assert!(upsert_fragment(&state, "e2", &[0.0; 3]).is_err());
         std::fs::remove_dir_all(&dir).ok();
     }
 }

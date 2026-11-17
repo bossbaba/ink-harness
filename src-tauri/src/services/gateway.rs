@@ -19,7 +19,9 @@ pub async fn stream_chat<F>(
 where
     F: FnMut(ChatChunk),
 {
-    let (provider, api_key) = resolve_provider(state, params)?;
+    let resolved = resolve_provider(state, params)?;
+    let provider = resolved.provider;
+    let api_key = resolved.api_key;
 
     if params.privacy_local_only && provider.source != "local" {
         return Err("该作品设为仅本地处理，拒绝发送到远端模型".into());
@@ -29,8 +31,10 @@ where
         "{}/chat/completions",
         provider.base_url.trim_end_matches('/')
     );
+    // 注意用 resolved.model（已剥掉 `providerId:` 前缀）：上游只认自己家的模型名，
+    // 把路由标识整串发过去，Ollama 会直接回 400 invalid model name。
     let mut body = serde_json::json!({
-        "model": params.model,
+        "model": resolved.model,
         "messages": params.messages,
         "stream": true,
     });
@@ -77,43 +81,76 @@ where
     Ok(())
 }
 
-fn resolve_provider(
-    state: &DbState,
-    params: &ChatParams,
-) -> Result<(ProviderConfig, Option<String>), String> {
-    let providers = provider::list(state)?;
+/// 一次对话实际要打到哪个 Provider、用哪个模型名。
+struct ResolvedProvider {
+    provider: ProviderConfig,
+    api_key: Option<String>,
+    /// 真正发给上游的模型名（已去掉 `providerId:` 前缀）。
+    model: String,
+}
 
-    // 约定模型标识为 `providerId:modelId`；兼容旧调用（只有模型名）时退到第一个可用 Provider。
-    let provider = params
-        .model
-        .split_once(':')
-        .and_then(|(provider_id, _)| providers.iter().find(|p| p.id == provider_id).cloned())
-        .or_else(|| {
-            providers
-                .iter()
-                .find(|p| p.enabled && params.model.starts_with(&p.id))
-                .cloned()
-        })
-        .or_else(|| {
-            providers
-                .iter()
-                .find(|p| p.enabled && p.source == "local")
-                .cloned()
-        })
-        .or_else(|| providers.iter().find(|p| p.enabled).cloned())
-        .ok_or_else(|| {
-            format!(
-                "未找到模型 {} 对应的 Provider，请先在模型管理中配置",
-                params.model
-            )
-        })?;
+fn resolve_provider(state: &DbState, params: &ChatParams) -> Result<ResolvedProvider, String> {
+    let providers = provider::list(state)?;
+    let (provider, model) = locate_provider(&providers, &params.model).ok_or_else(|| {
+        format!(
+            "未找到模型 {} 对应的 Provider，请先在模型管理中配置",
+            params.model
+        )
+    })?;
 
     let api_key = provider
         .api_key_ref
         .as_ref()
         .and_then(|k| keychain::get(k).ok().flatten());
 
-    Ok((provider, api_key))
+    Ok(ResolvedProvider {
+        provider,
+        api_key,
+        model,
+    })
+}
+
+/// 把路由用的模型标识拆成 (providerId, modelId)。
+///
+/// 模型名自己也可能带冒号（Ollama 的 `qwen2.5:7b`），所以只按**第一个**冒号切一次，
+/// 剩下的整体当模型名；没有冒号或切出空串时视为「只有模型名」。
+pub fn split_model_ref(reference: &str) -> (Option<&str>, &str) {
+    match reference.split_once(':') {
+        Some((provider_id, model_id)) if !provider_id.is_empty() && !model_id.is_empty() => {
+            (Some(provider_id), model_id)
+        }
+        _ => (None, reference),
+    }
+}
+
+/// 按模型标识找到 Provider，并给出真正要发给上游的模型名。
+///
+/// 正常路径是 `providerId:modelId`；兼容旧调用（只给模型名）时退回「以 provider id 开头 →
+/// 本地 Provider → 任意启用 Provider」。前缀写了但 Provider 不存在、整串又不是某个已登记模型名时
+/// 直接返回 None：与其把 `typo:model` 当模型名发给上游换回一个莫名 400，不如在界面上说清楚。
+fn locate_provider(
+    providers: &[ProviderConfig],
+    reference: &str,
+) -> Option<(ProviderConfig, String)> {
+    let (provider_id, model) = split_model_ref(reference);
+    if let Some(id) = provider_id {
+        if let Some(found) = providers.iter().find(|p| p.id == id) {
+            return Some((found.clone(), model.to_string()));
+        }
+        let is_known_model = providers
+            .iter()
+            .any(|p| p.models.iter().any(|m| m.id == reference));
+        if !is_known_model {
+            return None;
+        }
+    }
+
+    let fallback = providers
+        .iter()
+        .find(|p| p.enabled && reference.starts_with(&p.id))
+        .or_else(|| providers.iter().find(|p| p.enabled && p.source == "local"))
+        .or_else(|| providers.iter().find(|p| p.enabled))?;
+    Some((fallback.clone(), reference.to_string()))
 }
 
 // ── SSE 解析（纯逻辑，可单测） ─────────────────────────────────
@@ -188,6 +225,74 @@ fn truncate(s: &str, max: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::ProviderModel;
+
+    fn provider(id: &str, source: &str, enabled: bool, models: &[&str]) -> ProviderConfig {
+        ProviderConfig {
+            id: id.to_string(),
+            name: id.to_string(),
+            source: source.to_string(),
+            base_url: format!("http://{id}/v1"),
+            api_key_ref: None,
+            enabled,
+            models: models
+                .iter()
+                .map(|m| ProviderModel {
+                    id: m.to_string(),
+                    display_name: m.to_string(),
+                    context_window: 8192,
+                    cost_per_1k_tokens: None,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn split_model_ref_keeps_ollama_tag_after_first_colon() {
+        // Ollama 的模型名自己带冒号，必须整段保留，否则会拿 `qwen2.5` 去打 tag 为 `qwen2.5:7b` 的模型。
+        assert_eq!(
+            split_model_ref("ollama-local:qwen2.5:7b"),
+            (Some("ollama-local"), "qwen2.5:7b")
+        );
+        assert_eq!(split_model_ref("gpt-4o"), (None, "gpt-4o"));
+        // 空段一律当「没有前缀」，避免把空 provider id 当成有效标识。
+        assert_eq!(split_model_ref(":gpt-4o"), (None, ":gpt-4o"));
+        assert_eq!(split_model_ref("ollama-local:"), (None, "ollama-local:"));
+    }
+
+    #[test]
+    fn locate_provider_strips_router_prefix() {
+        let providers = vec![provider("ollama-local", "local", true, &["qwen2.5:7b"])];
+        let (found, model) = locate_provider(&providers, "ollama-local:qwen2.5:7b").expect("应命中");
+        assert_eq!(found.id, "ollama-local");
+        assert_eq!(model, "qwen2.5:7b");
+    }
+
+    #[test]
+    fn locate_provider_accepts_bare_model_name() {
+        // 旧调用只给模型名：退到本地 Provider，模型名原样透传。
+        let providers = vec![provider("ollama-local", "local", true, &["qwen2.5:7b"])];
+        let (found, model) = locate_provider(&providers, "qwen2.5:7b").expect("应命中本地 Provider");
+        assert_eq!(found.id, "ollama-local");
+        assert_eq!(model, "qwen2.5:7b");
+    }
+
+    #[test]
+    fn locate_provider_rejects_unknown_prefix() {
+        // 前缀写错时不能悄悄回退到本地 Provider，否则上游只会回一个看不懂的 400。
+        let providers = vec![provider("ollama-local", "local", true, &["qwen2.5:7b"])];
+        assert!(locate_provider(&providers, "olama-local:qwen2.5:7b").is_none());
+    }
+
+    #[test]
+    fn locate_provider_skips_disabled_when_falling_back() {
+        let providers = vec![
+            provider("remote-a", "remote", false, &["gpt-4o"]),
+            provider("local-b", "local", true, &["qwen2.5:7b"]),
+        ];
+        let (found, _) = locate_provider(&providers, "unknown-name").expect("应回退到启用的本地 Provider");
+        assert_eq!(found.id, "local-b");
+    }
 
     fn delta_event(text: &str) -> String {
         format!(
