@@ -1,14 +1,21 @@
 <script setup lang="ts">
 import { MacButton } from "@macvue/core";
 import { NDrawer, NDrawerContent, NSelect, NTag } from "naive-ui";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import DraftVersionPanel from "@/components/writing/DraftVersionPanel.vue";
+import WritingAiPanel from "@/components/writing/WritingAiPanel.vue";
 import WritingChapterList from "@/components/writing/WritingChapterList.vue";
 import WritingEditor from "@/components/writing/WritingEditor.vue";
+import { useWritingAssist } from "@/composables/useWritingAssist";
 import { useWritingDesk } from "@/composables/useWritingDesk";
 import { useAppStore } from "@/stores/app";
-import { CHAPTER_STATUS_LABEL, CHAPTER_STATUS_TAG_TYPE } from "@/types";
+import {
+  type AssistApplyMode,
+  type AssistSelection,
+  CHAPTER_STATUS_LABEL,
+  CHAPTER_STATUS_TAG_TYPE,
+} from "@/types";
 import { formatCount, formatDateTime } from "@/utils/text";
 
 /**
@@ -24,6 +31,8 @@ const props = defineProps<{
 const router = useRouter();
 const app = useAppStore();
 const showVersions = ref(false);
+// AI 结果的回写要动编辑器，所以这里拿组件实例；编辑器自己负责选区与位置钳制。
+const editorRef = ref<InstanceType<typeof WritingEditor> | null>(null);
 
 const {
   project,
@@ -51,6 +60,46 @@ const {
   closeVersionPreview,
   restoreVersion,
 } = useWritingDesk(props.projectId, () => props.chapterId ?? "");
+
+// AI 辅助：请求与流式收字在组合式函数里，插入/替换由这里调用编辑器实例完成。
+const {
+  show: assistShow,
+  taskLabel: assistTaskLabel,
+  target: assistTarget,
+  output: assistOutput,
+  streaming: assistStreaming,
+  error: assistError,
+  contextChars: assistContextChars,
+  canApply: assistCanApply,
+  run: runAssist,
+  retry: retryAssist,
+  close: closeAssist,
+} = useWritingAssist({
+  projectId: props.projectId,
+  project: () => project.value,
+  chapterTitle: () =>
+    activeChapter.value ? `第${activeChapter.value.act}幕 · ${activeChapter.value.title}` : "",
+  chapterSummary: () => activeChapter.value?.summary ?? "",
+});
+
+const assistCanReplace = computed(() => Boolean(assistTarget.value?.text));
+
+// 用户直接从右上角关掉抽屉时也要让进行中的请求作废，避免关掉后还在后台收字。
+watch(assistShow, (value) => {
+  if (!value) closeAssist();
+});
+
+function handleAi(selection: AssistSelection): void {
+  void runAssist(selection);
+}
+
+/** 把生成结果写回正文；插入/替换后编辑器会触发 update，自动保存随即接管。 */
+function applyAssist(mode: AssistApplyMode): void {
+  const target = assistTarget.value;
+  if (!target) return;
+  editorRef.value?.applyAssist(assistOutput.value, target.from, target.to, mode);
+  closeAssist();
+}
 
 // 换章或恢复版本时换 key，让编辑器整块重建，撤销栈与选区都不会串章。
 // 这里用「已载入正文的章节」而不是路由参数，避免正文还没回来就先按新 id 重建。
@@ -114,7 +163,11 @@ async function handleRestore(versionId: string): Promise<void> {
         <p class="writing__subtitle">
           <template v-if="activeChapter">
             <span>{{ activeChapter.title }}</span>
-            <NTag size="small" :bordered="false" :type="CHAPTER_STATUS_TAG_TYPE[activeChapter.status]">
+            <NTag
+              size="small"
+              :bordered="false"
+              :type="CHAPTER_STATUS_TAG_TYPE[activeChapter.status]"
+            >
               {{ CHAPTER_STATUS_LABEL[activeChapter.status] }}
             </NTag>
             <span>本章 {{ formatCount(wordCount) }} 字</span>
@@ -173,10 +226,12 @@ async function handleRestore(versionId: string): Promise<void> {
         </div>
         <WritingEditor
           v-else
+          ref="editorRef"
           :key="editorKey"
           :content="content"
           placeholder="从第一句话开始……"
           @update="onEditorUpdate"
+          @ai="handleAi"
         />
       </div>
     </div>
@@ -195,6 +250,20 @@ async function handleRestore(versionId: string): Promise<void> {
         />
       </NDrawerContent>
     </NDrawer>
+
+    <WritingAiPanel
+      v-model:show="assistShow"
+      :task-label="assistTaskLabel"
+      :output="assistOutput"
+      :streaming="assistStreaming"
+      :error="assistError"
+      :can-apply="assistCanApply"
+      :can-replace="assistCanReplace"
+      :context-chars="assistContextChars"
+      @retry="retryAssist"
+      @insert="applyAssist('insert')"
+      @replace="applyAssist('replace')"
+    />
   </div>
 </template>
 

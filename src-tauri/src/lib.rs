@@ -30,6 +30,9 @@ pub fn run() {
             commands::model::probe_provider,
             commands::model::chat_completions,
             commands::ollama::check_ollama,
+            commands::ollama::start_ollama,
+            commands::setting::get_app_setting,
+            commands::setting::set_app_setting,
             commands::keychain::keychain_set,
             commands::keychain::keychain_get,
             commands::keychain::keychain_delete,
@@ -65,6 +68,25 @@ pub fn run() {
             commands::draft::get_draft_version,
             commands::draft::restore_draft_version,
         ])
-        .run(tauri::generate_context!())
-        .expect("启动 INK-HARNESS 失败");
+        .build(tauri::generate_context!())
+        .expect("启动 INK-HARNESS 失败")
+        .run(|app_handle, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                shutdown_local_model(app_handle);
+            }
+        });
+}
+
+/// App 退出前按设置决定要不要停掉「本进程拉起」的本地模型。
+/// 读设置失败时按默认（停止）处理：宁可多停一次自己起的服务，也不留后台进程。
+fn shutdown_local_model(app: &tauri::AppHandle) {
+    use infrastructure::db::DbState;
+    use services::{ollama, setting};
+
+    let state = app.state::<DbState>();
+    let enabled =
+        setting::get_bool(state.inner(), setting::STOP_OLLAMA_ON_EXIT, true).unwrap_or(true);
+    if enabled {
+        ollama::stop_spawned();
+    }
 }

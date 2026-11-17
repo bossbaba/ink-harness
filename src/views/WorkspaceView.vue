@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { MacButton } from "@macvue/core";
 import { NTag } from "naive-ui";
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { tauriApi } from "@/api/tauri";
 import NewProjectDialog from "@/components/NewProjectDialog.vue";
+import { useOllamaControl } from "@/composables/useOllamaControl";
 import { projectService } from "@/services/projectService";
 import { useAppStore } from "@/stores/app";
 import { type DatabaseInfo, PROJECT_STATUS_LABEL, type Project } from "@/types";
@@ -13,8 +14,16 @@ const app = useAppStore();
 const router = useRouter();
 // 页面状态：作品列表是主体，其余三项只服务于顶部/底部的状态卡片。
 const backend = ref("检测中…"); // 后端 ping 结果文案，初始值先给「检测中」
-const ollamaRunning = ref(false); // 本机 Ollama 是否在跑
-const ollamaModels = ref<string[]>([]); // 已发现的本地模型名列表
+// 本地模型状态交给共享组合式函数，工作台可以直接把服务拉起来，不用让用户去终端执行命令。
+const {
+  status: ollama,
+  starting: ollamaStarting,
+  error: ollamaError,
+  refresh: refreshOllama,
+  start: startOllama,
+} = useOllamaControl();
+const ollamaRunning = computed(() => ollama.value?.running ?? false);
+const ollamaModels = computed(() => ollama.value?.models ?? []);
 const projects = ref<Project[]>([]); // 作品卡片数据
 const dbInfo = ref<DatabaseInfo | null>(null); // 数据库路径，null 表示没取到，模板据此不显示
 const showNew = ref(false); // 新建作品弹窗开关
@@ -73,13 +82,8 @@ onMounted(async () => {
   } catch (err) {
     backend.value = `后端未就绪：${String(err)}`;
   }
-  try {
-    const status = await tauriApi.checkOllama();
-    ollamaRunning.value = status.running;
-    ollamaModels.value = status.models;
-  } catch {
-    ollamaRunning.value = false;
-  }
+  // 检测失败时状态保持 null，界面上只显示「未运行」，不弹错误打扰首屏。
+  await refreshOllama();
   await loadProjects();
   try {
     dbInfo.value = await projectService.databaseInfo();
@@ -148,13 +152,29 @@ onMounted(async () => {
           <NTag :type="ollamaRunning ? 'success' : 'default'" size="small" :bordered="false">
             {{ ollamaRunning ? "运行中" : "未运行" }}
           </NTag>
-          <span v-if="ollamaModels.length" class="card__note">{{ ollamaModels.length }} 个本地模型</span>
+          <span v-if="ollamaRunning && ollamaModels.length" class="card__note">
+            {{ ollamaModels.length }} 个本地模型
+          </span>
         </div>
-        <button class="card__link" type="button" @click="openModels">配置模型 →</button>
+        <p v-if="ollamaError" class="card__error">{{ ollamaError }}</p>
+        <div class="card__links">
+          <button
+            v-if="!ollamaRunning"
+            class="card__link"
+            type="button"
+            :disabled="ollamaStarting"
+            @click="startOllama"
+          >
+            {{ ollamaStarting ? "启动中…" : "启动本地模型 →" }}
+          </button>
+          <button class="card__link" type="button" @click="openModels">配置模型 →</button>
+        </div>
       </div>
       <div class="card">
         <div class="card__label">主题</div>
-        <div class="card__value">{{ app.appearance === "light" ? "浅色 · 纸墨" : "深色 · 夜读" }}</div>
+        <div class="card__value">
+          {{ app.appearance === "light" ? "浅色 · 纸墨" : "深色 · 夜读" }}
+        </div>
       </div>
     </section>
 
@@ -312,14 +332,30 @@ onMounted(async () => {
     font-size: 11px;
     color: var(--text-faint);
   }
-  &__link {
+  &__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: t.$space-3;
     margin-top: t.$space-2;
+  }
+  &__link {
     padding: 0;
     border: none;
     background: transparent;
     color: var(--accent);
     font-size: 11px;
     cursor: pointer;
+
+    &:disabled {
+      color: var(--text-faint);
+      cursor: progress;
+    }
+  }
+  &__error {
+    margin: t.$space-2 0 0;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--error, #{t.$error});
   }
 }
 

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import Placeholder from "@tiptap/extension-placeholder";
 import StarterKit from "@tiptap/starter-kit";
-import { EditorContent, useEditor } from "@tiptap/vue-3";
+import { EditorContent, type JSONContent, useEditor } from "@tiptap/vue-3";
 import { NButton, NTooltip } from "naive-ui";
 import { computed, ref, watch } from "vue";
 import type { EditorPayload } from "@/composables/useWritingDesk";
+import type { AssistApplyMode, AssistSelection, AssistTask } from "@/types";
 import { parseDocument } from "@/utils/tiptap";
 
 /**
@@ -20,7 +21,11 @@ const props = defineProps<{
   placeholder?: string;
 }>();
 
-const emit = defineEmits<(event: "update", payload: EditorPayload) => void>();
+const emit = defineEmits<{
+  (event: "update", payload: EditorPayload): void;
+  /** 点了 AI 动作：把任务与选区一起交给页面去请求模型。 */
+  (event: "ai", payload: AssistSelection): void;
+}>();
 
 const editor = useEditor({
   content: parseDocument(props.content),
@@ -129,6 +134,78 @@ const tools = computed<ToolItem[]>(() => {
     },
   ];
 });
+
+/** AI 动作定义：除了「续写」，其余都需要先选中一段文字才有意义。 */
+const AI_TOOLS: Array<{ task: AssistTask; label: string; needsSelection: boolean }> = [
+  { task: "continue", label: "续写", needsSelection: false },
+  { task: "rewrite", label: "改写", needsSelection: true },
+  { task: "expand", label: "扩写", needsSelection: true },
+  { task: "condense", label: "缩写", needsSelection: true },
+  { task: "polish", label: "润色", needsSelection: true },
+];
+
+const aiTools = computed(() => {
+  void tick.value; // 选区变化也走 transaction，靠 tick 重新算可用状态
+  const instance = editor.value;
+  const hasSelection = instance ? !instance.state.selection.empty : false;
+  return AI_TOOLS.map((tool) => ({
+    ...tool,
+    disabled: !instance || (tool.needsSelection && !hasSelection),
+    hint: tool.needsSelection
+      ? hasSelection
+        ? `AI ${tool.label}选中的文字`
+        : `先选中一段文字，再${tool.label}`
+      : "从光标处往下续写",
+  }));
+});
+
+/** 把任务与选区（含选区前的一段正文）打包给页面，由页面去请求模型。 */
+function emitAi(task: AssistTask): void {
+  const instance = editor.value;
+  if (!instance) return;
+  const { from, to } = instance.state.selection;
+  emit("ai", {
+    task,
+    text: from === to ? "" : instance.state.doc.textBetween(from, to, "\n"),
+    before: instance.state.doc.textBetween(Math.max(0, from - 800), from, "\n"),
+    from,
+    to,
+  });
+}
+
+/**
+ * 把 AI 结果写回正文。
+ * 位置来自发起请求时的选区，生成期间正文没被改动过，但为了稳妥仍按文档长度做钳制，
+ * 避免越界位置直接把编辑器搞崩。
+ */
+function applyAssist(text: string, from: number, to: number, mode: AssistApplyMode): void {
+  const instance = editor.value;
+  const plain = text.trim();
+  if (!instance || !plain) return;
+
+  const size = instance.state.doc.content.size;
+  const start = Math.min(Math.max(0, from), size);
+  const end = Math.min(Math.max(start, to), size);
+  // 模型返回的是纯文本，按空行切段，段内换行压成空格，插进去才是正常的段落结构。
+  const nodes: JSONContent[] = plain
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => ({
+      type: "paragraph",
+      content: [{ type: "text", text: block.replace(/\n/g, " ") }],
+    }));
+  if (nodes.length === 0) return;
+
+  const chain = instance.chain().focus();
+  if (mode === "replace") {
+    chain.setTextSelection({ from: start, to: end }).deleteSelection().insertContent(nodes).run();
+  } else {
+    chain.setTextSelection(end).insertContent(nodes).run();
+  }
+}
+
+defineExpose({ applyAssist });
 </script>
 
 <template>
@@ -142,6 +219,21 @@ const tools = computed<ToolItem[]>(() => {
             class="editor__tool"
             :class="{ 'editor__tool--active': tool.active }"
             @click="tool.run()"
+          >
+            {{ tool.label }}
+          </NButton>
+        </template>
+        {{ tool.hint }}
+      </NTooltip>
+      <span class="editor__divider" />
+      <NTooltip v-for="tool in aiTools" :key="tool.task" trigger="hover">
+        <template #trigger>
+          <NButton
+            quaternary
+            size="small"
+            class="editor__tool editor__tool--ai"
+            :disabled="tool.disabled"
+            @click="emitAi(tool.task)"
           >
             {{ tool.label }}
           </NButton>
@@ -182,6 +274,17 @@ const tools = computed<ToolItem[]>(() => {
       color: var(--accent, #{t.$accent});
       background: var(--bg-sunken);
     }
+
+    // AI 动作与排版按钮视觉上分开，但仍然同一组件、同一尺寸。
+    &--ai {
+      color: var(--accent, #{t.$accent});
+    }
+  }
+
+  &__divider {
+    width: 1px;
+    margin: 4px t.$space-2;
+    background: var(--divider, #{t.$divider});
   }
 
   &__body {

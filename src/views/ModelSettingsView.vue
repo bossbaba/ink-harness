@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { MacButton } from "@macvue/core";
-import { NSpace, NTag } from "naive-ui";
+import { NSpace, NSwitch, NTag } from "naive-ui";
 import { computed } from "vue";
 import ProviderCard from "@/components/models/ProviderCard.vue";
 import ProviderEditDialog from "@/components/models/ProviderEditDialog.vue";
@@ -10,6 +10,10 @@ import { useModelSettings } from "@/composables/useModelSettings";
 const {
   providers,
   ollama,
+  ollamaStarting,
+  ollamaError,
+  stopOllamaOnExit,
+  savingSetting,
   loading,
   busy,
   error,
@@ -24,6 +28,8 @@ const {
   probeError,
   discovered,
   refreshOllama,
+  startOllama,
+  setStopOllamaOnExit,
   openCreate,
   openEdit,
   probeDraft,
@@ -63,7 +69,8 @@ const ollamaRunning = computed(() => ollama.value?.running ?? false);
       <div>
         <h1 class="model-settings__title serif">模型管理</h1>
         <p class="model-settings__subtitle">
-          配置本地与云端模型。API Key 存系统钥匙串，请求由本地 Rust 代理发出，作品设为「仅本地」时不会走云端。
+          配置本地与云端模型。API Key 存系统钥匙串，请求由本地 Rust
+          代理发出，作品设为「仅本地」时不会走云端。
         </p>
       </div>
       <NSpace>
@@ -89,12 +96,40 @@ const ollamaRunning = computed(() => ollama.value?.running ?? false);
     <section class="panel">
       <header class="panel__head">
         <h2 class="panel__title">本地 Ollama</h2>
-        <NTag size="small" :bordered="false" :type="ollamaRunning ? 'success' : 'default'">
-          {{ ollamaRunning ? "运行中" : "未运行" }}
-        </NTag>
+        <div class="panel__status">
+          <NTag size="small" :bordered="false" :type="ollamaRunning ? 'success' : 'default'">
+            {{ ollamaRunning ? "运行中" : "未运行" }}
+          </NTag>
+          <MacButton
+            v-if="!ollamaRunning"
+            size="regular"
+            variant="prominent"
+            :disabled="ollamaStarting"
+            @click="startOllama"
+          >
+            {{ ollamaStarting ? "启动中…" : "启动本地模型" }}
+          </MacButton>
+        </div>
       </header>
+      <p v-if="ollamaError" class="panel__error">{{ ollamaError }}</p>
+      <div class="panel__setting">
+        <div>
+          <p class="panel__setting-label">退出应用时停止本地模型</p>
+          <p class="panel__setting-hint">
+            只停由本应用拉起的实例；你手动启动、或别的工具正在用的 Ollama 不会被动。
+          </p>
+        </div>
+        <NSwitch
+          size="small"
+          :value="stopOllamaOnExit"
+          :disabled="savingSetting"
+          @update:value="setStopOllamaOnExit"
+        />
+      </div>
       <p v-if="!ollamaRunning" class="panel__hint">
-        未检测到服务。先安装并启动 Ollama（`ollama serve`），再点右上角「重新检测 Ollama」。
+        本地模型未启动。点「启动本地模型」会直接拉起 Ollama（桌面版 App 或 `ollama
+        serve`），无需打开终端；
+        若尚未安装，请先到 ollama.com 下载桌面版。
       </p>
       <template v-else>
         <div v-if="ollama?.models.length" class="ollama-list">
@@ -236,10 +271,47 @@ const ollamaRunning = computed(() => ollama.value?.running ?? false);
     color: var(--text-primary, #{t.$ink});
   }
 
+  &__status {
+    display: flex;
+    align-items: center;
+    gap: t.$space-2;
+  }
+
   &__hint {
     margin: t.$space-2 0 0;
     font-size: 11px;
     line-height: 1.7;
+    color: var(--text-faint, #{t.$ink-faint});
+  }
+
+  &__error {
+    margin: t.$space-2 0 0;
+    font-size: 11px;
+    line-height: 1.7;
+    color: var(--error, #{t.$error});
+  }
+
+  // 设置项：左侧说明、右侧开关，与上面的状态信息用分隔线隔开。
+  &__setting {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: t.$space-4;
+    margin-top: t.$space-3;
+    padding-top: t.$space-3;
+    border-top: 1px solid var(--divider, #{t.$divider});
+  }
+
+  &__setting-label {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-primary);
+  }
+
+  &__setting-hint {
+    margin: 2px 0 0;
+    font-size: 11px;
+    line-height: 1.6;
     color: var(--text-faint, #{t.$ink-faint});
   }
 }

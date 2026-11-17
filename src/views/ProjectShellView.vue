@@ -62,9 +62,10 @@ onMounted(async () => {
     border-bottom: 1px solid var(--divider, #{t.$divider});
   }
 
+  // 这里只负责「撑满剩余高度」，不能设成 flex 容器：
+  // 各二级页用 `margin: 0 auto` 居中，父级一旦是 flex 容器，auto margin 会让
+  // 子项退化成 shrink-to-fit（宽变窄、正文一字一行），写作台要的 100% 高度也会失效。
   &__body {
-    display: flex;
-    flex-direction: column;
     flex: 1;
     min-height: 0;
   }

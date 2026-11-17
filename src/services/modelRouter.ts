@@ -40,6 +40,7 @@ const TASK_PREFERENCE: Record<TaskKind, { quality: number; preferLocal: boolean 
   continue: { quality: 1, preferLocal: false },
   rewrite: { quality: 1, preferLocal: false },
   expand: { quality: 1, preferLocal: false },
+  condense: { quality: 1, preferLocal: false },
   polish: { quality: 2, preferLocal: false },
   review: { quality: 3, preferLocal: false },
   summary: { quality: 0, preferLocal: true },

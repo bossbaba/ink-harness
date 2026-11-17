@@ -67,7 +67,11 @@ function close(): void {
       <div class="form__row">
         <label class="field">
           <span class="field__label">名称</span>
-          <NInput v-model:value="draft.name" placeholder="例如：DeepSeek / 本地 Ollama" size="small" />
+          <NInput
+            v-model:value="draft.name"
+            placeholder="例如：DeepSeek / 本地 Ollama"
+            size="small"
+          />
         </label>
         <label class="field">
           <span class="field__label">来源</span>
@@ -84,7 +88,8 @@ function close(): void {
         />
       </label>
       <p class="hint">
-        本地 Ollama 填 http://localhost:11434/v1；云端填兼容 OpenAI 协议的 base URL，保存时会自动去掉末尾斜杠。
+        本地 Ollama 填 http://localhost:11434/v1；云端填兼容 OpenAI 协议的 base
+        URL，保存时会自动去掉末尾斜杠。
       </p>
 
       <label class="field">

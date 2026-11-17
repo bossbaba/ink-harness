@@ -1,5 +1,6 @@
 pub mod draft;
 pub mod gateway;
+pub mod setting;
 pub mod ollama;
 pub mod outline;
 pub mod outline_context;

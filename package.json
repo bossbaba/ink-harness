@@ -8,7 +8,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
+    "tauri:dev": "rm -rf dist && tauri dev",
     "tauri:build": "tauri build",
     "check": "biome check .",
     "check:fix": "biome check --write .",

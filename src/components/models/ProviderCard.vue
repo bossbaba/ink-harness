@@ -29,7 +29,11 @@ const hiddenCount = computed(() => Math.max(0, props.provider.models.length - 6)
       <div class="provider__title-row">
         <span class="provider__dot" :class="{ 'provider__dot--on': props.provider.enabled }" />
         <h3 class="provider__name">{{ props.provider.name }}</h3>
-        <NTag size="tiny" :bordered="false" :type="props.provider.source === 'local' ? 'success' : 'info'">
+        <NTag
+          size="tiny"
+          :bordered="false"
+          :type="props.provider.source === 'local' ? 'success' : 'info'"
+        >
           {{ props.provider.source === "local" ? "本地" : "云端" }}
         </NTag>
       </div>

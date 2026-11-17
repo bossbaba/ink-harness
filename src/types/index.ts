@@ -1,3 +1,4 @@
+export * from "./assist";
 export * from "./draft";
 export * from "./ideation";
 export * from "./model";

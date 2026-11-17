@@ -1,13 +1,9 @@
 import { computed, onMounted, ref } from "vue";
-import { tauriApi } from "@/api/tauri";
+import { useOllamaControl } from "@/composables/useOllamaControl";
 import { modelRouter } from "@/services/modelRouter";
 import { providerService } from "@/services/providerService";
-import {
-  DEFAULT_CONTEXT_WINDOW,
-  type OllamaStatus,
-  type ProviderConfig,
-  type ProviderModel,
-} from "@/types";
+import { SETTING_STOP_OLLAMA_ON_EXIT, settingsService } from "@/services/settingsService";
+import { DEFAULT_CONTEXT_WINDOW, type ProviderConfig, type ProviderModel } from "@/types";
 
 function emptyProvider(): ProviderConfig {
   return {
@@ -30,7 +26,17 @@ function toProviderModel(id: string): ProviderModel {
  */
 export function useModelSettings() {
   const providers = ref<ProviderConfig[]>([]);
-  const ollama = ref<OllamaStatus | null>(null);
+  // Ollama 的检测/启动与工作台共用同一套逻辑，这里只负责把它接到页面上。
+  const {
+    status: ollama,
+    starting: ollamaStarting,
+    error: ollamaError,
+    refresh: refreshOllama,
+    start: startOllamaService,
+  } = useOllamaControl();
+  /** 退出应用时是否停掉本地模型（只影响本应用拉起的实例），默认开。 */
+  const stopOllamaOnExit = ref(true);
+  const savingSetting = ref(false);
   const loading = ref(false);
   const busy = ref(false);
   const error = ref("");
@@ -60,14 +66,6 @@ export function useModelSettings() {
       error.value = `读取 Provider 失败：${String(err)}`;
     } finally {
       loading.value = false;
-    }
-  }
-
-  async function refreshOllama(): Promise<void> {
-    try {
-      ollama.value = await tauriApi.checkOllama();
-    } catch {
-      ollama.value = null;
     }
   }
 
@@ -275,13 +273,53 @@ export function useModelSettings() {
     }
   }
 
+  /**
+   * 页面上点「启动本地模型」：启动成功后，如果本地 Provider 还一个模型都没启用，
+   * 顺手同步一次，省得用户再点「同步模型」。
+   */
+  async function startOllama(): Promise<void> {
+    const started = await startOllamaService();
+    if (!started) return;
+    const local = providers.value.find(
+      (provider) => provider.source === "local" && provider.enabled && provider.models.length === 0,
+    );
+    if (local) await syncModels(local);
+  }
+
+  async function loadStopOnExit(): Promise<void> {
+    stopOllamaOnExit.value = await settingsService.getBool(SETTING_STOP_OLLAMA_ON_EXIT, true);
+  }
+
+  /**
+   * 切换「退出时停止本地模型」。
+   * 先改界面再落库；写失败要回滚开关，否则界面显示的和实际生效的不一致。
+   */
+  async function setStopOllamaOnExit(value: boolean): Promise<void> {
+    const previous = stopOllamaOnExit.value;
+    stopOllamaOnExit.value = value;
+    savingSetting.value = true;
+    error.value = "";
+    try {
+      await settingsService.setBool(SETTING_STOP_OLLAMA_ON_EXIT, value);
+    } catch (err) {
+      stopOllamaOnExit.value = previous;
+      error.value = `保存设置失败：${String(err)}`;
+    } finally {
+      savingSetting.value = false;
+    }
+  }
+
   onMounted(async () => {
-    await Promise.all([load(), refreshOllama()]);
+    await Promise.all([load(), refreshOllama(), loadStopOnExit()]);
   });
 
   return {
     providers,
     ollama,
+    ollamaStarting,
+    ollamaError,
+    stopOllamaOnExit,
+    savingSetting,
     loading,
     busy,
     error,
@@ -298,6 +336,8 @@ export function useModelSettings() {
     hasProbed,
     load,
     refreshOllama,
+    startOllama,
+    setStopOllamaOnExit,
     openCreate,
     openEdit,
     probeDraft,

@@ -46,6 +46,12 @@ export const tauriApi = {
 
   // 探测本机 Ollama 是否安装/运行，以及已有哪些本地模型。
   checkOllama: () => invoke<OllamaStatus>("check_ollama"),
+  // 从程序内拉起 Ollama（桌面版 App 或 ollama serve），后端等到服务可用才返回。
+  startOllama: () => invoke<OllamaStatus>("start_ollama"),
+
+  // 应用级设置：存在 app_meta 键值表，布尔值统一用 "1"/"0"。
+  getAppSetting: (key: string) => invoke<string | null>("get_app_setting", { key }),
+  setAppSetting: (key: string, value: string) => invoke<void>("set_app_setting", { key, value }),
 
   // 系统钥匙串读写：API 密钥只存引用键名，明文交由操作系统保管。
   keychainSet: (key: string, value: string) => invoke<void>("keychain_set", { key, value }),

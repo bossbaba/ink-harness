@@ -69,6 +69,7 @@ export type TaskKind =
   | "continue"
   | "rewrite"
   | "expand"
+  | "condense"
   | "polish"
   | "review"
   | "summary";
