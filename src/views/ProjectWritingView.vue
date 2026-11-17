@@ -5,11 +5,11 @@ import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import WritingAiPanel from "@/components/writing/WritingAiPanel.vue";
 import WritingChapterList from "@/components/writing/WritingChapterList.vue";
-import WritingCopilotPanel from "@/components/writing/WritingCopilotPanel.vue";
 import WritingEditor from "@/components/writing/WritingEditor.vue";
 import WritingEmptyState from "@/components/writing/WritingEmptyState.vue";
 import WritingSaveStatus from "@/components/writing/WritingSaveStatus.vue";
 import WritingVersionsDrawer from "@/components/writing/WritingVersionsDrawer.vue";
+import { useRagIndex } from "@/composables/useRagIndex";
 import { useWritingAssist } from "@/composables/useWritingAssist";
 import { useWritingCopilot } from "@/composables/useWritingCopilot";
 import { useWritingDesk } from "@/composables/useWritingDesk";
@@ -67,28 +67,27 @@ const {
   restoreVersion,
 } = useWritingDesk(props.projectId, () => props.chapterId ?? "");
 
-// AI 辅助：请求与流式收字在组合式函数里，插入/替换由这里调用编辑器实例完成。
+// 两个 AI 入口共用同一份章节口径，避免各写一遍标题格式。
+const chapterTitle = () =>
+  activeChapter.value ? `第${activeChapter.value.act}幕 · ${activeChapter.value.title}` : "";
+const chapterSummary = () => activeChapter.value?.summary ?? "";
+
+// AI 辅助：请求与流式收字在组合式函数里，结果以卡片形式进右侧 AI 面板，
+// 插入/替换仍由这里拿编辑器实例完成（组合式函数不碰编辑器）。
 const {
-  show: assistShow,
-  taskLabel: assistTaskLabel,
   target: assistTarget,
   output: assistOutput,
-  streaming: assistStreaming,
-  error: assistError,
-  contextChars: assistContextChars,
-  canApply: assistCanApply,
+  card: assistCard,
   run: runAssist,
   retry: retryAssist,
+  stop: stopAssist,
   close: closeAssist,
 } = useWritingAssist({
   projectId: props.projectId,
   project: () => project.value,
-  chapterTitle: () =>
-    activeChapter.value ? `第${activeChapter.value.act}幕 · ${activeChapter.value.title}` : "",
-  chapterSummary: () => activeChapter.value?.summary ?? "",
+  chapterTitle,
+  chapterSummary,
 });
-
-const assistCanReplace = computed(() => Boolean(assistTarget.value?.text));
 
 // Copilot 对话：与「AI 辅助」共用同一份作品上下文口径，但结果是对话，需要作者确认才进正文。
 const {
@@ -97,6 +96,7 @@ const {
   error: copilotError,
   contextChars: copilotContextChars,
   references: copilotReferences,
+  retrievedCount: copilotRetrieved,
   send: sendCopilot,
   stop: stopCopilot,
   clear: clearCopilot,
@@ -105,15 +105,34 @@ const {
 } = useWritingCopilot({
   projectId: props.projectId,
   project: () => project.value,
-  chapterTitle: () =>
-    activeChapter.value ? `第${activeChapter.value.act}幕 · ${activeChapter.value.title}` : "",
-  chapterSummary: () => activeChapter.value?.summary ?? "",
+  chapterTitle,
+  chapterSummary,
   // 用内存里的正文（而不是库里的），这样刚敲下的句子也能立刻参与讨论。
   chapterText: () => {
     const text = documentToPlainText(content.value);
     return text === EMPTY_DOCUMENT_TEXT ? "" : text;
   },
 });
+
+// 检索索引按作品维护：状态与「更新索引」都放在 AI 对话面板里，写作时不打扰。
+const {
+  status: ragStatus,
+  busy: ragBusy,
+  error: ragError,
+  label: ragLabel,
+  reindex: reindexRag,
+} = useRagIndex(() => props.projectId, { refreshOn: () => app.copilotOpen });
+
+// 收起面板时作废进行中的辅助请求，避免关掉后还在后台收字。
+watch(
+  () => app.copilotOpen,
+  (open) => {
+    if (!open) closeAssist();
+  },
+);
+
+// 卡片里的「插入/替换」用的是旧选区坐标，换章或恢复版本后位置已失效，直接作废。
+watch([loadedChapterId, editorRevision], () => closeAssist());
 
 /** 引用是开关语义：已引用的再点一次就取消，省得另做一个删除入口。 */
 function toggleCopilotReference(reference: CopilotReference): void {
@@ -133,12 +152,9 @@ function insertCopilotText(text: string): void {
   editorRef.value?.insertAtCursor(text);
 }
 
-// 用户直接从右上角关掉抽屉时也要让进行中的请求作废，避免关掉后还在后台收字。
-watch(assistShow, (value) => {
-  if (!value) closeAssist();
-});
-
+/** 工具栏按钮触发的辅助：结果卡片在右侧面板里，所以先确保面板展开再发请求。 */
 function handleAi(selection: AssistSelection): void {
+  app.copilotOpen = true;
   void runAssist(selection);
 }
 
@@ -238,7 +254,13 @@ async function handleRestore(versionId: string): Promise<void> {
 
     <p v-if="error" class="writing__error">{{ error }}</p>
 
-    <div class="writing__body" :class="{ 'writing__body--copilot': app.copilotOpen }">
+    <div
+      class="writing__body"
+      :class="{
+        'writing__body--copilot': app.copilotOpen,
+        'writing__body--assist': app.copilotOpen && assistCard.visible,
+      }"
+    >
       <WritingChapterList
         class="writing__chapters"
         :groups="chaptersByAct"
@@ -273,7 +295,7 @@ async function handleRestore(versionId: string): Promise<void> {
         />
       </div>
 
-      <WritingCopilotPanel
+      <WritingAiPanel
         v-if="app.copilotOpen"
         class="writing__copilot"
         :project-id="projectId"
@@ -282,12 +304,23 @@ async function handleRestore(versionId: string): Promise<void> {
         :error="copilotError"
         :context-chars="copilotContextChars"
         :references="copilotReferences"
+        :rag-label="ragLabel"
+        :rag-stale="ragStatus?.stale ?? false"
+        :rag-busy="ragBusy"
+        :rag-error="ragError"
+        :retrieved-count="copilotRetrieved"
+        :assist="assistCard"
+        @reindex="reindexRag"
         @send="sendCopilotMessage"
         @stop="stopCopilot"
         @clear="clearCopilot"
         @pick="toggleCopilotReference"
         @unpick="removeCopilotReference"
         @insert="insertCopilotText"
+        @assist-stop="stopAssist"
+        @assist-retry="retryAssist"
+        @assist-insert="applyAssist('insert')"
+        @assist-replace="applyAssist('replace')"
       />
     </div>
 
@@ -301,20 +334,6 @@ async function handleRestore(versionId: string): Promise<void> {
       @preview="openVersionPreview"
       @restore="handleRestore"
       @close-preview="closeVersionPreview"
-    />
-
-    <WritingAiPanel
-      v-model:show="assistShow"
-      :task-label="assistTaskLabel"
-      :output="assistOutput"
-      :streaming="assistStreaming"
-      :error="assistError"
-      :can-apply="assistCanApply"
-      :can-replace="assistCanReplace"
-      :context-chars="assistContextChars"
-      @retry="retryAssist"
-      @insert="applyAssist('insert')"
-      @replace="applyAssist('replace')"
     />
   </div>
 </template>
@@ -386,9 +405,14 @@ async function handleRestore(versionId: string): Promise<void> {
     flex: 1;
     min-height: 0;
 
-    // AI 对话打开时是第三栏：章节 / 编辑器 / 对话，三栏都参与布局，不互相遮挡。
+    // AI 面板打开时是第三栏：章节 / 编辑器 / 对话，三栏都参与布局，不互相遮挡。
     &--copilot {
       grid-template-columns: 240px minmax(0, 1fr) 320px;
+    }
+
+    // 辅助卡片里是整段可进稿的正文，320px 读起来太挤，出结果时把这一栏放宽。
+    &--assist {
+      grid-template-columns: 240px minmax(0, 1fr) 400px;
     }
   }
 
@@ -439,6 +463,11 @@ async function handleRestore(versionId: string): Promise<void> {
 
   .writing__body--copilot {
     grid-template-columns: minmax(0, 1fr) 300px;
+  }
+
+  // 两栏时正文只剩一栏，辅助卡片不再继续加宽，否则编辑器太窄。
+  .writing__body--assist {
+    grid-template-columns: minmax(0, 1fr) 340px;
   }
 
   .writing__picker {

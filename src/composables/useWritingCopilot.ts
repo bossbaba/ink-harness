@@ -7,6 +7,7 @@ import {
   buildReferenceBlock,
 } from "@/services/copilotService";
 import { modelRouter } from "@/services/modelRouter";
+import { loadRelatedNotes } from "@/services/ragService";
 import type { CopilotMessage, CopilotReference, Project } from "@/types";
 
 export interface WritingCopilotOptions {
@@ -40,6 +41,8 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
   const contextChars = ref(0);
   /** 下一条消息要携带的引用；发送后清空，避免每条都重复注入同一批资料。 */
   const references = ref<CopilotReference[]>([]);
+  /** 最近一次提问检索到的片段数，用于在界面上说明「资料从哪来」。 */
+  const retrievedCount = ref(0);
 
   // 作品上下文在会话内只拼一次：写作过程中设定/大纲变了，重新打开页面即可刷新。
   let contextCache: string | null = null;
@@ -92,12 +95,15 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
       const project = options.project();
       if (!project) throw new Error("作品还没加载完成，请稍后重试。");
 
-      const [context, referenceBlock] = await Promise.all([
+      // 检索与引用并行：检索失败只返回空结果，不影响这次提问。
+      const [context, referenceBlock, notes] = await Promise.all([
         loadContext(),
         buildReferenceBlock(attached),
+        loadRelatedNotes(options.projectId, text),
       ]);
       if (seq !== requestSeq) return;
       contextChars.value = contextCharCount(context);
+      retrievedCount.value = notes.hits.length;
 
       // Provider 可能刚在模型管理页改过，每次发送前刷新，避免用到旧缓存。
       await modelRouter.refresh();
@@ -114,6 +120,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
         history,
         question: text,
         referenceBlock,
+        notes: notes.block,
       });
 
       const handle = modelRouter.chat(
@@ -152,6 +159,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
     streaming.value = false;
     messages.value = [];
     references.value = [];
+    retrievedCount.value = 0;
     error.value = "";
   }
 
@@ -161,6 +169,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
     error,
     contextChars,
     references,
+    retrievedCount,
     send,
     stop,
     clear,

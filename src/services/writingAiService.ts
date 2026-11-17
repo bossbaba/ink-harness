@@ -36,6 +36,8 @@ export interface AssistMessageInput {
   /** build_project_context 产出的 Markdown 上下文。 */
   context: string;
   selection: AssistSelection;
+  /** 按选区检索到的片段（loadRelatedNotes 的 block），没建索引时为空串。 */
+  notes?: string;
 }
 
 /**
@@ -65,6 +67,8 @@ export function buildAssistMessages(input: AssistMessageInput): ChatMessage[] {
 
   const user = [
     `任务：${TASK_RULE[selection.task]}`,
+    // 检索资料只作参考：与选中段落冲突时仍以选中段落为准（输出纪律里已要求贴原文）。
+    input.notes ?? "",
     selection.before ? `【前文结尾】\n${tail(selection.before, BEFORE_LIMIT)}` : "",
     selection.text ? `【选中段落】\n${selection.text}` : "【选中段落】（未选中，请紧接前文往下写）",
   ]

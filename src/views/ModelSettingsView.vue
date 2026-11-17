@@ -4,6 +4,7 @@ import { NSpace, NSwitch, NTag } from "naive-ui";
 import { computed } from "vue";
 import ProviderCard from "@/components/models/ProviderCard.vue";
 import ProviderEditDialog from "@/components/models/ProviderEditDialog.vue";
+import RagSettingsPanel from "@/components/models/RagSettingsPanel.vue";
 import { useModelSettings } from "@/composables/useModelSettings";
 
 // 模型管理页：Provider 分组展示、连接测试、模型同步与编辑弹窗。
@@ -175,6 +176,9 @@ const ollamaRunning = computed(() => ollama.value?.running ?? false);
         </span>
       </div>
     </section>
+
+    <!-- 检索模型选择：这里只定用哪个模型做向量化，索引状态与重建按作品进行 -->
+    <RagSettingsPanel :providers="providers" />
 
     <ProviderEditDialog
       v-model:show="dialogShow"

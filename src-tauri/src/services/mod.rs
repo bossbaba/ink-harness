@@ -1,4 +1,5 @@
 pub mod draft;
+pub mod embed;
 pub mod gateway;
 pub mod setting;
 pub mod ollama;
@@ -6,4 +7,5 @@ pub mod outline;
 pub mod outline_context;
 pub mod project;
 pub mod provider;
+pub mod rag;
 pub mod story_element;

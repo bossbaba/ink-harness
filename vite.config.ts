@@ -8,7 +8,7 @@ export default defineConfig({
     vue(),
     biome({
       mode: "check",
-      files: ".",
+      files: "./src",
       hotUpdateMode: "changed",
     }),
   ],

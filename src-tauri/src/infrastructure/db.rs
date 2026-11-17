@@ -158,6 +158,19 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
             value text not null
         );
 
+        -- RAG 片段：正文与来源存在业务库，向量存在 vec_rag（rowid 与本表 id 对应）。
+        -- vec_rag 的维度由 embedding 模型决定，建表放在 services/rag.rs 里动态处理。
+        create table if not exists rag_chunk (
+            id          integer primary key autoincrement,
+            project_id  text not null references project(id) on delete cascade,
+            kind        text not null,             -- element | chapter
+            source_id   text not null,             -- story_element.id 或 chapter.id
+            title       text not null default '',
+            content     text not null,
+            indexed_at  text not null
+        );
+        create index if not exists idx_rag_chunk_project on rag_chunk(project_id, kind);
+
         -- Provider 配置落库，避免重启后模型管理页的设置全部丢失。
         -- models_json 存 ProviderModel 数组（id/displayName/contextWindow/costPer1kTokens）。
         create table if not exists provider_config (

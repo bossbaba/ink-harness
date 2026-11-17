@@ -67,6 +67,9 @@ pub fn run() {
             commands::draft::list_draft_versions,
             commands::draft::get_draft_version,
             commands::draft::restore_draft_version,
+            commands::rag::rag_status,
+            commands::rag::rag_reindex,
+            commands::rag::rag_search,
         ])
         .build(tauri::generate_context!())
         .expect("启动 INK-HARNESS 失败")

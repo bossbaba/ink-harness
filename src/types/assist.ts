@@ -24,3 +24,26 @@ export const ASSIST_TASK_LABEL: Record<AssistTask, string> = {
   condense: "缩写",
   polish: "润色",
 };
+
+/**
+ * 右侧 AI 面板里「辅助任务卡片」的展示状态。
+ *
+ * 由 useWritingAssist 组装成一个对象，页面只负责原样透传给面板，
+ * 避免页面与卡片两边各拼一次字段、各写一套按钮可用条件。
+ */
+export interface AssistCardState {
+  /** 是否有正在展示的辅助结果；未开始、或已被下一次动作/换章覆盖时为 false。 */
+  visible: boolean;
+  taskLabel: string;
+  output: string;
+  streaming: boolean;
+  error: string;
+  /** 本次注入的作品上下文字数。 */
+  contextChars: number;
+  /** 本次额外检索到的片段数。 */
+  retrievedCount: number;
+  /** 结果是否已可供回写。 */
+  canApply: boolean;
+  /** 是否有选中段落可被替换（续写时为 false）。 */
+  canReplace: boolean;
+}

@@ -4,5 +4,6 @@ pub mod model;
 pub mod ollama;
 pub mod outline;
 pub mod project;
+pub mod rag;
 pub mod setting;
 pub mod story_element;

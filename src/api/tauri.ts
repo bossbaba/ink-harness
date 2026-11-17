@@ -21,6 +21,8 @@ import type {
   ProbeProviderInput,
   Project,
   ProviderConfig,
+  RagHit,
+  RagStatus,
   SaveContentInput,
   Scene,
   StoryElement,
@@ -105,6 +107,12 @@ export const tauriApi = {
     invoke<DraftVersionBrief[]>("list_draft_versions", { chapterId }),
   getDraftVersion: (id: string) => invoke<DraftVersion>("get_draft_version", { id }),
   restoreDraftVersion: (id: string) => invoke<ChapterContent>("restore_draft_version", { id }),
+
+  // RAG 检索：索引按作品维护，检索按问题取最近片段。
+  ragStatus: (projectId: string) => invoke<RagStatus>("rag_status", { projectId }),
+  ragReindex: (projectId: string) => invoke<RagStatus>("rag_reindex", { projectId }),
+  ragSearch: (projectId: string, query: string, limit?: number) =>
+    invoke<RagHit[]>("rag_search", { projectId, query, limit }),
 
   /**
    * 流式对话：创建 Channel 逐块接收。

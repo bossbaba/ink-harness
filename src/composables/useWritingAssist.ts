@@ -2,8 +2,15 @@ import { computed, ref } from "vue";
 import { tauriApi } from "@/api/tauri";
 import { contextCharCount } from "@/services/aiContext";
 import { modelRouter } from "@/services/modelRouter";
+import { loadRelatedNotes } from "@/services/ragService";
 import { buildAssistMessages, toTaskKind } from "@/services/writingAiService";
-import { ASSIST_TASK_LABEL, type AssistSelection, type AssistTask, type Project } from "@/types";
+import {
+  ASSIST_TASK_LABEL,
+  type AssistCardState,
+  type AssistSelection,
+  type AssistTask,
+  type Project,
+} from "@/types";
 
 export interface WritingAssistOptions {
   projectId: string;
@@ -27,6 +34,8 @@ export function useWritingAssist(options: WritingAssistOptions) {
   const streaming = ref(false);
   const error = ref("");
   const contextChars = ref(0);
+  /** 本次生成额外检索到的片段数，让作者知道「背景资料」从哪来。 */
+  const retrievedCount = ref(0);
 
   // 作品上下文在会话内只拼一次；写作过程中设定/大纲变了才会重新打开页面。
   let contextCache: string | null = null;
@@ -35,6 +44,21 @@ export function useWritingAssist(options: WritingAssistOptions) {
 
   const taskLabel = computed(() => ASSIST_TASK_LABEL[task.value]);
   const canApply = computed(() => !streaming.value && output.value.trim().length > 0);
+  // 续写没有选区，替换按钮必须置灰，否则会拿空选区去覆盖正文。
+  const canReplace = computed(() => Boolean(target.value?.text.trim()));
+
+  /** 面板卡片需要的全部字段：页面直接透传，不再自己拼 props。 */
+  const card = computed<AssistCardState>(() => ({
+    visible: show.value,
+    taskLabel: taskLabel.value,
+    output: output.value,
+    streaming: streaming.value,
+    error: error.value,
+    contextChars: contextChars.value,
+    retrievedCount: retrievedCount.value,
+    canApply: canApply.value,
+    canReplace: canReplace.value,
+  }));
 
   async function loadContext(): Promise<string> {
     if (contextCache !== null) return contextCache;
@@ -48,6 +72,7 @@ export function useWritingAssist(options: WritingAssistOptions) {
     show.value = true;
     output.value = "";
     error.value = "";
+    retrievedCount.value = 0;
     streaming.value = true;
     const seq = ++requestSeq;
 
@@ -55,9 +80,15 @@ export function useWritingAssist(options: WritingAssistOptions) {
       const project = options.project();
       if (!project) throw new Error("作品还没加载完成，请稍后重试。");
 
-      const context = await loadContext();
+      // 检索用选区正文做问题；续写没有选区时用前文最后一段，避免拿空串去搜。
+      const query = selection.text.trim() || selection.before.slice(-300);
+      const [context, notes] = await Promise.all([
+        loadContext(),
+        loadRelatedNotes(options.projectId, query),
+      ]);
       if (seq !== requestSeq) return;
       contextChars.value = contextCharCount(context);
+      retrievedCount.value = notes.hits.length;
 
       // Provider 可能在模型管理页才刚配置过，每次生成前刷新，避免用到旧缓存。
       await modelRouter.refresh();
@@ -69,6 +100,7 @@ export function useWritingAssist(options: WritingAssistOptions) {
         chapterSummary: options.chapterSummary(),
         context,
         selection,
+        notes: notes.block,
       });
 
       const handle = modelRouter.chat(
@@ -98,6 +130,15 @@ export function useWritingAssist(options: WritingAssistOptions) {
     if (target.value) void run(target.value);
   }
 
+  /**
+   * 停止生成：只作废进行中的请求，已收到的文字留在卡片里供作者取用。
+   * 与 close() 的区别是卡片仍可见——毕竟没有「收起/丢弃」入口，停了还得能插入。
+   */
+  function stop(): void {
+    requestSeq += 1;
+    streaming.value = false;
+  }
+
   /** 关闭面板：让进行中的请求作废，避免关掉后还往已卸载的界面里写内容。 */
   function close(): void {
     requestSeq += 1;
@@ -114,9 +155,13 @@ export function useWritingAssist(options: WritingAssistOptions) {
     streaming,
     error,
     contextChars,
+    retrievedCount,
     canApply,
+    canReplace,
+    card,
     run,
     retry,
+    stop,
     close,
   };
 }

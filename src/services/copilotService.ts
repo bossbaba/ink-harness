@@ -121,9 +121,11 @@ export interface CopilotMessagesInput {
   question: string;
   /** buildReferenceBlock 的结果。 */
   referenceBlock: string;
+  /** 按问题检索到的片段（loadRelatedNotes 的 block），没建索引时为空串。 */
+  notes?: string;
 }
 
-/** 组装一次 Copilot 请求：system + 最近若干轮历史 + 本轮问题（引用资料拼在问题前面）。 */
+/** 组装一次 Copilot 请求：system + 最近若干轮历史 + 本轮问题（引用与检索资料拼在问题前面）。 */
 export function buildCopilotMessages(input: CopilotMessagesInput): ChatMessage[] {
   const history = input.history
     .filter((message) => !message.failed && message.content.trim().length > 0)
@@ -136,7 +138,8 @@ export function buildCopilotMessages(input: CopilotMessagesInput): ChatMessage[]
           : `${message.content.slice(0, HISTORY_CHAR_LIMIT)}…`,
     }));
 
-  const question = [input.referenceBlock, input.question].filter(Boolean).join("\n\n");
+  // 作者显式引用的资料在前，检索到的片段在后：两者冲突时以作者选的为准。
+  const question = [input.referenceBlock, input.notes, input.question].filter(Boolean).join("\n\n");
   return [
     { role: "system", content: input.system },
     ...history,
