@@ -66,6 +66,7 @@ export interface ChatChunk {
 /** 任务类型，用于路由到不同偏好的模型。 */
 export type TaskKind =
   | "ideation"
+  | "copilot"
   | "continue"
   | "rewrite"
   | "expand"

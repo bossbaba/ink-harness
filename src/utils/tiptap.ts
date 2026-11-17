@@ -19,6 +19,12 @@ export function parseDocument(raw: string): JSONContent {
 }
 
 /**
+ * 空正文的占位文案。预览面板需要它避免出现一片空白，
+ * 但喂给模型前必须认出来并丢掉，否则模型会以为真有这么一句。
+ */
+export const EMPTY_DOCUMENT_TEXT = "（空白正文）";
+
+/**
  * 提取纯文本，用于版本预览这类只需要「看清写了什么」的地方，
  * 不引入完整的 HTML 渲染链路。
  */
@@ -44,5 +50,5 @@ export function documentToPlainText(raw: string): string {
     .join("")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return text || "（空白正文）";
+  return text || EMPTY_DOCUMENT_TEXT;
 }

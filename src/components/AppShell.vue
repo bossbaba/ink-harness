@@ -5,10 +5,11 @@ import { useRoute, useRouter } from "vue-router";
 import { useAppStore } from "@/stores/app";
 
 /**
- * 应用外壳：标题栏 + 左侧导航 + 右侧 AI 面板 + 内容插槽。
+ * 应用外壳：标题栏 + 左侧导航 + 内容插槽。
  * 这里最关键的是按路由作用域切换侧栏——全局页显示全局菜单，进入某个作品后
  * 换成该作品的二级导航并带「返回工作台」，两者不混排，保证功能页面唯一性。
- * 专注模式下标题栏、侧栏、AI 面板全部隐藏，只留正文和一个悬浮退出按钮。
+ * 专注模式下标题栏与侧栏全部隐藏，只留正文和一个悬浮退出按钮。
+ * AI 对话面板归写作台所有（作品作用域），外壳不再常驻占位面板。
  */
 const app = useAppStore();
 const route = useRoute();
@@ -162,17 +163,6 @@ function open(item: { path: string }): void {
       <main class="content">
         <slot />
       </main>
-
-      <aside v-if="app.copilotOpen && !app.focusMode" class="copilot">
-        <div class="copilot__header">
-          <span class="copilot__title">AI 助手</span>
-          <span class="copilot__status">未连接</span>
-        </div>
-        <div class="copilot__placeholder">
-          <p>选中文本后可用 AI 续写、改写与润色。</p>
-          <p class="copilot__hint">模型网关已就绪 · 配置模型后即可对话</p>
-        </div>
-      </aside>
     </div>
 
     <button
@@ -325,43 +315,6 @@ function open(item: { path: string }): void {
   flex: 1;
   min-width: 0;
   overflow: auto;
-}
-
-.copilot {
-  display: flex;
-  flex-direction: column;
-  width: 320px;
-  flex-shrink: 0;
-  border-left: 1px solid var(--divider);
-  background: var(--bg-surface);
-
-  &__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: t.$space-3 t.$space-4;
-    border-bottom: 1px solid var(--divider);
-  }
-  &__title {
-    font-size: 13px;
-    font-weight: 600;
-  }
-  &__status {
-    font-size: 11px;
-    color: var(--text-faint);
-  }
-  &__placeholder {
-    flex: 1;
-    padding: t.$space-5 t.$space-4;
-    font-size: 13px;
-    line-height: 1.7;
-    color: var(--text-soft);
-  }
-  &__hint {
-    margin-top: t.$space-4;
-    font-size: 11px;
-    color: var(--text-faint);
-  }
 }
 
 .focus-exit {

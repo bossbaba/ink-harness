@@ -1,7 +1,8 @@
 import { computed, ref } from "vue";
 import { tauriApi } from "@/api/tauri";
+import { contextCharCount } from "@/services/aiContext";
 import { modelRouter } from "@/services/modelRouter";
-import { buildAssistMessages, contextCharCount, toTaskKind } from "@/services/writingAiService";
+import { buildAssistMessages, toTaskKind } from "@/services/writingAiService";
 import { ASSIST_TASK_LABEL, type AssistSelection, type AssistTask, type Project } from "@/types";
 
 export interface WritingAssistOptions {

@@ -6,8 +6,10 @@ import { useRouter } from "vue-router";
 import DraftVersionPanel from "@/components/writing/DraftVersionPanel.vue";
 import WritingAiPanel from "@/components/writing/WritingAiPanel.vue";
 import WritingChapterList from "@/components/writing/WritingChapterList.vue";
+import WritingCopilotDrawer from "@/components/writing/WritingCopilotDrawer.vue";
 import WritingEditor from "@/components/writing/WritingEditor.vue";
 import { useWritingAssist } from "@/composables/useWritingAssist";
+import { useWritingCopilot } from "@/composables/useWritingCopilot";
 import { useWritingDesk } from "@/composables/useWritingDesk";
 import { useAppStore } from "@/stores/app";
 import {
@@ -15,8 +17,10 @@ import {
   type AssistSelection,
   CHAPTER_STATUS_LABEL,
   CHAPTER_STATUS_TAG_TYPE,
+  type CopilotReference,
 } from "@/types";
 import { formatCount, formatDateTime } from "@/utils/text";
+import { documentToPlainText, EMPTY_DOCUMENT_TEXT } from "@/utils/tiptap";
 
 /**
  * 写作台：作品内页面，章节由路径参数决定（`/projects/:projectId/write/:chapterId`）。
@@ -83,6 +87,49 @@ const {
 });
 
 const assistCanReplace = computed(() => Boolean(assistTarget.value?.text));
+
+// Copilot 对话：与「AI 辅助」共用同一份作品上下文口径，但结果是对话，需要作者确认才进正文。
+const {
+  messages: copilotMessages,
+  streaming: copilotStreaming,
+  error: copilotError,
+  contextChars: copilotContextChars,
+  references: copilotReferences,
+  send: sendCopilot,
+  stop: stopCopilot,
+  clear: clearCopilot,
+  addReference: addCopilotReference,
+  removeReference: removeCopilotReference,
+} = useWritingCopilot({
+  projectId: props.projectId,
+  project: () => project.value,
+  chapterTitle: () =>
+    activeChapter.value ? `第${activeChapter.value.act}幕 · ${activeChapter.value.title}` : "",
+  chapterSummary: () => activeChapter.value?.summary ?? "",
+  // 用内存里的正文（而不是库里的），这样刚敲下的句子也能立刻参与讨论。
+  chapterText: () => {
+    const text = documentToPlainText(content.value);
+    return text === EMPTY_DOCUMENT_TEXT ? "" : text;
+  },
+});
+
+/** 引用是开关语义：已引用的再点一次就取消，省得另做一个删除入口。 */
+function toggleCopilotReference(reference: CopilotReference): void {
+  const picked = copilotReferences.value.some(
+    (item) => item.kind === reference.kind && item.id === reference.id,
+  );
+  if (picked) removeCopilotReference(reference);
+  else addCopilotReference(reference);
+}
+
+function sendCopilotMessage(text: string): void {
+  void sendCopilot(text);
+}
+
+/** Copilot 的回答只做草稿：作者点「插入到正文」才落到光标处，自动保存随后接管。 */
+function insertCopilotText(text: string): void {
+  editorRef.value?.insertAtCursor(text);
+}
 
 // 用户直接从右上角关掉抽屉时也要让进行中的请求作废，避免关掉后还在后台收字。
 watch(assistShow, (value) => {
@@ -156,7 +203,7 @@ async function handleRestore(versionId: string): Promise<void> {
 </script>
 
 <template>
-  <div class="writing">
+  <div class="writing" :class="{ 'writing--copilot': app.copilotOpen && !app.focusMode }">
     <header class="writing__header">
       <div class="writing__titles">
         <h1 class="writing__title serif">{{ pageTitle }}</h1>
@@ -195,6 +242,9 @@ async function handleRestore(versionId: string): Promise<void> {
           版本快照
         </MacButton>
         <MacButton size="regular" @click="goOutline">去大纲</MacButton>
+        <MacButton size="regular" @click="app.toggleCopilot()">
+          {{ app.copilotOpen ? "收起 AI 对话" : "AI 对话" }}
+        </MacButton>
         <MacButton size="regular" variant="prominent" @click="toggleFocus">
           {{ app.focusMode ? "退出专注" : "专注模式" }}
         </MacButton>
@@ -250,6 +300,22 @@ async function handleRestore(versionId: string): Promise<void> {
         />
       </NDrawerContent>
     </NDrawer>
+
+    <WritingCopilotDrawer
+      v-model:show="app.copilotOpen"
+      :project-id="projectId"
+      :messages="copilotMessages"
+      :streaming="copilotStreaming"
+      :error="copilotError"
+      :context-chars="copilotContextChars"
+      :references="copilotReferences"
+      @send="sendCopilotMessage"
+      @stop="stopCopilot"
+      @clear="clearCopilot"
+      @pick="toggleCopilotReference"
+      @unpick="removeCopilotReference"
+      @insert="insertCopilotText"
+    />
 
     <WritingAiPanel
       v-model:show="assistShow"
@@ -360,6 +426,7 @@ async function handleRestore(versionId: string): Promise<void> {
     min-width: 0;
     min-height: 0;
     background: var(--bg-surface);
+    transition: padding-right t.$duration t.$ease;
   }
 
   &__hint {
@@ -388,6 +455,13 @@ async function handleRestore(versionId: string): Promise<void> {
   &__empty-hint {
     font-size: 11px;
     color: var(--text-faint);
+  }
+}
+
+// 宽屏时给抽屉让出等宽内边距，正文整体左移而不是被盖住；窄屏保持覆盖，免得正文被挤没。
+@container (min-width: 1000px) {
+  .writing--copilot .writing__main {
+    padding-right: 380px;
   }
 }
 

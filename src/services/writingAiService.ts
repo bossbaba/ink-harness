@@ -1,7 +1,6 @@
 import type { AssistSelection, AssistTask, ChatMessage, Project, TaskKind } from "@/types";
+import { CONTEXT_LIMIT, head, projectFacts, tail } from "./aiContext";
 
-/** 超过这个字数的作品上下文会被截断，宁可少给背景也别把模型上下文窗口撑爆。 */
-const CONTEXT_LIMIT = 6000;
 /** 选区之前只带最近这一段：更早的内容对「接得上语气」帮助有限，反而占额度。 */
 const BEFORE_LIMIT = 1200;
 
@@ -30,16 +29,6 @@ export function toTaskKind(task: AssistTask): TaskKind {
   return TASK_KIND[task];
 }
 
-/** 作品上下文保留开头（作品信息、设定库、大纲都在前面）。 */
-function head(text: string, limit: number): string {
-  return text.length <= limit ? text : `${text.slice(0, limit)}\n…（上下文过长，已截断）`;
-}
-
-/** 前文保留结尾，续写靠的正是紧邻选区的那几句。 */
-function tail(text: string, limit: number): string {
-  return text.length <= limit ? text : `…（前文过长，只保留结尾）\n${text.slice(-limit)}`;
-}
-
 export interface AssistMessageInput {
   project: Project;
   chapterTitle: string;
@@ -55,14 +44,7 @@ export interface AssistMessageInput {
  */
 export function buildAssistMessages(input: AssistMessageInput): ChatMessage[] {
   const { project, chapterTitle, chapterSummary, selection } = input;
-  const facts = [
-    project.genre ? `类型：${project.genre}` : "",
-    project.premise ? `一句话梗概：${project.premise}` : "",
-    project.style ? `叙事风格：${project.style}` : "",
-    project.audience ? `目标读者：${project.audience}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const facts = projectFacts(project);
 
   const system = [
     `你是中文小说写作助手，正在协助作者写《${project.title}》。`,
@@ -93,9 +75,4 @@ export function buildAssistMessages(input: AssistMessageInput): ChatMessage[] {
     { role: "system", content: system },
     { role: "user", content: user },
   ];
-}
-
-/** 面板上展示「已注入多少字上下文」，让作者知道模型看到了什么。 */
-export function contextCharCount(context: string): number {
-  return Math.min(context.length, CONTEXT_LIMIT);
 }

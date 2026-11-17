@@ -173,6 +173,18 @@ function emitAi(task: AssistTask): void {
   });
 }
 
+/** 模型与 Copilot 返回的都是纯文本：按空行切段，段内换行压成空格，插进去才是正常段落。 */
+function textToParagraphs(text: string): JSONContent[] {
+  return text
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => ({
+      type: "paragraph",
+      content: [{ type: "text", text: block.replace(/\n/g, " ") }],
+    }));
+}
+
 /**
  * 把 AI 结果写回正文。
  * 位置来自发起请求时的选区，生成期间正文没被改动过，但为了稳妥仍按文档长度做钳制，
@@ -186,15 +198,7 @@ function applyAssist(text: string, from: number, to: number, mode: AssistApplyMo
   const size = instance.state.doc.content.size;
   const start = Math.min(Math.max(0, from), size);
   const end = Math.min(Math.max(start, to), size);
-  // 模型返回的是纯文本，按空行切段，段内换行压成空格，插进去才是正常的段落结构。
-  const nodes: JSONContent[] = plain
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean)
-    .map((block) => ({
-      type: "paragraph",
-      content: [{ type: "text", text: block.replace(/\n/g, " ") }],
-    }));
+  const nodes = textToParagraphs(plain);
   if (nodes.length === 0) return;
 
   const chain = instance.chain().focus();
@@ -205,7 +209,21 @@ function applyAssist(text: string, from: number, to: number, mode: AssistApplyMo
   }
 }
 
-defineExpose({ applyAssist });
+/**
+ * Copilot 的「插入到正文」：没有发起时的选区，就插在编辑器当前光标处。
+ * 用 Editor 里的 selection 而不是 DOM 光标，因为焦点这时可能还在 Copilot 输入框上。
+ */
+function insertAtCursor(text: string): void {
+  const instance = editor.value;
+  const plain = text.trim();
+  if (!instance || !plain) return;
+  const nodes = textToParagraphs(plain);
+  if (nodes.length === 0) return;
+  const position = instance.state.selection.to;
+  instance.chain().focus().setTextSelection(position).insertContent(nodes).run();
+}
+
+defineExpose({ applyAssist, insertAtCursor });
 </script>
 
 <template>

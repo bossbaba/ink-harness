@@ -37,6 +37,8 @@ export function toModelInfo(provider: ProviderConfig, model: ProviderModel): Mod
  */
 const TASK_PREFERENCE: Record<TaskKind, { quality: number; preferLocal: boolean }> = {
   ideation: { quality: 0, preferLocal: true },
+  // 对话式 Copilot 要接得住长上下文，比续写更依赖模型质量，但仍优先本地模型省钱。
+  copilot: { quality: 1, preferLocal: true },
   continue: { quality: 1, preferLocal: false },
   rewrite: { quality: 1, preferLocal: false },
   expand: { quality: 1, preferLocal: false },

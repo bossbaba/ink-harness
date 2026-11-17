@@ -10,7 +10,8 @@ export const useAppStore = defineStore("app", () => {
   const saved = (localStorage.getItem(STORAGE_KEY) as Appearance | null) ?? "light";
   const appearance = ref<Appearance>(saved);
   const focusMode = ref(false);
-  const copilotOpen = ref(true);
+  // 写作台的 AI 对话默认收起：抽屉宽 380px，一进页面就弹出会挡住正文。
+  const copilotOpen = ref(false);
 
   watch(appearance, (value) => {
     localStorage.setItem(STORAGE_KEY, value);
