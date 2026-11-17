@@ -1,0 +1,285 @@
+<script setup lang="ts">
+import { MacButton } from "@macvue/core";
+import { NTag } from "naive-ui";
+import { onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
+import { tauriApi } from "@/api/tauri";
+import NewProjectDialog from "@/components/NewProjectDialog.vue";
+import { projectService } from "@/services/projectService";
+import { useAppStore } from "@/stores/app";
+import { type DatabaseInfo, PROJECT_STATUS_LABEL, type Project } from "@/types";
+
+const app = useAppStore();
+const router = useRouter();
+const backend = ref("检测中…");
+const ollamaRunning = ref(false);
+const ollamaModels = ref<string[]>([]);
+const projects = ref<Project[]>([]);
+const dbInfo = ref<DatabaseInfo | null>(null);
+const showNew = ref(false);
+const error = ref("");
+
+// 工作台：展示作品卡片，以及后端、Ollama、主题等本地运行状态。
+// 这些状态探测失败都不影响页面主体，各自单独兜底。
+async function loadProjects() {
+  try {
+    projects.value = await projectService.list();
+  } catch (err) {
+    error.value = `读取作品失败：${String(err)}`;
+  }
+}
+
+// 新建作品弹窗创建成功后的回调：重新拉取列表，让新作品立即出现在卡片区。
+async function onCreated() {
+  await loadProjects();
+}
+
+function openBible(projectId: string): void {
+  // 从作品卡片直接进入该作品的设定库，而不是跳到全局页再隐式限定作用域。
+  void router.push({ name: "project-bible", params: { projectId } });
+}
+
+onMounted(async () => {
+  app.initAppearance();
+  // 后端探测失败也只影响状态卡片，不阻断作品列表加载。
+  try {
+    backend.value = await tauriApi.ping();
+  } catch (err) {
+    backend.value = `后端未就绪：${String(err)}`;
+  }
+  try {
+    const status = await tauriApi.checkOllama();
+    ollamaRunning.value = status.running;
+    ollamaModels.value = status.models;
+  } catch {
+    ollamaRunning.value = false;
+  }
+  await loadProjects();
+  try {
+    dbInfo.value = await projectService.databaseInfo();
+  } catch {
+    dbInfo.value = null;
+  }
+});
+</script>
+
+<template>
+  <div class="workspace">
+    <section class="hero">
+      <h1 class="hero__title serif">开始你的下一部作品</h1>
+      <p class="hero__subtitle">从构思到出版，AI 全程辅助，数据留在你的电脑。</p>
+      <div class="hero__actions">
+        <MacButton variant="prominent" @click="showNew = true">新建作品</MacButton>
+      </div>
+    </section>
+
+    <p v-if="error" class="error">{{ error }}</p>
+
+    <section class="section">
+      <h2 class="section__title">我的作品 <span class="count">{{ projects.length }}</span></h2>
+      <div v-if="projects.length === 0" class="empty">
+        <p>还没有作品。点击「新建作品」开始。</p>
+      </div>
+      <div v-else class="project-grid">
+        <article v-for="p in projects" :key="p.id" class="project-card">
+          <div class="project-card__head">
+            <h3 class="project-card__title serif">{{ p.title }}</h3>
+            <NTag size="small" :bordered="false" type="success">
+              {{ PROJECT_STATUS_LABEL[p.status] }}
+            </NTag>
+          </div>
+          <p class="project-card__premise">{{ p.premise || "暂无梗概" }}</p>
+          <div class="project-card__meta">
+            <span>{{ p.genre || "未分类" }}</span>
+            <span v-if="p.privacy === 'local-only'">仅本地</span>
+          </div>
+          <button class="project-card__open" type="button" @click="openBible(p.id)">
+            进入设定库 →
+          </button>
+        </article>
+      </div>
+    </section>
+
+    <section class="status-grid">
+      <div class="card">
+        <div class="card__label">本地运行时</div>
+        <div class="card__value">{{ backend }}</div>
+      </div>
+      <div class="card">
+        <div class="card__label">Ollama 服务</div>
+        <div class="card__value">
+          <NTag :type="ollamaRunning ? 'success' : 'default'" size="small" :bordered="false">
+            {{ ollamaRunning ? "运行中" : "未运行" }}
+          </NTag>
+          <span v-if="ollamaModels.length" class="card__note">{{ ollamaModels.length }} 个本地模型</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card__label">主题</div>
+        <div class="card__value">{{ app.appearance === "light" ? "浅色 · 纸墨" : "深色 · 夜读" }}</div>
+      </div>
+    </section>
+
+    <p v-if="dbInfo" class="db-path" :title="dbInfo.path">作品库：{{ dbInfo.path }}</p>
+
+    <NewProjectDialog v-model:show="showNew" @created="onCreated" />
+  </div>
+</template>
+
+<style scoped lang="scss">
+@use "../styles/tokens" as t;
+@use "../styles/mixins" as m;
+
+.workspace {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: t.$space-8 t.$space-6;
+}
+
+.hero {
+  padding: t.$space-6 0 t.$space-4;
+  text-align: center;
+
+  &__title {
+    margin: 0;
+    font-size: 2rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+  }
+  &__subtitle {
+    margin: t.$space-3 0 t.$space-5;
+    font-size: 0.9rem;
+    color: var(--text-soft);
+  }
+  &__actions {
+    display: flex;
+    justify-content: center;
+  }
+}
+
+.section {
+  margin-top: t.$space-6;
+
+  &__title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: t.$space-4;
+  }
+}
+
+.count {
+  display: inline-block;
+  margin-left: t.$space-2;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: t.$space-4;
+}
+
+.project-card {
+  padding: t.$space-4;
+  @include m.card-surface(var(--bg-surface));
+
+  &__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: t.$space-2;
+  }
+  &__title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    @include m.ellipsis;
+  }
+  &__premise {
+    margin: t.$space-3 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-soft);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  &__meta {
+    display: flex;
+    gap: t.$space-3;
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+  &__open {
+    margin-top: t.$space-3;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--accent);
+    font-size: 11px;
+    cursor: pointer;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+.empty {
+  padding: t.$space-8;
+  text-align: center;
+  border: 1px dashed var(--divider);
+  border-radius: t.$radius-lg;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: t.$space-4;
+  margin-top: t.$space-8;
+}
+
+.card {
+  padding: t.$space-4;
+  @include m.card-surface(var(--bg-surface));
+
+  &__label {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    margin-bottom: t.$space-2;
+  }
+  &__value {
+    display: flex;
+    align-items: center;
+    gap: t.$space-2;
+    font-size: 13px;
+    color: var(--text-primary);
+  }
+  &__note {
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+}
+
+.db-path {
+  margin-top: t.$space-5;
+  font-size: 10px;
+  color: var(--text-faint);
+  @include m.ellipsis;
+}
+
+.error {
+  color: var(--error, #{t.$error});
+  font-size: 12px;
+}
+</style>

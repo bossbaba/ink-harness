@@ -1,0 +1,57 @@
+// ─────────────────────────────────────────────────────────────
+// 设计令牌：纸墨主题
+// 所有颜色/字体/间距/圆角/阴影的唯一来源，主题桥接层与组件均引用此文件。
+// ─────────────────────────────────────────────────────────────
+
+// 纸墨色板
+$paper: #f7f5f0;
+$paper-raised: #fffdf8;
+$paper-sunken: #efece4;
+$ink: #1f1e1d;
+$ink-soft: #4a4844;
+$ink-faint: #8c8880;
+// 主色由 src/theme/palette.ts 单一真源在运行时注入（--accent 等）。
+// 以下 Sass 颜色仅为编译期兜底，数值须与 palette.light 保持一致。
+$accent: #00c100; // rgb(0,193,0)
+$accent-hover: #22cb22;
+$accent-pressed: #00a300;
+$success: #00897b;
+$warning: #e8a317;
+$error: #d4342a;
+$divider: rgba(31, 30, 29, 0.1);
+
+// 字体
+$font-sans: "Inter", "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+$font-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", serif;
+$font-mono: "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+// 间距基准（4px 网格）
+$space-1: 4px;
+$space-2: 8px;
+$space-3: 12px;
+$space-4: 16px;
+$space-5: 24px;
+$space-6: 32px;
+$space-8: 48px;
+
+// 圆角（对齐 macOS 控件观感）
+$radius-sm: 5px;
+$radius-md: 8px;
+$radius-lg: 12px;
+$radius-xl: 18px;
+
+// 阴影
+$shadow-card:
+  0 1px 3px rgba(0, 0, 0, 0.06),
+  0 8px 24px rgba(0, 0, 0, 0.05);
+$shadow-popover:
+  0 4px 16px rgba(0, 0, 0, 0.12),
+  0 16px 48px rgba(0, 0, 0, 0.1);
+
+// 动效
+$ease: cubic-bezier(0.32, 0.72, 0, 1);
+$duration: 200ms;
+
+// 毛玻璃
+$glass-bg: rgba(255, 253, 248, 0.7);
+$glass-border: rgba(255, 255, 255, 0.6);

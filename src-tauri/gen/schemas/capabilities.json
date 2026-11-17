@@ -1,0 +1,16 @@
+{
+  "default": {
+    "identifier": "default",
+    "description": "主窗口默认权限集",
+    "local": true,
+    "windows": ["main"],
+    "permissions": [
+      "core:default",
+      "core:event:default",
+      "core:window:default",
+      "sql:default",
+      "sql:allow-execute",
+      "sql:allow-select"
+    ]
+  }
+}

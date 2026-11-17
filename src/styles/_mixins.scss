@@ -1,0 +1,56 @@
+@use "tokens" as t;
+
+// 水平垂直居中
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+// 卡片表面：纸色 + 细描边 + 柔和阴影
+@mixin card-surface($bg: t.$paper-raised) {
+  background: $bg;
+  border: 1px solid t.$divider;
+  border-radius: t.$radius-lg;
+  box-shadow: t.$shadow-card;
+}
+
+// 毛玻璃表面（macOS 风格）
+@mixin glass-surface {
+  background: t.$glass-bg;
+  border: 1px solid t.$glass-border;
+  box-shadow: t.$shadow-card;
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+
+// 单行省略
+@mixin ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// 键盘焦点环
+@mixin focus-ring {
+  outline: 2px solid rgba(t.$accent, 0.5);
+  outline-offset: 2px;
+}
+
+// 细滚动条
+@mixin thin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(t.$ink, 0.25) transparent;
+
+  &::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: rgba(t.$ink, 0.2);
+    border-radius: 4px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}

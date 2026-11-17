@@ -1,0 +1,43 @@
+@use "tokens" as t;
+
+// 编译期兜底语义变量。运行时由 src/theme/palette.ts 的 applyPalette 注入同名变量覆盖，
+// 二者数值必须一致（见 palette.ts）。组件统一引用 var(--*)，不直接引用调色板。
+:root {
+  --bg-app: #{t.$paper};
+  --bg-surface: #{t.$paper-raised};
+  --bg-sunken: #{t.$paper-sunken};
+  --text-primary: #{t.$ink};
+  --text-soft: #{t.$ink-soft};
+  --text-faint: #{t.$ink-faint};
+  --accent: #{t.$accent};
+  --accent-hover: #{t.$accent-hover};
+  --accent-pressed: #{t.$accent-pressed};
+  --success: #{t.$success};
+  --warning: #{t.$warning};
+  --error: #{t.$error};
+  --divider: #{t.$divider};
+  --border: #dedbd2;
+  --macvue-accent: #{t.$accent};
+  --macvue-accent-hover: #{t.$accent-hover};
+  --macvue-accent-pressed: #{t.$accent-pressed};
+}
+
+:root[data-appearance="dark"] {
+  --bg-app: #1c1b1a;
+  --bg-surface: #262422;
+  --bg-sunken: #141312;
+  --text-primary: #ece9e2;
+  --text-soft: #b8b3a9;
+  --text-faint: #7e7970;
+  --accent: #2ed42e;
+  --accent-hover: #4bdb4b;
+  --accent-pressed: #1fb81f;
+  --success: #26a69a;
+  --warning: #f0b429;
+  --error: #ef5350;
+  --divider: rgba(236, 233, 226, 0.12);
+  --border: #3a3734;
+  --macvue-accent: #2ed42e;
+  --macvue-accent-hover: #4bdb4b;
+  --macvue-accent-pressed: #1fb81f;
+}

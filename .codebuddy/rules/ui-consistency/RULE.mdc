@@ -1,0 +1,77 @@
+---
+description: INK-HARNESS 前端 UI 样式一致性原则。新增或改动任何 src 下的 Vue 页面、组件、样式时必须遵守：设计令牌单一真源、按内容区宽度自适应、空状态紧凑且有行动入口、组件与视觉层级统一、单文件不超过 500 行
+alwaysApply: true
+enabled: true
+updatedAt: 2026-11-17T00:00:00.000Z
+provider:
+---
+
+# UI 样式一致性原则（强制）
+
+适用范围：`src/**/*.vue`、`src/styles/**`、`src/theme/**`。与 `.codebuddy/rules/project-conventions/RULE.mdc` 同时生效；其中「单文件不超过 500 行」同样适用于 UI 代码。
+
+## 1. 设计令牌单一真源
+
+- 颜色、字体、间距、圆角、阴影、动效只允许来自 `src/styles/_tokens.scss` 与 `src/theme/palette.ts`。
+- 组件样式统一用 `var(--bg-app)` / `var(--bg-surface)` / `var(--bg-sunken)` / `var(--text-primary)` / `var(--text-soft)` / `var(--text-faint)` / `var(--accent)` / `var(--divider)` / `var(--error)` 等语义变量；Sass 变量只作为 `var()` 的 fallback，不得单独作为最终值。
+- 禁止在业务组件里硬编码 `rgb/hex` 业务色。仅以下情况可例外：`#fff` / `#000` 用于图标或遮罩、`rgba()` 用于透明度叠加、第三方库内部主题覆盖文件（`src/theme/`、`src/styles/_bridge.scss`）。
+- 字体：标题/正文长文用 `--font-serif`（`t.$font-serif`），界面文字用无衬线；字号层级固定为：页面标题 `1.5rem`、区块标题 `14px`、卡片标题 `13px`、正文 `12~13px`、辅助信息 `11px`。
+
+## 2. 布局按「内容区宽度」自适应，不按窗口宽度硬拼
+
+- 页面根容器必须设置 `container-type: inline-size`，用 `@container` 决定栏数；`@media` 仅作为旧 WebView 的兜底，不得作为唯一响应式手段。
+- 栅格列一律使用 `minmax(0, 1fr)` 或固定小列 + `minmax(0, 1fr)`；**禁止**把多个 `px` 固定列宽直接相加（如 `250px + 360px + 320px`）。任何栅格容器及其直接子元素都必须有 `min-width: 0`。
+- 断点约定（按主内容区内容盒宽度）：
+  - `> 1000px`：允许三栏；
+  - `620px ~ 1000px`：两栏，附加面板整行下沉；
+  - `< 620px`：单栏，标题区改为纵向排列，表单改为单列。
+- 页面不得产生横向滚动条。若出现横向滚动条，视为布局错误，必须改栅格而不是加 `overflow-x: hidden` 掩盖。
+- Copilot 面板常驻占 320px、侧栏占 220px；设计三栏页面时必须以「窗口宽度 - 540px」作为可用宽度估算依据。
+
+## 3. 卡片、间距与高度
+
+- 所有卡片统一使用 `@include m.card-surface(var(--bg-surface))`，内边距 `t.$space-4`，圆角 `t.$radius-lg`，阴影 `t.$shadow-card`。
+- 页面外边距 `t.$space-6`；卡片之间 `gap: t.$space-4`；表单内部 `gap: t.$space-3`。
+- 列表类面板可设 `max-height: calc(100vh - 160px)` 并 `overflow: auto`；**图表、关系图、报告类面板禁止设置满屏高度**，高度由内容决定。
+- 空状态必须紧凑：最小高度不超过 `220px`，不留大片空白；必须包含一句明确说明与一个行动入口（按钮或跳转链接）。
+- 禁止用 `min-height` 强行撑高空容器制造「看起来对齐」的效果；需要对齐时用栅格 `align-items: start` 并让卡片内容自然决定高度。
+
+## 4. 组件与交互统一
+
+- 通用控件只用项目已引入的两套：Naive UI（表单、表格、树、弹窗、Tag、Select、Input）与 MacVue（`@macvue/core` 的按钮等原生控件）。
+- **同一按钮组必须来自同一控件体系并显式使用同一 `size`**：页面级主次按钮统一用 `<MacButton size="regular">`，仅用 `variant="prominent"` 区分主次；禁止把 `<NButton>` 与 `<MacButton>` 混排在同一组（两者默认高度不同，会造成按钮大小不一）。
+- 表格行内/表单末尾的轻量操作可用 `<NButton size="tiny" quaternary>`，但同一组内的尺寸必须一致；危险操作用 `type="error"` 并配 `NPopconfirm`；禁用态统一由 `disabled` 表达，不靠改颜色模拟。
+- 主操作用 `<MacButton variant="prominent">`；次操作用默认 `<MacButton>`；工具栏图标按钮统一 `<NButton quaternary size="small">`。
+- **新建操作必须使用弹窗（NModal preset="card"）**：弹窗只放最小必要字段（类型/名称/一句话摘要等），创建成功后关闭弹窗并选中新实体，再进入详情面板继续编辑；禁止用详情面板内联承载完整新建流程。
+- 标签统一 `<NTag size="small" :bordered="false">`，严重级别用 `type="warning" | "info" | "error" | "success"`，不自定义彩色标签样式。
+- 同类列表项、表格行、详情字段的视觉结构保持一致：左侧图标/标签 + 主体文字 + 右侧计数/操作；文字超长统一 `@include m.ellipsis`。
+- 页面级状态（loading / error / empty）必须同时存在：错误用 `var(--error)` 文案，空状态用 `var(--text-faint)` 文案，loading 用组件自身 `loading` 属性，不手写 spinner。
+
+## 5. 状态管理与代码组织
+
+- 页面组件只负责组装：调用 composable、渲染子组件、放页面级标题与操作。超过 500 行的页面必须拆分。
+- 页面职责与作用域的划分另见 `.codebuddy/rules/feature-page-boundaries/RULE.mdc`；全局页与实体内页必须是两个页面，不得用 query 混用。
+- 推荐拆分结构：
+  - `src/composables/useXxx.ts`：状态、派生数据、事件处理与请求；
+  - `src/components/<domain>/XxxList.vue`、`XxxForm.vue`、`XxxPanel.vue`：按界面区域拆子组件；
+  - 跨组件共享的纯类型放 `src/types/` 或 composable 同文件导出。
+- 子组件通过 `props` / `defineModel` / `emit` 通信，不在子组件内直接调 IPC 或 service。
+- 样式就近写在各组件 `<style scoped lang="scss">`；页面级只保留栅格、容器查询与标题区样式。
+
+## 6. 新增/改动页面前的自检清单
+
+- [ ] 是否所有颜色都来自语义变量或 token fallback？
+- [ ] 页面根是否设置 `container-type: inline-size`，并用 `@container` 做响应式？
+- [ ] 是否存在固定列宽相加、横向滚动条、面板被 Copilot 遮挡？
+- [ ] 空状态是否紧凑且带行动入口？
+- [ ] 图表/报告面板是否避免了满屏高度和大片空白？
+- [ ] 按钮、Tag、Input 是否使用统一组件与尺寸？
+- [ ] 单文件是否仍 ≤ 500 行？超限是否已拆 composable / 子组件？
+
+## 7. 反模式（出现即视为违反本规则）
+
+- 用 `grid-template-columns: 250px 360px 320px` 这类固定宽度硬拼三栏。
+- 用 `overflow-x: hidden` 掩盖布局溢出。
+- 空状态只放一行灰字，或给空图表容器设 `min-height: 300px` 以上。
+- 在页面文件里同时写请求逻辑、表单逻辑、SVG 图表和数百行样式。
+- 同一语义在不同页面使用不同色值、字号或按钮样式。
