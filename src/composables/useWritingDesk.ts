@@ -1,4 +1,5 @@
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { outlineService } from "@/services/outlineService";
 import { projectService } from "@/services/projectService";
 import { writingService } from "@/services/writingService";
@@ -33,6 +34,8 @@ export interface EditorPayload {
  * 避免用户在不知道写的是哪一章的情况下开始敲字。
  */
 export function useWritingDesk(projectId: string, currentChapterId: () => string) {
+  const route = useRoute();
+  const router = useRouter();
   const project = ref<Project | null>(null);
   const chapters = ref<Chapter[]>([]);
   const content = ref("");
@@ -284,6 +287,23 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
     () => currentChapterId(),
     async (next) => {
       if (!projectId) return;
+      // 页面被 keep-alive 缓存后，从别的页面点侧栏「写作台」进来的路径不带章节 id：
+      // 这时把上次载入的章补回路径，否则会按「未选章」把编辑器清空，看起来像丢了状态。
+      // 只在写作台处于激活状态时补，避免人在别的页面却被改写地址。
+      if (
+        !next &&
+        route.name === "project-writing" &&
+        loadedChapterId.value &&
+        chapters.value.some((chapter) => chapter.id === loadedChapterId.value)
+      ) {
+        void router.replace({
+          name: "project-writing",
+          params: { projectId, chapterId: loadedChapterId.value },
+        });
+        return;
+      }
+      // 补回同一个章节时不必重新读库，否则编辑器光标与滚动位置都会被重置。
+      if (next === loadedChapterId.value) return;
       await flush();
       error.value = "";
       await loadContent(next);
@@ -322,6 +342,10 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
     document.removeEventListener("visibilitychange", onVisibilityChange);
     void flush();
   });
+
+  // 页面被 keep-alive 缓存后，离开写作台走的是 deactivated 而不是 unmount：
+  // 这里补一次落库，作者切到设定库/审稿时不用等自动保存的 2 秒。
+  onDeactivated(() => void flush());
 
   return {
     project,

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NButton, NTooltip } from "naive-ui";
-import { computed } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAppStore } from "@/stores/app";
 
@@ -42,7 +42,7 @@ const projectNavItems = [
   { key: "bible", label: "设定库", icon: "▤", name: "project-bible" },
   { key: "outline", label: "大纲", icon: "☷", name: "project-outline" },
   { key: "write", label: "写作台", icon: "✎", name: "project-writing" },
-  { key: "review", label: "编辑审稿", icon: "◎", name: "" },
+  { key: "review", label: "编辑审稿", icon: "◎", name: "project-review" },
 ];
 
 /**
@@ -75,6 +75,21 @@ function open(item: { path: string }): void {
   // 未开放模块的 path 为空，点击时不做跳转。
   if (item.path) void router.push(item.path);
 }
+
+const contentRef = ref<HTMLElement | null>(null);
+
+/**
+ * 换页后把内容区滚回顶部。
+ * 页面本身被 keep-alive 保住了状态，但滚动容器只有这一个：不重置的话，
+ * 从很长的审稿报告切到工作台会停在半截空白处。
+ */
+watch(
+  () => route.fullPath,
+  async () => {
+    await nextTick();
+    contentRef.value?.scrollTo({ top: 0 });
+  },
+);
 </script>
 
 <template>
@@ -160,7 +175,7 @@ function open(item: { path: string }): void {
         </div>
       </aside>
 
-      <main class="content">
+      <main ref="contentRef" class="content">
         <slot />
       </main>
     </div>

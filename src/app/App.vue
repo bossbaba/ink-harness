@@ -33,7 +33,15 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 <template>
   <NConfigProvider :theme="naiveTheme" :theme-overrides="themeOverrides" class="app-root">
     <AppShell>
-      <RouterView />
+      <!--
+        路由页统一缓存：切到设定库再回写作台时，编辑器正文、AI 面板、
+        构思向导步骤、审稿报告都还在。列表类页面在 onReactivated 里自行补刷新。
+      -->
+      <RouterView v-slot="{ Component }">
+        <KeepAlive>
+          <component :is="Component" />
+        </KeepAlive>
+      </RouterView>
     </AppShell>
   </NConfigProvider>
 </template>

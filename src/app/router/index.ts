@@ -4,6 +4,7 @@ import ModelSettingsView from "@/views/ModelSettingsView.vue";
 import ProjectBibleView from "@/views/ProjectBibleView.vue";
 import ProjectIdeationView from "@/views/ProjectIdeationView.vue";
 import ProjectOutlineView from "@/views/ProjectOutlineView.vue";
+import ProjectReviewView from "@/views/ProjectReviewView.vue";
 import ProjectShellView from "@/views/ProjectShellView.vue";
 import ProjectWritingView from "@/views/ProjectWritingView.vue";
 import WorkspaceView from "@/views/WorkspaceView.vue";
@@ -33,8 +34,9 @@ const router = createRouter({
     {
       // 作品作用域的父路由：ProjectShellView 校验 projectId 并加载作品，
       // 校验通过后才渲染下面的子页面，避免无 ID 时回退到全局数据。
+      // 父路由刻意不取名：它唯一的空路径子路由只做重定向，带 name 会触发
+      // 「named route has an unnamed empty-path child」警告，跳转一律用子路由名。
       path: "/projects/:projectId",
-      name: "project",
       component: ProjectShellView,
       children: [
         // 进入某部作品时默认打开它的设定库。
@@ -64,6 +66,13 @@ const router = createRouter({
           path: "write/:chapterId?",
           name: "project-writing",
           component: ProjectWritingView,
+          props: true,
+        },
+        {
+          // 编辑审稿：报告只读，改稿跳回写作台，因此不需要把章节写进路径。
+          path: "review",
+          name: "project-review",
+          component: ProjectReviewView,
           props: true,
         },
       ],

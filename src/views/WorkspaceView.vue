@@ -9,6 +9,7 @@ import { useOllamaControl } from "@/composables/useOllamaControl";
 import { projectService } from "@/services/projectService";
 import { useAppStore } from "@/stores/app";
 import { type DatabaseInfo, PROJECT_STATUS_LABEL, type Project } from "@/types";
+import { onReactivated } from "@/utils/lifecycle";
 
 const app = useAppStore();
 const router = useRouter();
@@ -91,6 +92,10 @@ onMounted(async () => {
     dbInfo.value = null;
   }
 });
+
+// 页面被 keep-alive 缓存后 onMounted 只跑一次：从作品里回来时补刷作品列表，
+// 否则新建/改名/删除的作品在工作台上看不到变化。
+onReactivated(() => void loadProjects());
 </script>
 
 <template>

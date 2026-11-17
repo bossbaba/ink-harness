@@ -9,6 +9,7 @@ import {
   type StoryElementKind,
   type StoryElementOverview,
 } from "@/types";
+import { onReactivated } from "@/utils/lifecycle";
 
 type KindFilter = StoryElementKind | "all";
 
@@ -73,6 +74,30 @@ export function useGlobalBible() {
     });
   }
 
+  /**
+   * 拉全量设定与作品列表。
+   * `keepSelection` 用于从缓存回来时刷新：还停在上次看的那条上，
+   * 只有它被删了才退回首条，避免一回来就被跳走。
+   */
+  async function loadOverview(keepSelection = false): Promise<void> {
+    busy.value = true;
+    error.value = "";
+    try {
+      const [all, projectList] = await Promise.all([
+        storyElementService.listAll(),
+        projectService.list(),
+      ]);
+      items.value = all;
+      projects.value = projectList;
+      if (keepSelection && all.some((item) => item.id === selectedId.value)) return;
+      selectedId.value = all.length > 0 ? all[0].id : "";
+    } catch (err) {
+      error.value = `读取全局设定失败：${String(err)}`;
+    } finally {
+      busy.value = false;
+    }
+  }
+
   onMounted(async () => {
     // 兼容旧的 /bible?project=xxx 链接：跳转到唯一的作品设定库页面。
     const legacyProject = route.query.project;
@@ -86,23 +111,11 @@ export function useGlobalBible() {
       });
       return;
     }
-
-    busy.value = true;
-    error.value = "";
-    try {
-      const [all, projectList] = await Promise.all([
-        storyElementService.listAll(),
-        projectService.list(),
-      ]);
-      items.value = all;
-      projects.value = projectList;
-      if (all.length > 0) selectElement(all[0].id);
-    } catch (err) {
-      error.value = `读取全局设定失败：${String(err)}`;
-    } finally {
-      busy.value = false;
-    }
+    await loadOverview();
   });
+
+  // 设定会在作品内被改动，回到全局页时补一次刷新，免得看到旧汇总。
+  onReactivated(() => void loadOverview(true));
 
   return {
     items,

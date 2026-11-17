@@ -11,6 +11,7 @@ import {
   type StoryElementKind,
   type StoryRelation,
 } from "@/types";
+import { onReactivated } from "@/utils/lifecycle";
 
 export type KindFilter = StoryElementKind | "all";
 
@@ -122,7 +123,12 @@ export function useStoryBible(projectIdFromRoute: string) {
     error.value = "";
   }
 
-  async function loadElements(): Promise<void> {
+  /**
+   * 重新拉取设定列表。
+   * `keepDraft` 供「从缓存回来」时使用：列表要更新（别处可能新建了设定），
+   * 但作者表单里还没保存的草稿不能被数据库里的旧值冲掉。
+   */
+  async function loadElements(keepDraft = false): Promise<void> {
     issues.value = [];
     if (!projectId.value) {
       elements.value = [];
@@ -131,10 +137,10 @@ export function useStoryBible(projectIdFromRoute: string) {
     try {
       elements.value = await storyElementService.list(projectId.value);
       if (selectedId.value && elements.value.some((item) => item.id === selectedId.value)) {
-        selectElement(selectedId.value);
+        if (!keepDraft) selectElement(selectedId.value);
       } else if (elements.value.length > 0) {
         selectElement(elements.value[0].id);
-      } else {
+      } else if (!keepDraft) {
         draft.value = emptyDraft();
       }
     } catch (err) {
@@ -292,6 +298,9 @@ export function useStoryBible(projectIdFromRoute: string) {
       error.value = `读取作品失败：${String(err)}`;
     }
   });
+
+  // 从构思向导或写作台回来时，设定可能已经被改过：刷列表但保留未保存的草稿。
+  onReactivated(() => void loadElements(true));
 
   return {
     projectId,

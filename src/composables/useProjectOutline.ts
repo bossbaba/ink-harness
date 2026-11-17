@@ -11,6 +11,7 @@ import type {
   Scene,
   SceneDraft,
 } from "@/types";
+import { onReactivated } from "@/utils/lifecycle";
 
 function emptyChapterDraft(act: Act = 1): ChapterDraft {
   return { id: "", act, title: "", summary: "", status: "planned" };
@@ -418,6 +419,10 @@ export function useProjectOutline(projectIdFromRoute: string) {
       error.value = `读取作品失败：${String(err)}`;
     }
   });
+
+  // 构思向导会写回大纲，写作台也会增删章节：从缓存回来时重拉一次，
+  // load() 会保留仍然存在的选中章节，不会把作者正在编辑的章跳走。
+  onReactivated(() => void load());
 
   return {
     projectId,
