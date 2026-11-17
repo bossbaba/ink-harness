@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { MacButton } from "@macvue/core";
-import { NDrawer, NDrawerContent, NSelect, NTag } from "naive-ui";
+import { NSelect, NTag } from "naive-ui";
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import DraftVersionPanel from "@/components/writing/DraftVersionPanel.vue";
 import WritingAiPanel from "@/components/writing/WritingAiPanel.vue";
 import WritingChapterList from "@/components/writing/WritingChapterList.vue";
-import WritingCopilotDrawer from "@/components/writing/WritingCopilotDrawer.vue";
+import WritingCopilotPanel from "@/components/writing/WritingCopilotPanel.vue";
 import WritingEditor from "@/components/writing/WritingEditor.vue";
+import WritingEmptyState from "@/components/writing/WritingEmptyState.vue";
+import WritingSaveStatus from "@/components/writing/WritingSaveStatus.vue";
+import WritingVersionsDrawer from "@/components/writing/WritingVersionsDrawer.vue";
 import { useWritingAssist } from "@/composables/useWritingAssist";
 import { useWritingCopilot } from "@/composables/useWritingCopilot";
 import { useWritingDesk } from "@/composables/useWritingDesk";
@@ -19,7 +21,7 @@ import {
   CHAPTER_STATUS_TAG_TYPE,
   type CopilotReference,
 } from "@/types";
-import { formatCount, formatDateTime } from "@/utils/text";
+import { formatCount } from "@/utils/text";
 import { documentToPlainText, EMPTY_DOCUMENT_TEXT } from "@/utils/tiptap";
 
 /**
@@ -162,21 +164,6 @@ const chapterOptions = computed(() =>
   ),
 );
 
-const saveLabel = computed(() => {
-  switch (saveState.value) {
-    case "dirty":
-      return "未保存…";
-    case "saving":
-      return "保存中…";
-    case "saved":
-      return lastSavedAt.value ? `已保存 ${formatDateTime(lastSavedAt.value)}` : "已保存";
-    case "error":
-      return "保存失败";
-    default:
-      return "";
-  }
-});
-
 const pageTitle = computed(() => (project.value ? `《${project.value.title}》· 写作台` : "写作台"));
 
 function openChapter(chapterId: string): void {
@@ -203,7 +190,7 @@ async function handleRestore(versionId: string): Promise<void> {
 </script>
 
 <template>
-  <div class="writing" :class="{ 'writing--copilot': app.copilotOpen && !app.focusMode }">
+  <div class="writing">
     <header class="writing__header">
       <div class="writing__titles">
         <h1 class="writing__title serif">{{ pageTitle }}</h1>
@@ -219,9 +206,7 @@ async function handleRestore(versionId: string): Promise<void> {
             </NTag>
             <span>本章 {{ formatCount(wordCount) }} 字</span>
             <span>全书 {{ formatCount(totalWords) }} 字</span>
-            <span v-if="saveLabel" class="writing__save" :class="`writing__save--${saveState}`">
-              {{ saveLabel }}
-            </span>
+            <WritingSaveStatus :state="saveState" :saved-at="lastSavedAt" />
           </template>
           <template v-else>从左侧选一章开始写，正文会在停笔后自动保存。</template>
         </p>
@@ -253,7 +238,7 @@ async function handleRestore(versionId: string): Promise<void> {
 
     <p v-if="error" class="writing__error">{{ error }}</p>
 
-    <div class="writing__body">
+    <div class="writing__body" :class="{ 'writing__body--copilot': app.copilotOpen }">
       <WritingChapterList
         class="writing__chapters"
         :groups="chaptersByAct"
@@ -265,15 +250,18 @@ async function handleRestore(versionId: string): Promise<void> {
 
       <div class="writing__main">
         <p v-if="contentLoading" class="writing__hint">正在载入正文…</p>
-        <div v-else-if="!activeChapterId" class="writing__empty">
-          <p>还没有选择章节。</p>
-          <p class="writing__empty-hint">在左侧点一章开始写；如果还没有章节，先去大纲建一章。</p>
-          <MacButton size="regular" @click="goOutline">去大纲创建章节</MacButton>
-        </div>
-        <div v-else-if="!loadedChapterId" class="writing__empty">
-          <p>这一章的正文没能载入。</p>
-          <p class="writing__empty-hint">请按上方提示检查后，重新点选该章节再试。</p>
-        </div>
+        <WritingEmptyState
+          v-else-if="!activeChapterId"
+          title="还没有选择章节。"
+          hint="在左侧点一章开始写；如果还没有章节，先去大纲建一章。"
+          action-label="去大纲创建章节"
+          @action="goOutline"
+        />
+        <WritingEmptyState
+          v-else-if="!loadedChapterId"
+          title="这一章的正文没能载入。"
+          hint="请按上方提示检查后，重新点选该章节再试。"
+        />
         <WritingEditor
           v-else
           ref="editorRef"
@@ -284,37 +272,35 @@ async function handleRestore(versionId: string): Promise<void> {
           @ai="handleAi"
         />
       </div>
+
+      <WritingCopilotPanel
+        v-if="app.copilotOpen"
+        class="writing__copilot"
+        :project-id="projectId"
+        :messages="copilotMessages"
+        :streaming="copilotStreaming"
+        :error="copilotError"
+        :context-chars="copilotContextChars"
+        :references="copilotReferences"
+        @send="sendCopilotMessage"
+        @stop="stopCopilot"
+        @clear="clearCopilot"
+        @pick="toggleCopilotReference"
+        @unpick="removeCopilotReference"
+        @insert="insertCopilotText"
+      />
     </div>
 
-    <NDrawer v-model:show="showVersions" :width="320" placement="right">
-      <NDrawerContent title="版本快照" closable>
-        <DraftVersionPanel
-          :versions="versions"
-          :loading="versionsLoading"
-          :busy="versionsBusy"
-          :preview="previewVersion"
-          @snapshot="createSnapshot"
-          @preview="openVersionPreview"
-          @restore="handleRestore"
-          @close-preview="closeVersionPreview"
-        />
-      </NDrawerContent>
-    </NDrawer>
-
-    <WritingCopilotDrawer
-      v-model:show="app.copilotOpen"
-      :project-id="projectId"
-      :messages="copilotMessages"
-      :streaming="copilotStreaming"
-      :error="copilotError"
-      :context-chars="copilotContextChars"
-      :references="copilotReferences"
-      @send="sendCopilotMessage"
-      @stop="stopCopilot"
-      @clear="clearCopilot"
-      @pick="toggleCopilotReference"
-      @unpick="removeCopilotReference"
-      @insert="insertCopilotText"
+    <WritingVersionsDrawer
+      v-model:show="showVersions"
+      :versions="versions"
+      :loading="versionsLoading"
+      :busy="versionsBusy"
+      :preview="previewVersion"
+      @snapshot="createSnapshot"
+      @preview="openVersionPreview"
+      @restore="handleRestore"
+      @close-preview="closeVersionPreview"
     />
 
     <WritingAiPanel
@@ -375,21 +361,6 @@ async function handleRestore(versionId: string): Promise<void> {
     color: var(--text-soft, #{t.$ink-soft});
   }
 
-  &__save {
-    &--saving,
-    &--dirty {
-      color: var(--warning, #{t.$warning});
-    }
-
-    &--error {
-      color: var(--error, #{t.$error});
-    }
-
-    &--saved {
-      color: var(--text-faint, #{t.$ink-faint});
-    }
-  }
-
   &__actions {
     display: flex;
     align-items: center;
@@ -414,6 +385,11 @@ async function handleRestore(versionId: string): Promise<void> {
     grid-template-columns: 240px minmax(0, 1fr);
     flex: 1;
     min-height: 0;
+
+    // AI 对话打开时是第三栏：章节 / 编辑器 / 对话，三栏都参与布局，不互相遮挡。
+    &--copilot {
+      grid-template-columns: 240px minmax(0, 1fr) 320px;
+    }
   }
 
   &__chapters {
@@ -426,7 +402,17 @@ async function handleRestore(versionId: string): Promise<void> {
     min-width: 0;
     min-height: 0;
     background: var(--bg-surface);
-    transition: padding-right t.$duration t.$ease;
+  }
+
+  // AI 对话栏：常驻在编辑器右侧。这些类落在面板根节点上，纵向布局由面板自己负责，
+  // 这里只管列宽、内边距与分隔线，避免两处都设 flex 打架。
+  &__copilot {
+    min-width: 0;
+    min-height: 0;
+    padding: t.$space-3;
+    overflow: hidden;
+    border-left: 1px solid var(--divider, #{t.$divider});
+    background: var(--bg-surface);
   }
 
   &__hint {
@@ -435,34 +421,6 @@ async function handleRestore(versionId: string): Promise<void> {
     color: var(--text-faint);
   }
 
-  &__empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: t.$space-3;
-    min-height: 220px;
-    padding: t.$space-6;
-    text-align: center;
-    font-size: 13px;
-    color: var(--text-faint);
-
-    p {
-      margin: 0;
-    }
-  }
-
-  &__empty-hint {
-    font-size: 11px;
-    color: var(--text-faint);
-  }
-}
-
-// 宽屏时给抽屉让出等宽内边距，正文整体左移而不是被盖住；窄屏保持覆盖，免得正文被挤没。
-@container (min-width: 1000px) {
-  .writing--copilot .writing__main {
-    padding-right: 380px;
-  }
 }
 
 @container (max-width: 1000px) {
@@ -474,6 +432,15 @@ async function handleRestore(versionId: string): Promise<void> {
     width: 100%;
   }
 
+  // 窄屏用标题栏下拉切章，把左侧列表让给 AI 对话，否则正文只剩三四百像素。
+  .writing__body--copilot .writing__chapters {
+    display: none;
+  }
+
+  .writing__body--copilot {
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
+
   .writing__picker {
     display: block;
   }
@@ -482,6 +449,17 @@ async function handleRestore(versionId: string): Promise<void> {
 @container (max-width: 620px) {
   .writing__body {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  // 单栏时对话整行下沉到编辑器下方，上下各占一半；横着分栏会把正文挤没。
+  .writing__body--copilot {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 50%);
+  }
+
+  .writing__copilot {
+    border-top: 1px solid var(--divider, #{t.$divider});
+    border-left: none;
   }
 
   // 单栏时左侧列表让位，切章靠标题栏下拉框。

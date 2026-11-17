@@ -217,6 +217,7 @@ function isLive(message: CopilotMessage): boolean {
 
   &__meta {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: t.$space-2;
     margin: 0;
@@ -233,7 +234,8 @@ function isLive(message: CopilotMessage): boolean {
     flex-direction: column;
     gap: t.$space-3;
     flex: 1;
-    min-height: 160px;
+    // 常驻侧栏高度有限：消息区只吃剩余空间并自己滚动，保证底部输入框始终可见。
+    min-height: 0;
     overflow: auto;
     @include m.thin-scrollbar;
   }
