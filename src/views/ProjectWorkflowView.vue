@@ -144,7 +144,7 @@ onReactivated(() => void load());
 
 .workflow {
   container-type: inline-size;
-  max-width: 860px;
+  max-width: 1000px;
   margin: 0 auto;
   padding: t.$space-6;
 
@@ -183,11 +183,25 @@ onReactivated(() => void load());
 
   &__steps {
     margin-top: t.$space-2;
+    width: 100%;
 
-    // 步骤内容区给足宽度，选章与产物预览不被挤窄。
+    // 步骤内容区撑满整行：选章、产物预览与审批按钮不被挤在左侧窄条里。
+    :deep(.n-step) {
+      width: 100%;
+    }
     :deep(.n-step__content) {
       min-width: 0;
+      width: 100%;
       padding-bottom: t.$space-4;
+    }
+    // 标题与描述用正常层级，避免整条流水线都是淡灰小字。
+    :deep(.n-step__title) {
+      font-size: 14px;
+      font-weight: 600;
+    }
+    :deep(.n-step__description) {
+      font-size: 12px;
+      line-height: 1.6;
     }
   }
 

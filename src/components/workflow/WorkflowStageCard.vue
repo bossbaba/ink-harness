@@ -111,19 +111,22 @@ function copyArtifact(): void {
 
 <style scoped lang="scss">
 @use "../../styles/tokens" as t;
+@use "../../styles/mixins" as m;
 
 .stage {
   display: flex;
   flex-direction: column;
   gap: t.$space-3;
   min-width: 0;
-  padding: t.$space-3 0 t.$space-2;
+  width: 100%;
+  padding: t.$space-4;
+  @include m.card-surface(var(--bg-surface));
 
   &__chapter label {
     display: flex;
     flex-direction: column;
     gap: t.$space-2;
-    max-width: 420px;
+    max-width: 560px;
     font-size: 11px;
     color: var(--text-faint, #{t.$ink-faint});
   }
@@ -176,6 +179,9 @@ function copyArtifact(): void {
   }
 
   &__error {
+    padding: t.$space-2 t.$space-3;
+    border-radius: t.$radius-md;
+    background: var(--bg-sunken, #{t.$paper-sunken});
     color: var(--error, #{t.$error});
   }
 
