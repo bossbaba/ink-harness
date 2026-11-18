@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { MacButton } from "@macvue/core";
-import { NTag } from "naive-ui";
+import { NButton, NTag } from "naive-ui";
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { tauriApi } from "@/api/tauri";
@@ -139,24 +139,12 @@ onReactivated(() => void loadProjects());
             <span v-if="p.privacy === 'local-only'">仅本地</span>
           </div>
           <div class="project-card__actions">
-            <button class="project-card__open" type="button" @click="openIdeation(p.id)">
-              构思向导 →
-            </button>
-            <button class="project-card__open" type="button" @click="openOutline(p.id)">
-              进入大纲 →
-            </button>
-            <button class="project-card__open" type="button" @click="openWriting(p.id)">
-              进入写作台 →
-            </button>
-            <button class="project-card__open" type="button" @click="openBible(p.id)">
-              进入设定库 →
-            </button>
-            <button class="project-card__open" type="button" @click="openPublish(p.id)">
-              出版中心 →
-            </button>
-            <button class="project-card__open" type="button" @click="openWorkflow(p.id)">
-              创作工作流 →
-            </button>
+            <NButton size="small" quaternary @click="openIdeation(p.id)">构思向导 →</NButton>
+            <NButton size="small" quaternary @click="openOutline(p.id)">进入大纲 →</NButton>
+            <NButton size="small" quaternary @click="openWriting(p.id)">进入写作台 →</NButton>
+            <NButton size="small" quaternary @click="openBible(p.id)">进入设定库 →</NButton>
+            <NButton size="small" quaternary @click="openPublish(p.id)">出版中心 →</NButton>
+            <NButton size="small" quaternary @click="openWorkflow(p.id)">创作工作流 →</NButton>
           </div>
         </article>
       </div>
@@ -179,16 +167,16 @@ onReactivated(() => void loadProjects());
         </div>
         <p v-if="ollamaError" class="card__error">{{ ollamaError }}</p>
         <div class="card__links">
-          <button
+          <NButton
             v-if="!ollamaRunning"
-            class="card__link"
-            type="button"
+            size="small"
+            quaternary
             :disabled="ollamaStarting"
             @click="startOllama"
           >
             {{ ollamaStarting ? "启动中…" : "启动本地模型 →" }}
-          </button>
-          <button class="card__link" type="button" @click="openModels">配置模型 →</button>
+          </NButton>
+          <NButton size="small" quaternary @click="openModels">配置模型 →</NButton>
         </div>
       </div>
       <div class="card">
@@ -302,22 +290,12 @@ onReactivated(() => void loadProjects());
     display: flex;
     // 六个入口必须排在同一行：卡片已改单列给足宽度，这里禁止换行避免掉到第二行。
     flex-wrap: nowrap;
-    gap: t.$space-2;
-    margin-top: t.$space-3;
-  }
-  &__open {
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: var(--accent);
-    font-size: 11px;
-    cursor: pointer;
-    // 单个按钮的文字与箭头始终同一行，也不被 flex 压缩宽度。
-    white-space: nowrap;
-    flex-shrink: 0;
-
-    &:hover {
-      text-decoration: underline;
+    gap: t.$space-1;
+    margin-top: t.$space-2;
+    // NButton 自带 padding，这里不再给按钮加边距，靠 gap 控制间距。
+    :deep(button) {
+      flex-shrink: 0;
+      white-space: nowrap;
     }
   }
 }
@@ -362,21 +340,8 @@ onReactivated(() => void loadProjects());
   &__links {
     display: flex;
     flex-wrap: wrap;
-    gap: t.$space-3;
-    margin-top: t.$space-2;
-  }
-  &__link {
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: var(--accent);
-    font-size: 11px;
-    cursor: pointer;
-
-    &:disabled {
-      color: var(--text-faint);
-      cursor: progress;
-    }
+    gap: t.$space-1;
+    margin-top: t.$space-1;
   }
   &__error {
     margin: t.$space-2 0 0;
