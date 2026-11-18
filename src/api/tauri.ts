@@ -8,6 +8,7 @@ import type {
   DatabaseInfo,
   DraftVersion,
   DraftVersionBrief,
+  ExportResult,
   Foreshadow,
   MoveChapterInput,
   MoveSceneInput,
@@ -107,6 +108,10 @@ export const tauriApi = {
     invoke<DraftVersionBrief[]>("list_draft_versions", { chapterId }),
   getDraftVersion: (id: string) => invoke<DraftVersion>("get_draft_version", { id }),
   restoreDraftVersion: (id: string) => invoke<ChapterContent>("restore_draft_version", { id }),
+
+  // 出版导出：内容在前端生成，这里只把字节写到用户选定的路径。
+  writeExportFile: (path: string, data: number[]) =>
+    invoke<ExportResult>("write_export_file", { path, data }),
 
   // RAG 检索：索引按作品维护，检索按问题取最近片段。
   ragStatus: (projectId: string) => invoke<RagStatus>("rag_status", { projectId }),

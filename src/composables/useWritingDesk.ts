@@ -3,6 +3,7 @@ import { useRoute, useRouter } from "vue-router";
 import { outlineService } from "@/services/outlineService";
 import { projectService } from "@/services/projectService";
 import { writingService } from "@/services/writingService";
+import { useDraftSyncStore } from "@/stores/draftSync";
 import type {
   Act,
   Chapter,
@@ -11,6 +12,7 @@ import type {
   DraftVersionBrief,
   Project,
 } from "@/types";
+import { onReactivated } from "@/utils/lifecycle";
 import { countCharacters } from "@/utils/text";
 
 /** 自动保存防抖间隔：太短会频繁写库，太长又容易在切章时丢刚写的内容。 */
@@ -34,6 +36,7 @@ export interface EditorPayload {
  * 避免用户在不知道写的是哪一章的情况下开始敲字。
  */
 export function useWritingDesk(projectId: string, currentChapterId: () => string) {
+  const draftSync = useDraftSyncStore();
   const route = useRoute();
   const router = useRouter();
   const project = ref<Project | null>(null);
@@ -56,6 +59,8 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
   // 待落库的正文；自动保存与手动快照都从这里取，避免读到编辑器之外的旧值。
   let pending: { content: string; wordCount: number } | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  /** 载入正文时记住的版本：审稿页在外部改过正文后，靠它判断缓存是否已过期。 */
+  let seenRevision = 0;
 
   const activeChapterId = computed(() => currentChapterId());
   /**
@@ -148,6 +153,7 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
     try {
       const data = await writingService.getContent(chapterId);
       loadedChapterId.value = chapterId;
+      seenRevision = draftSync.revisionOf(chapterId);
       content.value = data.content;
       wordCount.value = data.wordCount;
       lastSavedAt.value = data.updatedAt;
@@ -346,6 +352,17 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
   // 页面被 keep-alive 缓存后，离开写作台走的是 deactivated 而不是 unmount：
   // 这里补一次落库，作者切到设定库/审稿时不用等自动保存的 2 秒。
   onDeactivated(() => void flush());
+
+  // 审稿页把修改写进本章正文后，缓存里的编辑器内容就过期了。
+  // 回来时若版本对不上，丢弃可能残留的旧稿直接重读，避免自动保存把审稿结果覆盖掉。
+  onReactivated(() => {
+    const chapterId = loadedChapterId.value;
+    if (!chapterId || draftSync.revisionOf(chapterId) === seenRevision) return;
+    pending = null;
+    clearTimer();
+    seenRevision = draftSync.revisionOf(chapterId);
+    void loadContent(chapterId);
+  });
 
   return {
     project,

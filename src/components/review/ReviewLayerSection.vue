@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import ReviewIssueCard from "@/components/review/ReviewIssueCard.vue";
-import { REVIEW_LAYER_HINT, REVIEW_LAYER_LABEL, type ReviewIssue, type ReviewLayer } from "@/types";
+import {
+  REVIEW_LAYER_HINT,
+  REVIEW_LAYER_LABEL,
+  type ReviewDecision,
+  type ReviewIssue,
+  type ReviewLayer,
+} from "@/types";
 
 /**
  * 审稿报告的一层（结构 / 一致性 / 语言）。
@@ -15,6 +21,13 @@ defineProps<{
   running: boolean;
   /** 该层不适用的原因（如全书模式下的语言层）。 */
   note?: string;
+  /** 本章模式：采纳的修改可以写回正文。 */
+  canApply: boolean;
+}>();
+
+const emit = defineEmits<{
+  decide: [id: string, decision: ReviewDecision];
+  comment: [id: string, text: string];
 }>();
 </script>
 
@@ -30,7 +43,14 @@ defineProps<{
     <p v-else-if="note" class="layer__empty">{{ note }}</p>
     <p v-else-if="issues.length === 0" class="layer__empty">这一层没有发现问题。</p>
     <div v-else class="layer__list">
-      <ReviewIssueCard v-for="issue in issues" :key="issue.id" :issue="issue" />
+      <ReviewIssueCard
+        v-for="issue in issues"
+        :key="issue.id"
+        :issue="issue"
+        :can-apply="canApply"
+        @decide="(id, decision) => emit('decide', id, decision)"
+        @comment="(id, text) => emit('comment', id, text)"
+      />
     </div>
   </section>
 </template>

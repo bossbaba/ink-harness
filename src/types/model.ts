@@ -73,7 +73,8 @@ export type TaskKind =
   | "condense"
   | "polish"
   | "review"
-  | "summary";
+  | "summary"
+  | "publish";
 
 /** 路由策略。 */
 export type RouteStrategy = "quality" | "cost" | "privacy";

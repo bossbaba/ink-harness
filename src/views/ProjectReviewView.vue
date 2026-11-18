@@ -31,10 +31,18 @@ const {
   error,
   report,
   grouped,
+  acceptedCount,
+  rejectedCount,
+  applyableCount,
+  applying,
+  applyNotice,
   load,
   run,
   stop,
   reset,
+  decide,
+  setComment,
+  applyAccepted,
 } = useProjectReview(props.projectId);
 
 const copied = ref(false);
@@ -93,7 +101,7 @@ async function copyReport(): Promise<void> {
       <div>
         <h1 class="review__title serif">{{ pageTitle }}</h1>
         <p class="review__subtitle">
-          一致性由设定库规则直接检查，结构与语言交给模型。报告只作参考，改稿请回写作台。
+          一致性由设定库规则直接检查，结构与语言交给模型。逐条审阅后可把可替换的修改写回本章正文。
         </p>
       </div>
     </header>
@@ -154,9 +162,21 @@ async function copyReport(): Promise<void> {
     <template v-if="report">
       <div class="summary">
         <p class="summary__text">{{ summary }}</p>
+        <span v-if="acceptedCount || rejectedCount" class="summary__progress">
+          采纳 {{ acceptedCount }} · 忽略 {{ rejectedCount }}
+        </span>
         <MacButton size="regular" @click="copyReport">{{
           copied ? "已复制" : "复制报告"
         }}</MacButton>
+        <MacButton
+          v-if="report.scope === 'chapter'"
+          size="regular"
+          variant="prominent"
+          :disabled="applyableCount === 0 || applying"
+          @click="applyAccepted"
+        >
+          {{ applying ? "写入中…" : `应用 ${applyableCount} 处修改` }}
+        </MacButton>
         <RouterLink
           v-if="report.scope === 'chapter' && chapterId"
           class="summary__link"
@@ -166,6 +186,8 @@ async function copyReport(): Promise<void> {
         </RouterLink>
       </div>
 
+      <p v-if="applyNotice" class="review__notice">{{ applyNotice }}</p>
+
       <ReviewLayerSection
         v-for="layer in REVIEW_LAYER_ORDER"
         :key="layer"
@@ -173,6 +195,9 @@ async function copyReport(): Promise<void> {
         :issues="grouped[layer]"
         :running="false"
         :note="layer === 'language' ? languageNote : undefined"
+        :can-apply="report.scope === 'chapter'"
+        @decide="decide"
+        @comment="setComment"
       />
     </template>
 
@@ -221,6 +246,13 @@ async function copyReport(): Promise<void> {
     font-size: 12px;
     line-height: 1.7;
     color: var(--error, #{t.$error});
+  }
+
+  &__notice {
+    margin: t.$space-2 0 0;
+    font-size: 11px;
+    line-height: 1.7;
+    color: var(--text-soft, #{t.$ink-soft});
   }
 }
 
@@ -273,6 +305,12 @@ async function copyReport(): Promise<void> {
     font-size: 11px;
     line-height: 1.7;
     color: var(--text-soft, #{t.$ink-soft});
+  }
+
+  &__progress {
+    font-size: 11px;
+    white-space: nowrap;
+    color: var(--accent, #{t.$accent});
   }
 
   &__link {

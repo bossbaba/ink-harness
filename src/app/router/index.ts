@@ -4,6 +4,7 @@ import ModelSettingsView from "@/views/ModelSettingsView.vue";
 import ProjectBibleView from "@/views/ProjectBibleView.vue";
 import ProjectIdeationView from "@/views/ProjectIdeationView.vue";
 import ProjectOutlineView from "@/views/ProjectOutlineView.vue";
+import ProjectPublishView from "@/views/ProjectPublishView.vue";
 import ProjectReviewView from "@/views/ProjectReviewView.vue";
 import ProjectShellView from "@/views/ProjectShellView.vue";
 import ProjectWritingView from "@/views/ProjectWritingView.vue";
@@ -73,6 +74,13 @@ const router = createRouter({
           path: "review",
           name: "project-review",
           component: ProjectReviewView,
+          props: true,
+        },
+        {
+          // 出版中心：排版、导出与发布物料都属于当前作品，不提供全局汇总页。
+          path: "publish",
+          name: "project-publish",
+          component: ProjectPublishView,
           props: true,
         },
       ],

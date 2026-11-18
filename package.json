@@ -19,6 +19,7 @@
   "dependencies": {
     "@macvue/core": "^0.1.0",
     "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
     "@tauri-apps/plugin-sql": "^2.0.0",
     "@tiptap/extension-placeholder": "^2.27.3",
     "@tiptap/starter-kit": "^2.27.3",

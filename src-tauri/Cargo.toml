@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "AI-assisted writing desktop app"
 authors = ["INK-HARNESS"]
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.90"
 
 [lib]
 name = "ink_harness_lib"
@@ -24,3 +24,4 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tauri-plugin-dialog = "2.8.4"

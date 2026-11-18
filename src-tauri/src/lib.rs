@@ -16,6 +16,7 @@ fn ping() -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::default().build())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             let db_state = db::open(&dir).map_err(|e| e.to_string())?;
@@ -70,6 +71,7 @@ pub fn run() {
             commands::rag::rag_status,
             commands::rag::rag_reindex,
             commands::rag::rag_search,
+            commands::publish::write_export_file,
         ])
         .build(tauri::generate_context!())
         .expect("启动 INK-HARNESS 失败")

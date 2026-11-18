@@ -14,6 +14,9 @@ export type ReviewSeverity = "high" | "medium" | "low";
 /** 审稿范围：单章（有正文，能评语言）/ 全书（只有目录与摘要，只评结构、一致性）。 */
 export type ReviewScope = "chapter" | "book";
 
+/** 一条意见的审阅决定：待定 → 采纳/忽略，采纳且能定位的写回正文后变成已应用。 */
+export type ReviewDecision = "pending" | "accepted" | "rejected" | "applied";
+
 /** 一条审稿意见。 */
 export interface ReviewIssue {
   id: string;
@@ -26,6 +29,15 @@ export interface ReviewIssue {
   detail: string;
   /** 修改建议；确定性检查项可能为空。 */
   suggestion: string;
+  /**
+   * 能直接替换 quote 的文本，和 suggestion 的「怎么改说明」分开存。
+   * 结构性调整往往没法用一句话替换，必须留空，避免把空话写进正文。
+   */
+  replacement: string;
+  /** 作者针对这条意见写的批注，随报告一起复制留存。 */
+  comment: string;
+  /** 逐条审阅的决定。 */
+  decision: ReviewDecision;
   /** 确定性一致性检查带出的关联设定 id，便于跳转核对。 */
   elementIds?: string[];
 }
@@ -76,4 +88,22 @@ export const REVIEW_SEVERITY_WEIGHT: Record<ReviewSeverity, number> = {
   high: 0,
   medium: 1,
   low: 2,
+};
+
+export const REVIEW_DECISION_LABEL: Record<ReviewDecision, string> = {
+  pending: "待定",
+  accepted: "已采纳",
+  rejected: "已忽略",
+  applied: "已应用",
+};
+
+/** 沿用 Naive UI 内置类型，不自造彩色标签：采纳/应用用成功色，忽略/待定用默认色。 */
+export const REVIEW_DECISION_TAG_TYPE: Record<
+  ReviewDecision,
+  "default" | "success" | "info" | "warning" | "error"
+> = {
+  pending: "default",
+  accepted: "success",
+  rejected: "default",
+  applied: "success",
 };

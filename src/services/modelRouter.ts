@@ -45,6 +45,8 @@ const TASK_PREFERENCE: Record<TaskKind, { quality: number; preferLocal: boolean 
   condense: { quality: 1, preferLocal: false },
   polish: { quality: 2, preferLocal: false },
   review: { quality: 3, preferLocal: false },
+  // 发布物料是一次性营销文案，质量优先，但不像审稿那样必须最强模型。
+  publish: { quality: 2, preferLocal: true },
   summary: { quality: 0, preferLocal: true },
 };
 

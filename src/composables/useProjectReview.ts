@@ -3,6 +3,7 @@ import { tauriApi } from "@/api/tauri";
 import { modelRouter } from "@/services/modelRouter";
 import { outlineService } from "@/services/outlineService";
 import { projectService } from "@/services/projectService";
+import { applyReviewEdits } from "@/services/reviewApply";
 import {
   buildReviewMessages,
   consistencyToIssues,
@@ -11,9 +12,11 @@ import {
 } from "@/services/reviewService";
 import { storyElementService } from "@/services/storyElementService";
 import { writingService } from "@/services/writingService";
+import { useDraftSyncStore } from "@/stores/draftSync";
 import type {
   Chapter,
   Project,
+  ReviewDecision,
   ReviewIssue,
   ReviewLayer,
   ReviewReport,
@@ -28,6 +31,7 @@ import { documentToPlainText, EMPTY_DOCUMENT_TEXT } from "@/utils/tiptap";
  * 需要留存时页面上可以复制成 Markdown。
  */
 export function useProjectReview(projectId: string) {
+  const draftSync = useDraftSyncStore();
   const project = ref<Project | null>(null);
   const chapters = ref<Chapter[]>([]);
   const loading = ref(false);
@@ -43,6 +47,9 @@ export function useProjectReview(projectId: string) {
   const received = ref(0);
   const error = ref("");
   const report = ref<ReviewReport | null>(null);
+  const applying = ref(false);
+  /** 应用结果要说明「改了几处、几处没定位到」，而不是只弹一句成功。 */
+  const applyNotice = ref("");
 
   // 取消或重新审读时自增：旧请求迟到的分片直接丢弃。
   let requestSeq = 0;
@@ -66,6 +73,24 @@ export function useProjectReview(projectId: string) {
       language: issues.filter((issue) => issue.layer === "language"),
     };
   });
+
+  /** 采纳数含已应用：作者点过「接受」的都算，避免应用后计数突然归零。 */
+  const acceptedCount = computed(
+    () =>
+      report.value?.issues.filter(
+        (issue) => issue.decision === "accepted" || issue.decision === "applied",
+      ).length ?? 0,
+  );
+  const rejectedCount = computed(
+    () => report.value?.issues.filter((issue) => issue.decision === "rejected").length ?? 0,
+  );
+  /** 真正能一键写回的：已采纳、有原文片段、也有可直接替换的文本。 */
+  const applyableCount = computed(
+    () =>
+      report.value?.issues.filter(
+        (issue) => issue.decision === "accepted" && Boolean(issue.quote && issue.replacement),
+      ).length ?? 0,
+  );
 
   /** 章节下拉的选项：幕次写进标签，避免同名章节分不清。 */
   const chapterOptions = computed(() =>
@@ -109,6 +134,8 @@ export function useProjectReview(projectId: string) {
     received.value = 0;
     error.value = "";
     report.value = null;
+    applying.value = false;
+    applyNotice.value = "";
   }
 
   function formatNow(): string {
@@ -225,6 +252,62 @@ export function useProjectReview(projectId: string) {
     progress.value = "";
   }
 
+  /** 再点一次同一个决定就回到待定；写回正文后不再改，免得报告与正文对不上。 */
+  function decide(id: string, decision: ReviewDecision): void {
+    const issue = report.value?.issues.find((item) => item.id === id);
+    if (!issue || issue.decision === "applied") return;
+    issue.decision = issue.decision === decision ? "pending" : decision;
+    applyNotice.value = "";
+  }
+
+  function setComment(id: string, comment: string): void {
+    const issue = report.value?.issues.find((item) => item.id === id);
+    if (issue) issue.comment = comment;
+  }
+
+  /** 把采纳且有替换文本的条目写回本章正文，并留一版快照供回退。 */
+  async function applyAccepted(): Promise<void> {
+    const current = report.value;
+    if (current?.scope !== "chapter" || !chapterId.value || applying.value) return;
+    const edits = current.issues
+      .filter((issue) => issue.decision === "accepted" && issue.quote && issue.replacement)
+      .map((issue) => ({
+        id: issue.id,
+        quote: issue.quote,
+        replacement: issue.replacement,
+      }));
+    if (edits.length === 0) return;
+
+    applying.value = true;
+    applyNotice.value = "";
+    try {
+      const data = await writingService.getContent(chapterId.value);
+      const result = applyReviewEdits(data.content, edits);
+      if (result.appliedIds.length > 0) {
+        await writingService.saveContent({
+          chapterId: chapterId.value,
+          content: result.content,
+          wordCount: result.wordCount,
+          snapshot: true,
+        });
+        // 写作台可能还停在缓存里的旧正文，这里递增版本让它回来时重读。
+        draftSync.bump(chapterId.value);
+        const applied = new Set(result.appliedIds);
+        for (const issue of current.issues) {
+          if (applied.has(issue.id)) issue.decision = "applied";
+        }
+      }
+      const failed = result.failedIds.length;
+      applyNotice.value = result.appliedIds.length
+        ? `已写回 ${result.appliedIds.length} 处${failed ? `，另有 ${failed} 处没找到原文，请手工改` : ""}。`
+        : `${failed} 处都没找到原文，请回写作台手工改。`;
+    } catch (err) {
+      applyNotice.value = `写入正文失败：${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      applying.value = false;
+    }
+  }
+
   return {
     project,
     chapters,
@@ -241,9 +324,17 @@ export function useProjectReview(projectId: string) {
     error,
     report,
     grouped,
+    acceptedCount,
+    rejectedCount,
+    applyableCount,
+    applying,
+    applyNotice,
     load,
     run,
     stop,
     reset,
+    decide,
+    setComment,
+    applyAccepted,
   };
 }

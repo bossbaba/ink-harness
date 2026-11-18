@@ -65,6 +65,11 @@ function openWriting(projectId: string): void {
   void router.push({ name: "project-writing", params: { projectId } });
 }
 
+function openPublish(projectId: string): void {
+  // 出版中心属于某部作品，路径上必须带 projectId；全局菜单的同名项仍是禁用占位。
+  void router.push({ name: "project-publish", params: { projectId } });
+}
+
 function openModels(): void {
   // 模型管理是全局页，与当前作品无关，直接按路由名跳转。
   void router.push({ name: "models" });
@@ -140,6 +145,9 @@ onReactivated(() => void loadProjects());
             </button>
             <button class="project-card__open" type="button" @click="openBible(p.id)">
               进入设定库 →
+            </button>
+            <button class="project-card__open" type="button" @click="openPublish(p.id)">
+              出版中心 →
             </button>
           </div>
         </article>

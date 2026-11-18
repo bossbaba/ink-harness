@@ -5,6 +5,7 @@ import {
   type ConsistencyIssue,
   type ConsistencyIssueKind,
   type Project,
+  REVIEW_DECISION_LABEL,
   REVIEW_LAYER_LABEL,
   REVIEW_LAYER_ORDER,
   REVIEW_SEVERITY_LABEL,
@@ -64,7 +65,8 @@ const OUTPUT_SCHEMA = [
   "只输出一个 JSON 数组，不要 Markdown 代码块、不要任何解释文字。数组每一项字段如下：",
   '{"layer":"structure|consistency|language","severity":"high|medium|low",',
   '"title":"一句话说清问题","quote":"原文片段，没有就填空串",',
-  '"detail":"为什么是问题","suggestion":"具体怎么改"}',
+  '"detail":"为什么是问题","suggestion":"具体怎么改",',
+  '"replacement":"可直接替换 quote 的文本，没有就填空串"}',
 ].join("\n");
 
 /**
@@ -89,7 +91,9 @@ export function buildReviewMessages(input: ReviewPromptInput): ChatMessage[] {
     "1. 一共 4~12 条，按严重程度排序；某一层没问题就不要出条目。",
     "2. quote 必须是原文里的连续片段并原样摘录（不超过 60 字）；全书模式没有正文时留空串。",
     "3. 不要写「可以增加细节」「建议丰富描写」这类空话，每条建议都要能直接动手改。",
-    "4. 只谈文本，不评价作者本人，也不讨论价值观。",
+    // replacement 是「一键替换」用的，含解释或引号会污染正文，所以宁可留空让作者手工改。
+    "4. replacement 必须能原样替换 quote，只写替换后的正文，不加解释、引号或前后缀；结构性问题无法一句话替换时留空串。",
+    "5. 只谈文本，不评价作者本人，也不讨论价值观。",
   ].join("\n");
 
   const scopeLine =
@@ -198,6 +202,10 @@ export function parseReviewIssues(raw: string): ReviewIssue[] {
       quote: toText(record.quote).slice(0, 120),
       detail,
       suggestion: toText(record.suggestion),
+      // 替换文本单独截断，避免模型偶尔吐一大段把 Diff 视图撑爆。
+      replacement: toText(record.replacement).slice(0, 400),
+      comment: "",
+      decision: "pending",
     });
   });
   return issues;
@@ -214,6 +222,10 @@ export function consistencyToIssues(list: ConsistencyIssue[]): ReviewIssue[] {
     quote: "",
     detail: issue.detail,
     suggestion: CONSISTENCY_SUGGESTION[issue.kind] ?? "",
+    // 确定性检查没有原文片段，也就没有可直接替换的文本，只能照说明手工调整设定。
+    replacement: "",
+    comment: "",
+    decision: "pending",
     elementIds: issue.elementIds,
   }));
 }
@@ -244,10 +256,15 @@ export function reviewToMarkdown(report: ReviewReport): string {
     if (issues.length === 0) continue;
     lines.push(`## ${REVIEW_LAYER_LABEL[layer]}（${issues.length}）`, "");
     for (const issue of issues) {
-      lines.push(`- **[${REVIEW_SEVERITY_LABEL[issue.severity]}] ${issue.title}**`);
+      // 把审阅决定一起带上：复制到笔记后还能看出哪些改了、哪些只是记下来。
+      lines.push(
+        `- **[${REVIEW_SEVERITY_LABEL[issue.severity]}] ${issue.title}**（${REVIEW_DECISION_LABEL[issue.decision]}）`,
+      );
       if (issue.quote) lines.push(`  > ${issue.quote}`);
       if (issue.detail) lines.push(`  ${issue.detail}`);
-      if (issue.suggestion) lines.push(`  建议：${issue.suggestion}`);
+      if (issue.replacement) lines.push(`  替换为：${issue.replacement}`);
+      else if (issue.suggestion) lines.push(`  建议：${issue.suggestion}`);
+      if (issue.comment) lines.push(`  批注：${issue.comment}`);
     }
     lines.push("");
   }
