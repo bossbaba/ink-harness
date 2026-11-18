@@ -3,6 +3,7 @@ import { MacButton } from "@macvue/core";
 import { NSelect, NTag } from "naive-ui";
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import ChapterSummaryControl from "@/components/writing/ChapterSummaryControl.vue";
 import WritingAiPanel from "@/components/writing/WritingAiPanel.vue";
 import WritingChapterList from "@/components/writing/WritingChapterList.vue";
 import WritingEditor from "@/components/writing/WritingEditor.vue";
@@ -60,6 +61,7 @@ const {
   versionsBusy,
   previewVersion,
   onEditorUpdate,
+  patchChapter,
   flush,
   createSnapshot,
   openVersionPreview,
@@ -141,21 +143,6 @@ function toggleCopilotReference(reference: CopilotReference): void {
   );
   if (picked) removeCopilotReference(reference);
   else addCopilotReference(reference);
-}
-
-function sendCopilotMessage(text: string): void {
-  void sendCopilot(text);
-}
-
-/** Copilot 的回答只做草稿：作者点「插入到正文」才落到光标处，自动保存随后接管。 */
-function insertCopilotText(text: string): void {
-  editorRef.value?.insertAtCursor(text);
-}
-
-/** 工具栏按钮触发的辅助：结果卡片在右侧面板里，所以先确保面板展开再发请求。 */
-function handleAi(selection: AssistSelection): void {
-  app.copilotOpen = true;
-  void runAssist(selection);
 }
 
 /** 把生成结果写回正文；插入/替换后编辑器会触发 update，自动保存随即接管。 */
@@ -242,6 +229,15 @@ async function handleRestore(versionId: string): Promise<void> {
         <MacButton size="regular" :disabled="!activeChapterId" @click="showVersions = true">
           版本快照
         </MacButton>
+        <ChapterSummaryControl
+          :project="project"
+          :chapter="activeChapter"
+          :content="content"
+          :disabled="!activeChapterId"
+          @persisted="
+            (value: string) => activeChapter && patchChapter(activeChapter.id, { summary: value })
+          "
+        />
         <MacButton size="regular" @click="goOutline">去大纲</MacButton>
         <MacButton size="regular" @click="app.toggleCopilot()">
           {{ app.copilotOpen ? "收起 AI 对话" : "AI 对话" }}
@@ -291,7 +287,12 @@ async function handleRestore(versionId: string): Promise<void> {
           :content="content"
           placeholder="从第一句话开始……"
           @update="onEditorUpdate"
-          @ai="handleAi"
+          @ai="
+            (selection: AssistSelection) => {
+              app.copilotOpen = true;
+              void runAssist(selection);
+            }
+          "
         />
       </div>
 
@@ -311,12 +312,12 @@ async function handleRestore(versionId: string): Promise<void> {
         :retrieved-count="copilotRetrieved"
         :assist="assistCard"
         @reindex="reindexRag"
-        @send="sendCopilotMessage"
+        @send="(text: string) => sendCopilot(text)"
         @stop="stopCopilot"
         @clear="clearCopilot"
         @pick="toggleCopilotReference"
         @unpick="removeCopilotReference"
-        @insert="insertCopilotText"
+        @insert="(text: string) => editorRef?.insertAtCursor(text)"
         @assist-stop="stopAssist"
         @assist-retry="retryAssist"
         @assist-insert="applyAssist('insert')"
@@ -405,12 +406,10 @@ async function handleRestore(versionId: string): Promise<void> {
     flex: 1;
     min-height: 0;
 
-    // AI 面板打开时是第三栏：章节 / 编辑器 / 对话，三栏都参与布局，不互相遮挡。
+    // AI 面板是第三栏；辅助卡片里是要进稿的长正文，结果出来时这一栏再放宽。
     &--copilot {
       grid-template-columns: 240px minmax(0, 1fr) 320px;
     }
-
-    // 辅助卡片里是整段可进稿的正文，320px 读起来太挤，出结果时把这一栏放宽。
     &--assist {
       grid-template-columns: 240px minmax(0, 1fr) 400px;
     }
@@ -456,7 +455,7 @@ async function handleRestore(versionId: string): Promise<void> {
     width: 100%;
   }
 
-  // 窄屏用标题栏下拉切章，把左侧列表让给 AI 对话，否则正文只剩三四百像素。
+  // 窄屏用标题栏下拉切章，把左侧列表让给 AI 对话；两栏时辅助卡片不再加宽。
   .writing__body--copilot .writing__chapters {
     display: none;
   }
@@ -465,7 +464,6 @@ async function handleRestore(versionId: string): Promise<void> {
     grid-template-columns: minmax(0, 1fr) 300px;
   }
 
-  // 两栏时正文只剩一栏，辅助卡片不再继续加宽，否则编辑器太窄。
   .writing__body--assist {
     grid-template-columns: minmax(0, 1fr) 340px;
   }

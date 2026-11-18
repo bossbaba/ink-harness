@@ -1,12 +1,13 @@
 import type { Project } from "@/types";
+import { DEFAULT_CONTEXT_BUDGET } from "./summaryService";
 
 /**
  * AI 请求的上下文口径：写作辅助与 Copilot 对话共用同一套截断规则，
  * 避免两个入口注入的背景长度不一致、调出来的文风忽紧忽松。
  */
 
-/** 超过这个字数的作品上下文会被截断，宁可少给背景也别把模型上下文窗口撑爆。 */
-export const CONTEXT_LIMIT = 6000;
+/** 没设置预算时的默认值；真实额度由 summaryService 从 app_meta 读取后传入。 */
+export const CONTEXT_LIMIT = DEFAULT_CONTEXT_BUDGET;
 
 /** 作品上下文保留开头（作品信息、设定库、大纲都在前面）。 */
 export function head(text: string, limit: number): string {
@@ -19,8 +20,8 @@ export function tail(text: string, limit: number): string {
 }
 
 /** 面板上展示「已注入多少字上下文」，让作者知道模型看到了什么。 */
-export function contextCharCount(context: string): number {
-  return Math.min(context.length, CONTEXT_LIMIT);
+export function contextCharCount(context: string, limit = CONTEXT_LIMIT): number {
+  return Math.min(context.length, limit);
 }
 
 /** 作品的四项基本事实；空字段直接跳过，不要给模型一堆「类型：」的空行。 */

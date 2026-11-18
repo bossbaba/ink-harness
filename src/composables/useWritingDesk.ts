@@ -105,7 +105,10 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
   }
 
   /** 章节列表里的字数/状态就地更新，避免每次自动保存都重拉整份快照。 */
-  function patchChapter(chapterId: string, patch: { wordCount: number; status?: ChapterStatus }) {
+  function patchChapter(
+    chapterId: string,
+    patch: { wordCount?: number; status?: ChapterStatus; summary?: string },
+  ) {
     chapters.value = chapters.value.map((chapter) =>
       chapter.id === chapterId ? { ...chapter, ...patch } : chapter,
     );
@@ -385,6 +388,7 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
     versionsBusy,
     previewVersion,
     onEditorUpdate,
+    patchChapter,
     flush,
     createSnapshot,
     openVersionPreview,

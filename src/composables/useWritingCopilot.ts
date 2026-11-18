@@ -8,6 +8,7 @@ import {
 } from "@/services/copilotService";
 import { modelRouter } from "@/services/modelRouter";
 import { loadRelatedNotes } from "@/services/ragService";
+import { getContextBudget } from "@/services/summaryService";
 import type { CopilotMessage, CopilotReference, Project } from "@/types";
 
 export interface WritingCopilotOptions {
@@ -96,13 +97,14 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
       if (!project) throw new Error("作品还没加载完成，请稍后重试。");
 
       // 检索与引用并行：检索失败只返回空结果，不影响这次提问。
-      const [context, referenceBlock, notes] = await Promise.all([
+      const [context, referenceBlock, notes, budget] = await Promise.all([
         loadContext(),
         buildReferenceBlock(attached),
         loadRelatedNotes(options.projectId, text),
+        getContextBudget(),
       ]);
       if (seq !== requestSeq) return;
-      contextChars.value = contextCharCount(context);
+      contextChars.value = contextCharCount(context, budget);
       retrievedCount.value = notes.hits.length;
 
       // Provider 可能刚在模型管理页改过，每次发送前刷新，避免用到旧缓存。
@@ -116,6 +118,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
           chapterSummary: options.chapterSummary(),
           chapterText: options.chapterText(),
           context,
+          contextLimit: budget,
         }),
         history,
         question: text,

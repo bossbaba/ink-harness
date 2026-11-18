@@ -3,6 +3,7 @@ import { tauriApi } from "@/api/tauri";
 import { contextCharCount } from "@/services/aiContext";
 import { modelRouter } from "@/services/modelRouter";
 import { loadRelatedNotes } from "@/services/ragService";
+import { getContextBudget } from "@/services/summaryService";
 import { buildAssistMessages, toTaskKind } from "@/services/writingAiService";
 import {
   ASSIST_TASK_LABEL,
@@ -82,12 +83,13 @@ export function useWritingAssist(options: WritingAssistOptions) {
 
       // 检索用选区正文做问题；续写没有选区时用前文最后一段，避免拿空串去搜。
       const query = selection.text.trim() || selection.before.slice(-300);
-      const [context, notes] = await Promise.all([
+      const [context, notes, budget] = await Promise.all([
         loadContext(),
         loadRelatedNotes(options.projectId, query),
+        getContextBudget(),
       ]);
       if (seq !== requestSeq) return;
-      contextChars.value = contextCharCount(context);
+      contextChars.value = contextCharCount(context, budget);
       retrievedCount.value = notes.hits.length;
 
       // Provider 可能在模型管理页才刚配置过，每次生成前刷新，避免用到旧缓存。
@@ -101,6 +103,7 @@ export function useWritingAssist(options: WritingAssistOptions) {
         context,
         selection,
         notes: notes.block,
+        contextLimit: budget,
       });
 
       const handle = modelRouter.chat(

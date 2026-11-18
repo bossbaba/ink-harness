@@ -20,14 +20,11 @@ const appearanceIcon = computed(() => (app.appearance === "light" ? "☾" : "☀
 // 专注模式按钮的 tooltip 同样显示「切换后」的动作文案。
 const focusTitle = computed(() => (app.focusMode ? "退出专注模式" : "进入专注模式"));
 
-// 全局导航。path 为空的是尚未开放的模块，渲染为禁用态，不参与路由跳转。
+// 全局导航只放真正有全局页面的功能。大纲、写作台、审稿、出版都必须带作品 ID，
+// 只在作品内二级导航出现；以前这里的同名禁用占位既无路由也无入口，已移除。
 const navItems = [
   { key: "workspace", label: "工作台", icon: "◫", path: "/" },
-  { key: "outline", label: "大纲", icon: "☷", path: "" },
   { key: "bible", label: "设定库", icon: "▤", path: "/bible" },
-  { key: "write", label: "写作台", icon: "✎", path: "" },
-  { key: "review", label: "编辑审稿", icon: "◎", path: "" },
-  { key: "publish", label: "出版中心", icon: "⇧", path: "" },
   { key: "models", label: "模型管理", icon: "⚙", path: "/models" },
 ];
 
@@ -36,7 +33,7 @@ const navItems = [
 const isProjectRoute = computed(() => /^\/projects\/[^/]+/.test(route.path));
 const projectId = computed(() => String(route.params.projectId ?? ""));
 
-// 作品内二级导航。name 为空的模块尚未开放，只作占位。
+// 作品内二级导航：每一项都有对应子路由，不存在禁用占位。
 const projectNavItems = [
   { key: "ideation", label: "构思向导", icon: "✷", name: "project-ideation" },
   { key: "bible", label: "设定库", icon: "▤", name: "project-bible" },
@@ -46,19 +43,13 @@ const projectNavItems = [
   { key: "publish", label: "出版中心", icon: "⇧", name: "project-publish" },
 ];
 
-/**
- * 判断某个全局菜单项是否是当前页。
- * 必须排除 path 为空的占位项：否则 /projects/... 之类的路径若与空串比较，
- * 会错误地把「大纲」等未开放项高亮。这里用精确相等，不做前缀匹配。
- */
+/** 全局菜单高亮：只做路径精确相等，不做前缀匹配。 */
 function isGlobalActive(path: string): boolean {
-  return path !== "" && route.path === path;
+  return route.path === path;
 }
 
 /** 当前命中的作品内二级导航；未命中时标题只显示「作品」。 */
-const activeProjectNav = computed(() =>
-  projectNavItems.find((item) => item.name !== "" && item.name === route.name),
-);
+const activeProjectNav = computed(() => projectNavItems.find((item) => item.name === route.name));
 
 /**
  * 标题栏中间的作用域标签。
@@ -73,8 +64,7 @@ const activeLabel = computed(() => {
 });
 
 function open(item: { path: string }): void {
-  // 未开放模块的 path 为空，点击时不做跳转。
-  if (item.path) void router.push(item.path);
+  void router.push(item.path);
 }
 
 const contentRef = ref<HTMLElement | null>(null);
@@ -130,27 +120,16 @@ watch(
           </RouterLink>
           <div class="sidebar__section">当前作品</div>
           <nav class="nav">
-            <template v-for="item in projectNavItems" :key="item.key">
-              <RouterLink
-                v-if="item.name"
-                :to="{ name: item.name, params: { projectId } }"
-                class="nav__item"
-                :class="{ 'nav__item--active': route.name === item.name }"
-              >
-                <span class="nav__icon">{{ item.icon }}</span>
-                <span class="nav__label">{{ item.label }}</span>
-              </RouterLink>
-              <button
-                v-else
-                class="nav__item nav__item--disabled"
-                type="button"
-                disabled
-                :title="`${item.label}：即将推出`"
-              >
-                <span class="nav__icon">{{ item.icon }}</span>
-                <span class="nav__label">{{ item.label }}</span>
-              </button>
-            </template>
+            <RouterLink
+              v-for="item in projectNavItems"
+              :key="item.key"
+              :to="{ name: item.name, params: { projectId } }"
+              class="nav__item"
+              :class="{ 'nav__item--active': route.name === item.name }"
+            >
+              <span class="nav__icon">{{ item.icon }}</span>
+              <span class="nav__label">{{ item.label }}</span>
+            </RouterLink>
           </nav>
         </template>
         <nav v-else class="nav">
@@ -158,13 +137,9 @@ watch(
             v-for="item in navItems"
             :key="item.key"
             class="nav__item"
-            :class="{
-              'nav__item--active': isGlobalActive(item.path),
-              'nav__item--disabled': !item.path,
-            }"
+            :class="{ 'nav__item--active': isGlobalActive(item.path) }"
             type="button"
-            :disabled="!item.path"
-            :title="item.path ? item.label : '即将推出'"
+            :title="item.label"
             @click="open(item)"
           >
             <span class="nav__icon">{{ item.icon }}</span>
@@ -310,10 +285,6 @@ watch(
       font-weight: 600;
     }
 
-    &--disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
   }
 
   &__icon {

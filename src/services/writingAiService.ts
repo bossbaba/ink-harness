@@ -38,6 +38,8 @@ export interface AssistMessageInput {
   selection: AssistSelection;
   /** 按选区检索到的片段（loadRelatedNotes 的 block），没建索引时为空串。 */
   notes?: string;
+  /** 作品上下文的字符预算，缺省用默认值；从设置里读出来后传入。 */
+  contextLimit?: number;
 }
 
 /**
@@ -53,7 +55,8 @@ export function buildAssistMessages(input: AssistMessageInput): ChatMessage[] {
     facts,
     "",
     "【作品上下文】",
-    head(input.context, CONTEXT_LIMIT) || "（还没有设定与大纲，请贴合作者正文的风格自由发挥。）",
+    head(input.context, input.contextLimit ?? CONTEXT_LIMIT) ||
+      "（还没有设定与大纲，请贴合作者正文的风格自由发挥。）",
     "",
     "【当前章节】",
     chapterTitle,

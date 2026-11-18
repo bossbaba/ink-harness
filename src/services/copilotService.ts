@@ -81,6 +81,8 @@ export interface CopilotSystemInput {
   chapterText: string;
   /** build_project_context 产出的 Markdown 上下文。 */
   context: string;
+  /** 作品上下文的字符预算，缺省用默认值；从设置里读出来后传入。 */
+  contextLimit?: number;
 }
 
 /**
@@ -95,7 +97,7 @@ export function buildCopilotSystem(input: CopilotSystemInput): string {
     projectFacts(project),
     "",
     "【作品上下文】",
-    head(input.context, CONTEXT_LIMIT) ||
+    head(input.context, input.contextLimit ?? CONTEXT_LIMIT) ||
       "（还没有设定与大纲，回答时请以作者的说法为准，不要编造设定。）",
     "",
     "【当前章节】",
