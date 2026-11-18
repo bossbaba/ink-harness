@@ -1,14 +1,15 @@
 <script setup lang="ts">
+import { NStep, NSteps, NTag } from "naive-ui";
 import { computed, onMounted } from "vue";
 import WorkflowStageCard from "@/components/workflow/WorkflowStageCard.vue";
 import { useProjectWorkflow } from "@/composables/useProjectWorkflow";
-import type { WorkflowDecision, WorkflowStage } from "@/types";
+import type { WorkflowDecision, WorkflowStage, WorkflowState } from "@/types";
 import { WORKFLOW_CHAPTER_STAGES, WORKFLOW_STAGES } from "@/types";
 import { onReactivated } from "@/utils/lifecycle";
 
 /**
- * 作品内 Agent 工作流：策划→写作→编辑→审稿→出版，每阶段人工审批后才落地。
- * 页面只负责组装：状态与副作用都在 useProjectWorkflow，卡片只做展示与转发。
+ * 作品内 Agent 工作流：用垂直步骤条展示策划→写作→编辑→审稿→出版。
+ * 每一步内嵌操作区，AI 产出候选后由作者审批，通过才落地并解锁下一步。
  */
 const props = defineProps<{ projectId: string }>();
 
@@ -23,7 +24,6 @@ const {
   busy,
   error,
   notice,
-  activeStage,
   isUnlocked,
   load,
   selectChapter,
@@ -46,6 +46,24 @@ const completedCount = computed(
   () =>
     WORKFLOW_STAGES.filter((item) => state.value?.stages[item.key].status === "approved").length,
 );
+
+/** 工作流状态映射到步骤条状态；被打回/出错显示红点，待审批与生成中显示进行中。 */
+function stepStatus(
+  workflow: WorkflowState,
+  stage: WorkflowStage,
+): "finish" | "error" | "process" | "wait" {
+  const item = workflow.stages[stage];
+  if (item.status === "approved") return "finish";
+  if (item.status === "rejected") return "error";
+  if (item.status === "running" || item.status === "pending") return "process";
+  return "wait";
+}
+
+function stepDescription(stage: WorkflowStage): string {
+  const item = state.value?.stages[stage];
+  const hint = WORKFLOW_STAGES.find((s) => s.key === stage)?.hint ?? "";
+  return item?.model ? `${hint} · 模型：${item.model}` : hint;
+}
 
 function runStage(stage: WorkflowStage): void {
   void run(stage);
@@ -73,10 +91,14 @@ onReactivated(() => void load());
           每一步先由 AI 产出候选，<strong>经你审批通过才会写入作品</strong>并解锁下一步。
         </p>
       </div>
-      <div v-if="activeStage" class="workflow__current">
-        当前阶段：{{ WORKFLOW_STAGES.find((s) => s.key === activeStage)?.label }}
-      </div>
-      <p v-else class="workflow__current workflow__current--done">全流程已完成</p>
+      <NTag
+        v-if="completedCount === WORKFLOW_STAGES.length"
+        size="small"
+        :bordered="false"
+        type="success"
+      >
+        全流程已完成
+      </NTag>
     </header>
 
     <p v-if="loading" class="workflow__status">正在载入工作流…</p>
@@ -85,26 +107,30 @@ onReactivated(() => void load());
       <p v-if="error" class="workflow__status workflow__status--error">{{ error }}</p>
       <p v-if="notice" class="workflow__status workflow__status--notice">{{ notice }}</p>
 
-      <div class="workflow__list">
-        <WorkflowStageCard
-          v-for="(item, index) in WORKFLOW_STAGES"
+      <NSteps vertical size="medium" class="workflow__steps">
+        <NStep
+          v-for="item in WORKFLOW_STAGES"
           :key="item.key"
-          :index="index"
-          :stage-key="item.key"
-          :label="item.label"
-          :hint="item.hint"
-          :state="state.stages[item.key]"
-          :running="running === item.key"
-          :received="received"
-          :unlocked="isUnlocked(item.key)"
-          :busy="busy"
-          :chapter-id="WORKFLOW_CHAPTER_STAGES.includes(item.key) ? state.selectedChapterId : null"
-          :chapter-options="chapterOptions"
-          @run="runStage(item.key)"
-          @select-chapter="pickChapter"
-          @approve="(decision, note) => decide(item.key, decision, note)"
-        />
-      </div>
+          :title="item.label"
+          :description="stepDescription(item.key)"
+          :status="stepStatus(state, item.key)"
+        >
+          <WorkflowStageCard
+            :state="state.stages[item.key]"
+            :running="running === item.key"
+            :received="received"
+            :unlocked="isUnlocked(item.key)"
+            :busy="busy"
+            :chapter-id="
+              WORKFLOW_CHAPTER_STAGES.includes(item.key) ? state.selectedChapterId : null
+            "
+            :chapter-options="chapterOptions"
+            @run="runStage(item.key)"
+            @select-chapter="pickChapter"
+            @approve="(decision, note) => decide(item.key, decision, note)"
+          />
+        </NStep>
+      </NSteps>
 
       <footer class="workflow__footer">
         <p>工作流状态保存在本机；审批通过才会写入作品数据，生成结果不自动发布。</p>
@@ -118,10 +144,8 @@ onReactivated(() => void load());
 
 .workflow {
   container-type: inline-size;
-  display: flex;
-  flex-direction: column;
-  gap: t.$space-4;
-  min-width: 0;
+  max-width: 860px;
+  margin: 0 auto;
   padding: t.$space-6;
 
   &__header {
@@ -130,6 +154,7 @@ onReactivated(() => void load());
     align-items: flex-start;
     justify-content: space-between;
     gap: t.$space-4;
+    margin-bottom: t.$space-5;
   }
 
   &__title {
@@ -138,25 +163,12 @@ onReactivated(() => void load());
   }
 
   &__sub,
-  &__current,
   &__status,
-  &__chapters-hint,
   &__footer p {
     margin: 0;
     font-size: 12px;
     line-height: 1.7;
     color: var(--text-faint, #{t.$ink-faint});
-  }
-
-  &__current {
-    padding: t.$space-2 t.$space-3;
-    border-radius: t.$radius-md;
-    background: var(--bg-sunken, #{t.$paper-sunken});
-    color: var(--text-soft, #{t.$ink-soft});
-
-    &--done {
-      color: var(--accent, #{t.$accent});
-    }
   }
 
   &__status {
@@ -169,23 +181,19 @@ onReactivated(() => void load());
     }
   }
 
-  &__list {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    // 同行卡片等高对齐：阶段内容多少不一，stretch 让两列底部齐平，不再参差不齐。
-    align-items: stretch;
-    gap: t.$space-4;
+  &__steps {
+    margin-top: t.$space-2;
+
+    // 步骤内容区给足宽度，选章与产物预览不被挤窄。
+    :deep(.n-step__content) {
+      min-width: 0;
+      padding-bottom: t.$space-4;
+    }
   }
 
   &__footer {
     padding-top: t.$space-3;
     border-top: 1px solid var(--divider, #{t.$divider});
-  }
-
-  @container (max-width: 1000px) {
-    &__list {
-      grid-template-columns: minmax(0, 1fr);
-    }
   }
 }
 </style>

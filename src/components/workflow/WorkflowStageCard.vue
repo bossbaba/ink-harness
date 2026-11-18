@@ -1,19 +1,15 @@
 <script setup lang="ts">
 import { MacButton } from "@macvue/core";
-import { NButton, NInput, NSelect, NTag } from "naive-ui";
+import { NButton, NInput, NSelect } from "naive-ui";
 import { ref, watch } from "vue";
-import type { WorkflowStage, WorkflowStageState } from "@/types";
-import { WORKFLOW_DECISION_LABEL, WORKFLOW_STATUS_LABEL } from "@/types";
+import type { WorkflowStageState } from "@/types";
+import { WORKFLOW_DECISION_LABEL } from "@/types";
 
 /**
- * 工作流中的单个阶段卡片：展示状态、候选产物与审批操作。
- * 产物可展开查看、复制；审批决定必须作者显式点「通过/打回」，AI 不会自己推进流水线。
+ * 步骤条里单个阶段的操作区：选章、候选产物预览与人工审批。
+ * 阶段标题/状态图标由外层 NSteps 负责，这里只放「做什么」，避免两处重复标题。
  */
 const props = defineProps<{
-  index: number;
-  stageKey: WorkflowStage;
-  label: string;
-  hint: string;
   state: WorkflowStageState;
   running: boolean;
   received: number;
@@ -41,41 +37,13 @@ watch(
   },
 );
 
-const statusType = (): "default" | "info" | "warning" | "success" | "error" => {
-  switch (props.state.status) {
-    case "running":
-      return "info";
-    case "pending":
-      return "warning";
-    case "approved":
-      return "success";
-    case "rejected":
-      return "error";
-    default:
-      return "default";
-  }
-};
-
 function copyArtifact(): void {
   void navigator.clipboard.writeText(props.state.artifact);
 }
 </script>
 
 <template>
-  <section class="stage" :class="{ 'stage--active': unlocked && state.status !== 'approved' }">
-    <header class="stage__head">
-      <div class="stage__title">
-        <span class="stage__index">{{ index + 1 }}</span>
-        <div>
-          <h2 class="stage__label">{{ label }}</h2>
-          <p class="stage__hint">{{ hint }}</p>
-        </div>
-      </div>
-      <NTag size="small" :bordered="false" :type="statusType()">
-        {{ running ? `生成中 ${received} 字` : WORKFLOW_STATUS_LABEL[state.status] }}
-      </NTag>
-    </header>
-
+  <div class="stage">
     <div v-if="chapterId !== null" class="stage__chapter">
       <label>
         <span>目标章节</span>
@@ -133,16 +101,12 @@ function copyArtifact(): void {
     </div>
 
     <div v-else class="stage__actions">
-      <MacButton
-        size="regular"
-        :disabled="running !== null || busy || !unlocked"
-        @click="emit('run')"
-      >
-        {{ running ? "生成中…" : state.artifact ? "重新生成" : "运行本阶段" }}
+      <MacButton size="regular" :disabled="running || busy || !unlocked" @click="emit('run')">
+        {{ running ? `生成中… ${received} 字` : state.artifact ? "重新生成" : "运行本阶段" }}
       </MacButton>
       <span v-if="!unlocked" class="stage__locked">需先通过上一阶段</span>
     </div>
-  </section>
+  </div>
 </template>
 
 <style scoped lang="scss">
@@ -152,72 +116,14 @@ function copyArtifact(): void {
   display: flex;
   flex-direction: column;
   gap: t.$space-3;
-  // 撑满网格单元高度；操作区用 margin-top:auto 沉底，让同行卡片的按钮齐平。
-  height: 100%;
   min-width: 0;
-  padding: t.$space-4;
-  border: 1px solid var(--divider, #{t.$divider});
-  border-radius: t.$radius-lg;
-  background: var(--bg-surface, #{t.$paper-raised});
-  box-shadow: t.$shadow-card;
-
-  &--active {
-    border-color: var(--accent, #{t.$accent});
-  }
-
-  &__head,
-  &__title,
-  &__result-head,
-  &__actions {
-    display: flex;
-    align-items: center;
-    gap: t.$space-3;
-  }
-
-  &__head {
-    justify-content: space-between;
-  }
-
-  &__title {
-    min-width: 0;
-  }
-
-  &__index {
-    display: grid;
-    flex-shrink: 0;
-    place-items: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: var(--bg-sunken, #{t.$paper-sunken});
-    color: var(--text-primary, #{t.$ink});
-    font-size: 13px;
-  }
-
-  &__label {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-  }
-
-  &__hint,
-  &__locked,
-  &__decision,
-  &__error {
-    margin: 0;
-    font-size: 11px;
-    line-height: 1.6;
-    color: var(--text-faint, #{t.$ink-faint});
-  }
-
-  &__error {
-    color: var(--error, #{t.$error});
-  }
+  padding: t.$space-3 0 t.$space-2;
 
   &__chapter label {
     display: flex;
     flex-direction: column;
     gap: t.$space-2;
+    max-width: 420px;
     font-size: 11px;
     color: var(--text-faint, #{t.$ink-faint});
   }
@@ -227,6 +133,13 @@ function copyArtifact(): void {
     flex-direction: column;
     gap: t.$space-2;
     min-width: 0;
+  }
+
+  &__result-head,
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: t.$space-3;
   }
 
   &__result-head {
@@ -241,7 +154,7 @@ function copyArtifact(): void {
   }
 
   &__artifact {
-    max-height: 240px;
+    max-height: 220px;
     margin: 0;
     padding: t.$space-3;
     overflow: auto;
@@ -253,17 +166,27 @@ function copyArtifact(): void {
     word-break: break-word;
   }
 
+  &__error,
+  &__decision,
+  &__locked {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--text-faint, #{t.$ink-faint});
+  }
+
+  &__error {
+    color: var(--error, #{t.$error});
+  }
+
   &__approve {
     display: flex;
     flex-direction: column;
     gap: t.$space-3;
-    // 与下面的操作行一样沉底，审批区与「运行本阶段」在不同卡片里位置一致。
-    margin-top: auto;
   }
 
   &__actions {
     flex-wrap: wrap;
-    margin-top: auto;
   }
 }
 </style>
