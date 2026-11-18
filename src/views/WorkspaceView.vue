@@ -260,7 +260,8 @@ onReactivated(() => void loadProjects());
 
 .project-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  // 单列给足宽度：六个入口按钮必须排在同一行，两列时卡片太窄会把按钮组挤到第二行。
+  grid-template-columns: minmax(0, 1fr);
   gap: t.$space-4;
 }
 
@@ -299,9 +300,8 @@ onReactivated(() => void loadProjects());
   }
   &__actions {
     display: flex;
-    // 六个入口挤在一行会把按钮压窄，文字和箭头各占一行；改为按钮整体换行，
-    // 行距收紧一点，两行也能看清每个入口，不出现半截按钮。
-    flex-wrap: wrap;
+    // 六个入口必须排在同一行：卡片已改单列给足宽度，这里禁止换行避免掉到第二行。
+    flex-wrap: nowrap;
     gap: t.$space-2;
     margin-top: t.$space-3;
   }
