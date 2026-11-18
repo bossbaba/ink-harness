@@ -8,6 +8,7 @@ export * from "./project";
 export * from "./publish";
 export * from "./rag";
 export * from "./review";
+export * from "./stats";
 export * from "./storyElement";
 export * from "./usage";
 export * from "./workflow";

@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory } from "vue-router";
 import GlobalBibleView from "@/views/GlobalBibleView.vue";
+import GlobalStatsView from "@/views/GlobalStatsView.vue";
 import ModelSettingsView from "@/views/ModelSettingsView.vue";
 import ProjectBibleView from "@/views/ProjectBibleView.vue";
 import ProjectIdeationView from "@/views/ProjectIdeationView.vue";
@@ -32,6 +33,12 @@ const router = createRouter({
       path: "/models",
       name: "models",
       component: ModelSettingsView,
+    },
+    {
+      // 全局统计：汇总所有作品与 token 用量，只读；编辑必须进对应作品页。
+      path: "/stats",
+      name: "stats",
+      component: GlobalStatsView,
     },
     {
       // 作品作用域的父路由：ProjectShellView 校验 projectId 并加载作品，

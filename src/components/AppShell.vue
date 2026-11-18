@@ -25,6 +25,7 @@ const focusTitle = computed(() => (app.focusMode ? "退出专注模式" : "进�
 const navItems = [
   { key: "workspace", label: "工作台", icon: "◫", path: "/" },
   { key: "bible", label: "设定库", icon: "▤", path: "/bible" },
+  { key: "stats", label: "统计", icon: "▦", path: "/stats" },
   { key: "models", label: "模型管理", icon: "⚙", path: "/models" },
 ];
 

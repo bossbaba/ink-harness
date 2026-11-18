@@ -29,6 +29,7 @@ import type {
   StoryElement,
   StoryElementOverview,
   UsageStats,
+  WorkspaceStats,
 } from "@/types";
 
 /**
@@ -116,6 +117,9 @@ export const tauriApi = {
 
   // 用量看板：token 在流式响应结束时由 Rust 记入 agent_run。
   usageStats: () => invoke<UsageStats>("usage_stats"),
+
+  // 全局统计：跨作品汇总作品/章节/字数/设定，只读。
+  workspaceStats: () => invoke<WorkspaceStats>("workspace_stats"),
 
   // RAG 检索：索引按作品维护，检索按问题取最近片段。
   ragStatus: (projectId: string) => invoke<RagStatus>("rag_status", { projectId }),

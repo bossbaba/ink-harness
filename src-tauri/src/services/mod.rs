@@ -8,5 +8,6 @@ pub mod outline_context;
 pub mod project;
 pub mod provider;
 pub mod rag;
+pub mod stats;
 pub mod story_element;
 pub mod usage;
