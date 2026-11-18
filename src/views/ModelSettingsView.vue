@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { MacButton } from "@macvue/core";
-import { NSpace, NSwitch, NTag } from "naive-ui";
+import { NRadioButton, NRadioGroup, NSpace, NSwitch, NTag } from "naive-ui";
 import { computed } from "vue";
+import CostDashboardPanel from "@/components/models/CostDashboardPanel.vue";
 import ProviderCard from "@/components/models/ProviderCard.vue";
 import ProviderEditDialog from "@/components/models/ProviderEditDialog.vue";
 import RagSettingsPanel from "@/components/models/RagSettingsPanel.vue";
 import { useModelSettings } from "@/composables/useModelSettings";
+import type { RouteStrategy } from "@/types";
 
 // 模型管理页：Provider 分组展示、连接测试、模型同步与编辑弹窗。
 const {
@@ -14,6 +16,10 @@ const {
   ollamaStarting,
   ollamaError,
   stopOllamaOnExit,
+  routeStrategy,
+  usageStats,
+  tokenBudget,
+  usageLoading,
   savingSetting,
   loading,
   busy,
@@ -31,6 +37,9 @@ const {
   refreshOllama,
   startOllama,
   setStopOllamaOnExit,
+  setRouteStrategy,
+  loadUsage,
+  updateBudget,
   openCreate,
   openEdit,
   probeDraft,
@@ -54,7 +63,7 @@ const groups = computed(() =>
   ].filter((group) => group.items.length > 0),
 );
 
-// 任务路由目前是固定偏好，等 P7 接入可配置策略后再允许编辑。
+// 任务偏好固定，策略由作者在下面选；两者一起决定每个任务实际用哪个模型。
 const ROUTES = [
   { task: "构思 / 摘要", hint: "优先本地、低成本模型" },
   { task: "续写 / 改写 / 扩写", hint: "优选中大上下文窗口" },
@@ -165,10 +174,29 @@ const ollamaRunning = computed(() => ollama.value?.running ?? false);
     </section>
 
     <section class="panel routing">
-      <h2 class="panel__title">任务路由（自动）</h2>
+      <h2 class="panel__title">任务路由</h2>
       <p class="panel__hint">
-        先在 Provider 中启用模型；路由按任务挑模型，隐私设为「仅本地」时只用本地模型。
+        路由在两个偏好之间取模型：任务本身要什么，以及你在下面选的策略。隐私设为「仅本地」时无论哪种策略都只用本地模型。
       </p>
+      <div class="routing__strategy">
+        <div>
+          <p class="routing__strategy-label">全局策略</p>
+          <p class="routing__strategy-hint">
+            质量优先用大上下文模型，成本优先用便宜/本地模型，隐私优先只挑本地。改完立即对所有 AI
+            动作生效。
+          </p>
+        </div>
+        <NRadioGroup
+          :value="routeStrategy"
+          size="small"
+          :disabled="savingSetting"
+          @update:value="(value: RouteStrategy) => setRouteStrategy(value)"
+        >
+          <NRadioButton value="quality">质量优先</NRadioButton>
+          <NRadioButton value="cost">成本优先</NRadioButton>
+          <NRadioButton value="privacy">隐私优先</NRadioButton>
+        </NRadioGroup>
+      </div>
       <div class="routing__list">
         <span v-for="item in ROUTES" :key="item.task" class="routing__item">
           <strong>{{ item.task }}</strong>
@@ -176,6 +204,16 @@ const ollamaRunning = computed(() => ollama.value?.running ?? false);
         </span>
       </div>
     </section>
+
+    <!-- 用量看板：token 由后端按任务/模型记录，费用在前端按单价估算 -->
+    <CostDashboardPanel
+      :stats="usageStats"
+      :providers="providers"
+      :budget="tokenBudget"
+      :loading="usageLoading"
+      @refresh="loadUsage"
+      @update:budget="updateBudget"
+    />
 
     <!-- 检索模型选择：这里只定用哪个模型做向量化，索引状态与重建按作品进行 -->
     <RagSettingsPanel :providers="providers" />
@@ -355,6 +393,31 @@ const ollamaRunning = computed(() => ollama.value?.running ?? false);
 }
 
 .routing {
+  &__strategy {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: t.$space-3;
+    margin-top: t.$space-3;
+    padding-top: t.$space-3;
+    border-top: 1px solid var(--divider, #{t.$divider});
+  }
+
+  &__strategy-label {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  &__strategy-hint {
+    margin: 2px 0 0;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--text-faint, #{t.$ink-faint});
+  }
+
   &__list {
     display: flex;
     flex-direction: column;

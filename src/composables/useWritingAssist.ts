@@ -104,7 +104,7 @@ export function useWritingAssist(options: WritingAssistOptions) {
       });
 
       const handle = modelRouter.chat(
-        { task: toTaskKind(selection.task), strategy: "quality", privacy: project.privacy },
+        { task: toTaskKind(selection.task), privacy: project.privacy, projectId: project.id },
         messages,
         (chunk) => {
           if (seq !== requestSeq) return;

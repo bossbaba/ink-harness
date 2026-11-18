@@ -183,17 +183,13 @@ export function useProjectReview(projectId: string) {
       // Provider 可能刚在模型管理页改过，每次审读前刷新一次。
       await modelRouter.refresh();
       if (seq !== requestSeq) return;
-      const model = modelRouter.select({
-        task: "review",
-        strategy: "quality",
-        privacy: current.privacy,
-      });
+      const model = modelRouter.select({ task: "review", privacy: current.privacy, projectId });
       if (!model) throw new Error("没有可用模型，请先在模型管理里配置并启用 Provider。");
 
       progress.value = "模型审阅中…";
       let raw = "";
       const handle = modelRouter.chat(
-        { task: "review", strategy: "quality", privacy: current.privacy },
+        { task: "review", privacy: current.privacy, projectId },
         buildReviewMessages({
           project: current,
           scope: scope.value,

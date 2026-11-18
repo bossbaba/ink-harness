@@ -2,8 +2,19 @@ import { computed, onMounted, ref } from "vue";
 import { useOllamaControl } from "@/composables/useOllamaControl";
 import { modelRouter } from "@/services/modelRouter";
 import { providerService } from "@/services/providerService";
-import { SETTING_STOP_OLLAMA_ON_EXIT, settingsService } from "@/services/settingsService";
-import { DEFAULT_CONTEXT_WINDOW, type ProviderConfig, type ProviderModel } from "@/types";
+import {
+  SETTING_ROUTE_STRATEGY,
+  SETTING_STOP_OLLAMA_ON_EXIT,
+  settingsService,
+} from "@/services/settingsService";
+import { getTokenBudget, getUsageStats, setTokenBudget } from "@/services/usageService";
+import {
+  DEFAULT_CONTEXT_WINDOW,
+  type ProviderConfig,
+  type ProviderModel,
+  type RouteStrategy,
+  type UsageStats,
+} from "@/types";
 
 function emptyProvider(): ProviderConfig {
   return {
@@ -36,6 +47,12 @@ export function useModelSettings() {
   } = useOllamaControl();
   /** 退出应用时是否停掉本地模型（只影响本应用拉起的实例），默认开。 */
   const stopOllamaOnExit = ref(true);
+  /** 全局任务路由策略，影响所有 AI 动作选模型的偏好。 */
+  const routeStrategy = ref<RouteStrategy>("quality");
+  /** 成本看板：统计与预算都要读一次设置/数据库，不作为页面初始阻塞项。 */
+  const usageStats = ref<UsageStats | null>(null);
+  const tokenBudget = ref(0);
+  const usageLoading = ref(false);
   const savingSetting = ref(false);
   const loading = ref(false);
   const busy = ref(false);
@@ -309,8 +326,63 @@ export function useModelSettings() {
     }
   }
 
+  async function loadRouteStrategy(): Promise<void> {
+    const value = await settingsService.getString(SETTING_ROUTE_STRATEGY);
+    if (value === "quality" || value === "cost" || value === "privacy") {
+      routeStrategy.value = value;
+    }
+    // 策略存在设置里，路由缓存也要跟着刷新一次。
+    await modelRouter.refresh();
+  }
+
+  async function setRouteStrategy(value: RouteStrategy): Promise<void> {
+    const previous = routeStrategy.value;
+    routeStrategy.value = value;
+    savingSetting.value = true;
+    error.value = "";
+    try {
+      await modelRouter.setStrategy(value);
+    } catch (err) {
+      routeStrategy.value = previous;
+      error.value = `保存路由策略失败：${String(err)}`;
+    } finally {
+      savingSetting.value = false;
+    }
+  }
+
+  /** 刷新用量看板。失败只留空面板，不影响 Provider 管理。 */
+  async function loadUsage(): Promise<void> {
+    usageLoading.value = true;
+    try {
+      const [stats, budget] = await Promise.all([getUsageStats(), getTokenBudget()]);
+      usageStats.value = stats;
+      tokenBudget.value = budget;
+    } catch (err) {
+      error.value = `读取用量失败：${String(err)}`;
+    } finally {
+      usageLoading.value = false;
+    }
+  }
+
+  async function updateBudget(value: number): Promise<void> {
+    const previous = tokenBudget.value;
+    tokenBudget.value = value;
+    try {
+      await setTokenBudget(value);
+    } catch (err) {
+      tokenBudget.value = previous;
+      error.value = `保存预算失败：${String(err)}`;
+    }
+  }
+
   onMounted(async () => {
-    await Promise.all([load(), refreshOllama(), loadStopOnExit()]);
+    await Promise.all([
+      load(),
+      refreshOllama(),
+      loadStopOnExit(),
+      loadRouteStrategy(),
+      loadUsage(),
+    ]);
   });
 
   return {
@@ -319,6 +391,10 @@ export function useModelSettings() {
     ollamaStarting,
     ollamaError,
     stopOllamaOnExit,
+    routeStrategy,
+    usageStats,
+    tokenBudget,
+    usageLoading,
     savingSetting,
     loading,
     busy,
@@ -338,6 +414,9 @@ export function useModelSettings() {
     refreshOllama,
     startOllama,
     setStopOllamaOnExit,
+    setRouteStrategy,
+    loadUsage,
+    updateBudget,
     openCreate,
     openEdit,
     probeDraft,

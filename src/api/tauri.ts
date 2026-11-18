@@ -28,6 +28,7 @@ import type {
   Scene,
   StoryElement,
   StoryElementOverview,
+  UsageStats,
 } from "@/types";
 
 /**
@@ -112,6 +113,9 @@ export const tauriApi = {
   // 出版导出：内容在前端生成，这里只把字节写到用户选定的路径。
   writeExportFile: (path: string, data: number[]) =>
     invoke<ExportResult>("write_export_file", { path, data }),
+
+  // 用量看板：token 在流式响应结束时由 Rust 记入 agent_run。
+  usageStats: () => invoke<UsageStats>("usage_stats"),
 
   // RAG 检索：索引按作品维护，检索按问题取最近片段。
   ragStatus: (projectId: string) => invoke<RagStatus>("rag_status", { projectId }),

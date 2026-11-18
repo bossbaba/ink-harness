@@ -57,6 +57,19 @@ pub fn open(app_data_dir: &PathBuf) -> Result<DbState, String> {
         "word_count",
         "word_count integer not null default 0",
     )?;
+    // P7 成本看板：agent_run 原来只有 tokens 总数，补两列分项，老库自动升级。
+    ensure_column(
+        &biz,
+        "agent_run",
+        "prompt_tokens",
+        "prompt_tokens integer not null default 0",
+    )?;
+    ensure_column(
+        &biz,
+        "agent_run",
+        "completion_tokens",
+        "completion_tokens integer not null default 0",
+    )?;
     seed_default_provider(&biz)?;
     init_vec_schema(&vec)?;
 

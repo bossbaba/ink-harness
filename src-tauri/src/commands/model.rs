@@ -5,7 +5,7 @@ use tauri::State;
 
 use crate::infrastructure::db::DbState;
 use crate::models::{ChatChunk, ChatParams, ProbeProviderInput, ProviderConfig};
-use crate::services::{gateway, provider};
+use crate::services::{gateway, provider, usage as usage_service};
 
 #[tauri::command]
 pub fn list_providers(state: State<'_, DbState>) -> Result<Vec<ProviderConfig>, String> {
@@ -38,8 +38,15 @@ pub async fn chat_completions(
     on_chunk: Channel<ChatChunk>,
 ) -> Result<(), String> {
     // 把 service 的回调适配到 Channel；service 本身不认识 Tauri。
-    gateway::stream_chat(&state, &params, |chunk| {
+    let usage = gateway::stream_chat(&state, &params, |chunk| {
         let _ = on_chunk.send(chunk);
     })
-    .await
+    .await?;
+    if let Some(token_usage) = usage {
+        // 统计写库失败不能反过来让一次已经生成完的对话报错。
+        if let Err(err) = usage_service::record(&state, &params, &token_usage) {
+            eprintln!("记录 token 用量失败：{err}");
+        }
+    }
+    Ok(())
 }

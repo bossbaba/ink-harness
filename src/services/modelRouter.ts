@@ -1,4 +1,5 @@
 import { tauriApi } from "@/api/tauri";
+import { SETTING_ROUTE_STRATEGY, settingsService } from "@/services/settingsService";
 import type {
   ChatChunk,
   ChatMessage,
@@ -52,11 +53,14 @@ const TASK_PREFERENCE: Record<TaskKind, { quality: number; preferLocal: boolean 
 
 export interface RouteContext {
   task: TaskKind;
-  strategy: RouteStrategy;
+  /** 不传就用模型管理页选定的全局策略，避免每个调用点各写一套。 */
+  strategy?: RouteStrategy;
   /** 作品隐私范围；local-only 时强制本地模型。 */
   privacy: PrivacyScope;
   /** 本任务需要的上下文窗口下限（token）。 */
   minContext?: number;
+  /** 作品 ID，只用于把本次 token 用量记到该作品名下。 */
+  projectId?: string;
 }
 
 export interface ChatStreamHandle {
@@ -66,13 +70,32 @@ export interface ChatStreamHandle {
 
 class ModelRouterImpl {
   private providers: Awaited<ReturnType<typeof tauriApi.listProviders>> = [];
+  private strategy: RouteStrategy = "quality";
 
   async refresh(): Promise<void> {
-    this.providers = await tauriApi.listProviders();
+    const [providers, strategy] = await Promise.all([
+      tauriApi.listProviders(),
+      settingsService.getString(SETTING_ROUTE_STRATEGY),
+    ]);
+    this.providers = providers;
+    if (strategy === "quality" || strategy === "cost" || strategy === "privacy") {
+      this.strategy = strategy;
+    }
+  }
+
+  getStrategy(): RouteStrategy {
+    return this.strategy;
+  }
+
+  /** 改策略先落库再改内存，保证后续请求（含缓存页面）都用到新值。 */
+  async setStrategy(value: RouteStrategy): Promise<void> {
+    await settingsService.setString(SETTING_ROUTE_STRATEGY, value);
+    this.strategy = value;
   }
 
   /** 按任务与策略选模型；隐私 local-only 时只考虑本地 source。 */
   select(ctx: RouteContext): ModelInfo | null {
+    const strategy = ctx.strategy ?? this.strategy;
     const pref = TASK_PREFERENCE[ctx.task];
     const localOnly = ctx.privacy === "local-only";
     const candidates = this.providers
@@ -86,8 +109,8 @@ class ModelRouterImpl {
       .filter((m) => !ctx.minContext || m.capabilities.contextWindow >= ctx.minContext)
       .map((m) => {
         const q = Math.min(3, Math.max(0, Math.round(m.capabilities.contextWindow / 8192)));
-        let score = ctx.strategy === "quality" ? q : ctx.strategy === "cost" ? -q : 0;
-        if (ctx.strategy === "privacy") {
+        let score = strategy === "quality" ? q : strategy === "cost" ? -q : 0;
+        if (strategy === "privacy") {
           score += m.source === "local" ? 2 : 0;
         } else if (pref.preferLocal && m.source === "local") {
           score += 1;
@@ -123,6 +146,8 @@ class ModelRouterImpl {
         model: `${model.provider}:${model.id}`,
         messages,
         privacyLocalOnly: ctx.privacy === "local-only",
+        taskKind: ctx.task,
+        projectId: ctx.projectId,
       },
       onChunk,
       onError,

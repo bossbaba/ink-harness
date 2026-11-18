@@ -151,7 +151,7 @@ export function useProjectPublish(projectId: string) {
     briefError.value = "";
     briefReceived.value = 0;
     try {
-      const raw = await requestPublicationBrief(doc.value, privacy.value, (count) => {
+      const raw = await requestPublicationBrief(doc.value, privacy.value, projectId, (count) => {
         briefReceived.value = count;
       });
       briefRaw.value = raw;

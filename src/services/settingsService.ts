@@ -6,6 +6,12 @@ export const SETTING_STOP_OLLAMA_ON_EXIT = "stop_ollama_on_exit";
 /** RAG 检索用的 embedding 模型，值形如 `providerId:modelId`。 */
 export const SETTING_RAG_MODEL = "rag_embedding_model";
 
+/** 全局任务路由策略：quality / cost / privacy，未设置时按质量优先。 */
+export const SETTING_ROUTE_STRATEGY = "route_strategy";
+
+/** 月度 token 预算，字符串存整数；0 表示没设预算。 */
+export const SETTING_TOKEN_BUDGET = "token_budget";
+
 /**
  * 应用级设置的薄封装：后端只认字符串，布尔值统一编码成 "1"/"0"。
  * 读取失败一律回落到调用方给的默认值，避免设置读不出来导致界面卡住。

@@ -8,3 +8,4 @@ pub mod publish;
 pub mod rag;
 pub mod setting;
 pub mod story_element;
+pub mod usage;

@@ -100,8 +100,8 @@ export function useIdeationWizard(projectId: string) {
       await modelRouter.refresh().catch(() => undefined);
       const ctx = {
         task: "ideation" as const,
-        strategy: "cost" as const,
         privacy: project.value.privacy,
+        projectId: project.value.id,
       };
       const model = modelRouter.select(ctx);
       if (!model) {

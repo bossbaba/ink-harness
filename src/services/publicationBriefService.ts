@@ -73,15 +73,16 @@ export function parsePublicationBrief(raw: string): PublicationBrief | null {
 export async function requestPublicationBrief(
   doc: PublishDocument,
   privacy: PrivacyScope,
+  projectId: string,
   onChunk?: (received: number) => void,
 ): Promise<string> {
   await modelRouter.refresh();
-  const model = modelRouter.select({ task: "publish", strategy: "quality", privacy });
+  const model = modelRouter.select({ task: "publish", privacy, projectId });
   if (!model) throw new Error("没有可用模型，请先在模型管理里配置并启用 Provider。");
 
   let raw = "";
   const handle = modelRouter.chat(
-    { task: "publish", strategy: "quality", privacy },
+    { task: "publish", privacy, projectId },
     buildBriefMessages(doc),
     (chunk) => {
       if (!chunk.delta) return;

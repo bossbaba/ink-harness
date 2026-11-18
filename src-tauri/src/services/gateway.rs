@@ -4,7 +4,7 @@
 use futures_util::StreamExt;
 
 use crate::infrastructure::{db::DbState, keychain, llm_http};
-use crate::models::{ChatChunk, ChatParams, ProviderConfig};
+use crate::models::{ChatChunk, ChatParams, ProviderConfig, TokenUsage};
 use crate::services::provider;
 
 // ── 核心：流式对话 ────────────────────────────────────────────
@@ -15,7 +15,7 @@ pub async fn stream_chat<F>(
     state: &DbState,
     params: &ChatParams,
     mut on_chunk: F,
-) -> Result<(), String>
+) -> Result<Option<TokenUsage>, String>
 where
     F: FnMut(ChatChunk),
 {
@@ -60,8 +60,9 @@ where
         return Err(format!("模型返回错误 {status}：{}", truncate(&text, 500)));
     }
 
-    // SSE 解析委托给纯函数组件，便于单测
+    // SSE 解析委托给纯函数组件，便于单测；用量可能在 [DONE] 之前的某块到达。
     let mut parser = SseParser::new();
+    let mut usage: Option<TokenUsage> = None;
     let mut stream = response.bytes_stream();
     while let Some(item) = stream.next().await {
         let bytes = item.map_err(|e| format!("读取流失败：{}", e))?;
@@ -70,15 +71,16 @@ where
             match event {
                 SseEvent::Done => {
                     on_chunk(ChatChunk::done());
-                    return Ok(());
+                    return Ok(usage);
                 }
                 SseEvent::Delta(text) => on_chunk(ChatChunk::delta(text)),
+                SseEvent::Usage(found) => usage = Some(found),
             }
         }
     }
 
     on_chunk(ChatChunk::done());
-    Ok(())
+    Ok(usage)
 }
 
 /// 一次对话实际要打到哪个 Provider、用哪个模型名。
@@ -157,6 +159,8 @@ fn locate_provider(
 
 pub enum SseEvent {
     Delta(String),
+    /// 上游在流末尾附带的 token 用量，OpenAI 风格 usage 与 Ollama 风格计数字段都认。
+    Usage(TokenUsage),
     Done,
 }
 
@@ -185,6 +189,8 @@ impl SseParser {
                 let data = data.trim();
                 if data == "[DONE]" {
                     events.push(SseEvent::Done);
+                } else if let Some(token_usage) = extract_usage(data) {
+                    events.push(SseEvent::Usage(token_usage));
                 } else if let Some(delta) = extract_delta(data) {
                     if !delta.is_empty() {
                         events.push(SseEvent::Delta(delta));
@@ -211,6 +217,34 @@ fn extract_delta(data: &str) -> Option<String> {
         .get("content")?
         .as_str()
         .map(|s| s.to_string())
+}
+
+/// 兼容两种上游：OpenAI 的 `usage:{prompt_tokens,...}` 与 Ollama 原生风格的计数字段。
+/// 两者都是 0 时视为没有用量，避免把「没给」误记成一次零消耗调用。
+fn extract_usage(data: &str) -> Option<TokenUsage> {
+    let value: serde_json::Value = serde_json::from_str(data).ok()?;
+    let usage = value.get("usage");
+    let count = |openai: &str, ollama: &str| -> u32 {
+        usage
+            .and_then(|item| item.get(openai))
+            .or_else(|| value.get(ollama))
+            .and_then(|item| item.as_u64())
+            .unwrap_or(0) as u32
+    };
+    let prompt = count("prompt_tokens", "prompt_eval_count");
+    let completion = count("completion_tokens", "eval_count");
+    if prompt == 0 && completion == 0 {
+        return None;
+    }
+    let total = usage
+        .and_then(|item| item.get("total_tokens"))
+        .and_then(|item| item.as_u64())
+        .unwrap_or((prompt + completion) as u64) as u32;
+    Some(TokenUsage {
+        prompt_tokens: prompt,
+        completion_tokens: completion,
+        total_tokens: total,
+    })
 }
 
 fn truncate(s: &str, max: usize) -> &str {
@@ -341,5 +375,33 @@ mod tests {
     fn sse_parser_buffers_incomplete_data() {
         let mut parser = SseParser::new();
         assert!(parser.push("data: {\"choices\":").is_empty());
+    }
+
+    #[test]
+    fn sse_parser_extracts_openai_usage() {
+        let mut parser = SseParser::new();
+        let events = parser.push(
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":34,\"total_tokens\":46}}\n\n",
+        );
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            SseEvent::Usage(usage) => {
+                assert_eq!(usage.prompt_tokens, 12);
+                assert_eq!(usage.completion_tokens, 34);
+                assert_eq!(usage.total_tokens, 46);
+            }
+            _ => panic!("expected usage"),
+        }
+    }
+
+    #[test]
+    fn sse_parser_extracts_ollama_style_usage() {
+        let mut parser = SseParser::new();
+        let events = parser.push("data: {\"prompt_eval_count\":7,\"eval_count\":9,\"done\":true}\n\n");
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            SseEvent::Usage(usage) => assert_eq!(usage.total_tokens, 16),
+            _ => panic!("expected usage"),
+        }
     }
 }

@@ -124,7 +124,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
       });
 
       const handle = modelRouter.chat(
-        { task: "copilot", strategy: "quality", privacy: project.privacy },
+        { task: "copilot", privacy: project.privacy, projectId: project.id },
         chatMessages,
         (chunk) => {
           if (seq !== requestSeq) return;

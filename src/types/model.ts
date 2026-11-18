@@ -55,6 +55,9 @@ export interface ChatParams {
   maxTokens?: number;
   /** 作品是否仅允许本地模型（隐私分级，Rust 侧强制）。 */
   privacyLocalOnly?: boolean;
+  /** 任务与作品只用于用量统计，不影响模型选择。 */
+  taskKind?: string;
+  projectId?: string;
 }
 
 /** 流式输出的单个数据块。 */

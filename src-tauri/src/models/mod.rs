@@ -6,7 +6,7 @@ pub mod provider;
 pub mod rag;
 pub mod story_element;
 
-pub use chat::{ChatChunk, ChatParams};
+pub use chat::{ChatChunk, ChatParams, TokenUsage};
 pub use draft::{
     ChapterContent, DraftVersion, DraftVersionBrief, SaveContentInput,
 };
