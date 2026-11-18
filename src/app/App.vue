@@ -3,6 +3,7 @@ import { darkTheme, NConfigProvider } from "naive-ui";
 import { computed, onMounted, onUnmounted, watch } from "vue";
 import { RouterView } from "vue-router";
 import AppShell from "@/components/AppShell.vue";
+import NoticeStack from "@/components/common/NoticeStack.vue";
 import { useAppStore } from "@/stores/app";
 import { applyPalette, naiveOverrides, palettes } from "@/theme/palette";
 
@@ -42,6 +43,8 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
           <component :is="Component" />
         </KeepAlive>
       </RouterView>
+      <!-- 全局提示栈：兜住没人展示的异常（见 composables/useNotice.ts） -->
+      <NoticeStack />
     </AppShell>
   </NConfigProvider>
 </template>

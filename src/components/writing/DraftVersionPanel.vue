@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NButton, NModal, NPopconfirm, NSpin } from "naive-ui";
+import { NButton, NEmpty, NModal, NPopconfirm, NSpin } from "naive-ui";
 import { computed } from "vue";
 import type { DraftVersion, DraftVersionBrief } from "@/types";
 import { formatCount, formatDateTime } from "@/utils/text";
@@ -39,9 +39,13 @@ const previewText = computed(() =>
     <p class="versions__hint">自动保存会在字数大幅变化时留版；想固定一个节点时点「保存快照」。</p>
 
     <NSpin v-if="loading" size="small" />
-    <p v-else-if="versions.length === 0" class="versions__empty">
-      还没有历史版本，写下第一段并保存后会出现。
-    </p>
+    <NEmpty
+      v-else-if="versions.length === 0"
+      class="versions__empty"
+      size="small"
+      :show-icon="false"
+      description="还没有历史版本，写下第一段并保存后会出现。"
+    />
     <ul v-else class="versions__list">
       <li v-for="item in versions" :key="item.id" class="versions__item">
         <div class="versions__meta">

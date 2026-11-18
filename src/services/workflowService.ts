@@ -1,4 +1,4 @@
-import { modelRouter } from "@/services/modelRouter";
+import { EMPTY_REPLY_MESSAGE, runChat } from "@/services/aiChat";
 import { settingsService } from "@/services/settingsService";
 import type {
   Chapter,
@@ -215,23 +215,13 @@ export async function requestAgent(
   messages: ChatMessage[],
   onChunk?: (received: number) => void,
 ): Promise<string> {
-  await modelRouter.refresh();
-  const route = {
-    task: STAGE_TASK[stage],
-    privacy: ctx.privacy,
-    projectId: ctx.projectId,
-  } as const;
-  const model = modelRouter.select(route);
-  if (!model) throw new Error("没有可用模型，请先在模型管理里配置并启用 Provider。");
-
-  let raw = "";
-  const handle = modelRouter.chat(route, messages, (chunk) => {
-    if (!chunk.delta) return;
-    raw += chunk.delta;
-    onChunk?.(raw.length);
-  });
-  await handle.done.catch(() => undefined);
-  if (!raw.trim()) throw new Error("模型没有返回内容，可以再试一次。");
+  const { raw, failure } = await runChat(
+    { task: STAGE_TASK[stage], privacy: ctx.privacy, projectId: ctx.projectId },
+    messages,
+    onChunk,
+  );
+  if (failure) throw new Error(failure);
+  if (!raw.trim()) throw new Error(EMPTY_REPLY_MESSAGE);
   return raw;
 }
 

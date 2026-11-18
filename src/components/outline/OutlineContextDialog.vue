@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NInput, NModal, NSpace, NSpin } from "naive-ui";
+import { NButton, NInput, NModal, NSpace, NSpin } from "naive-ui";
 import { ref } from "vue";
 
 // 上下文预览：把「作品信息 + 设定库 + 大纲 + 伏笔」的纯文本展示出来，可直接复制给模型。
@@ -59,17 +58,10 @@ async function copy(): Promise<void> {
 
     <template #footer>
       <NSpace justify="end">
-        <MacButton size="regular" :disabled="props.busy" @click="emit('refresh')">
-          重新生成
-        </MacButton>
-        <MacButton
-          size="regular"
-          variant="prominent"
-          :disabled="props.busy || !props.text"
-          @click="copy"
-        >
+        <NButton size="small" :disabled="props.busy" @click="emit('refresh')"> 重新生成 </NButton>
+        <NButton size="small" type="primary" :disabled="props.busy || !props.text" @click="copy">
           {{ copied ? "已复制" : "复制全文" }}
-        </MacButton>
+        </NButton>
       </NSpace>
     </template>
   </NModal>

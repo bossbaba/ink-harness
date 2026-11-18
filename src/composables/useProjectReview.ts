@@ -1,5 +1,5 @@
+import { storeToRefs } from "pinia";
 import { computed, ref } from "vue";
-import { tauriApi } from "@/api/tauri";
 import { modelRouter } from "@/services/modelRouter";
 import { outlineService } from "@/services/outlineService";
 import { projectService } from "@/services/projectService";
@@ -13,9 +13,9 @@ import {
 import { storyElementService } from "@/services/storyElementService";
 import { writingService } from "@/services/writingService";
 import { useDraftSyncStore } from "@/stores/draftSync";
+import { useProjectStore } from "@/stores/project";
 import type {
   Chapter,
-  Project,
   ReviewDecision,
   ReviewIssue,
   ReviewLayer,
@@ -32,7 +32,8 @@ import { documentToPlainText, EMPTY_DOCUMENT_TEXT } from "@/utils/tiptap";
  */
 export function useProjectReview(projectId: string) {
   const draftSync = useDraftSyncStore();
-  const project = ref<Project | null>(null);
+  // 当前作品来自全局 store：别的页面改了作品状态，这里能立刻看到。
+  const project = storeToRefs(useProjectStore()).current;
   const chapters = ref<Chapter[]>([]);
   const loading = ref(false);
   const loadError = ref("");
@@ -177,7 +178,7 @@ export function useProjectReview(projectId: string) {
       if (seq !== requestSeq) return;
 
       progress.value = "读取设定与大纲…";
-      const context = await tauriApi.buildProjectContext(projectId);
+      const context = await outlineService.buildContext(projectId);
       if (seq !== requestSeq) return;
 
       // Provider 可能刚在模型管理页改过，每次审读前刷新一次。

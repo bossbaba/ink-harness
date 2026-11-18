@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NInput, NModal, NSelect, NSpace } from "naive-ui";
+import { NButton, NInput, NModal, NSelect, NSpace } from "naive-ui";
 import { STORY_KIND_OPTIONS, type StoryElementKind } from "@/types";
 
 defineProps<{ busy: boolean; error: string }>();
@@ -54,15 +53,15 @@ function close(): void {
 
     <template #footer>
       <NSpace justify="end">
-        <MacButton size="regular" :disabled="busy" @click="close">取消</MacButton>
-        <MacButton
-          size="regular"
-          variant="prominent"
+        <NButton size="small" :disabled="busy" @click="close">取消</NButton>
+        <NButton
+          size="small"
+          type="primary"
           :disabled="busy || !name.trim()"
           @click="emit('create')"
         >
           {{ busy ? "创建中…" : "创建设定" }}
-        </MacButton>
+        </NButton>
       </NSpace>
     </template>
   </NModal>

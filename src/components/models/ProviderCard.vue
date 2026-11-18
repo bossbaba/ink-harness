@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NButton, NPopconfirm, NSwitch, NTag } from "naive-ui";
+import { NBadge, NButton, NEmpty, NPopconfirm, NSwitch, NTag, NTooltip } from "naive-ui";
 import { computed } from "vue";
 import type { ProviderConfig } from "@/types";
 
@@ -27,7 +27,8 @@ const hiddenCount = computed(() => Math.max(0, props.provider.models.length - 6)
   <article class="provider" :class="{ 'provider--off': !props.provider.enabled }">
     <header class="provider__head">
       <div class="provider__title-row">
-        <span class="provider__dot" :class="{ 'provider__dot--on': props.provider.enabled }" />
+        <!-- 启用状态圆点用 NBadge dot，颜色取语义变量，避免业务组件里写死色值。 -->
+        <NBadge dot :color="props.provider.enabled ? 'var(--accent)' : 'var(--text-faint)'" />
         <h3 class="provider__name">{{ props.provider.name }}</h3>
         <NTag
           size="tiny"
@@ -45,7 +46,13 @@ const hiddenCount = computed(() => Math.max(0, props.provider.models.length - 6)
       />
     </header>
 
-    <p class="provider__url" :title="props.provider.baseUrl">{{ props.provider.baseUrl }}</p>
+    <!-- 接口地址较长会被截断，悬浮用 NTooltip 给出完整地址。 -->
+    <NTooltip>
+      <template #trigger>
+        <p class="provider__url">{{ props.provider.baseUrl }}</p>
+      </template>
+      {{ props.provider.baseUrl }}
+    </NTooltip>
     <p class="provider__meta">
       {{ props.provider.models.length }} 个已启用模型 ·
       {{ props.provider.apiKeyRef ? "已保存密钥" : "未配置密钥" }}
@@ -55,9 +62,17 @@ const hiddenCount = computed(() => Math.max(0, props.provider.models.length - 6)
       <NTag v-for="model in visibleModels" :key="model.id" size="tiny" :bordered="false">
         {{ model.displayName || model.id }}
       </NTag>
-      <span v-if="hiddenCount" class="provider__more">+{{ hiddenCount }}</span>
+      <NTag v-if="hiddenCount" class="provider__more" size="tiny" round :bordered="false">
+        +{{ hiddenCount }}
+      </NTag>
     </div>
-    <p v-else class="provider__empty">还没有启用模型，点击「同步模型」或编辑后拉取。</p>
+    <NEmpty
+      v-else
+      class="provider__empty"
+      size="tiny"
+      :show-icon="false"
+      description="还没有启用模型，点击「同步模型」或编辑后拉取。"
+    />
 
     <p v-if="props.testMessage" class="provider__probe">{{ props.testMessage }}</p>
 
@@ -115,18 +130,6 @@ const hiddenCount = computed(() => Math.max(0, props.provider.models.length - 6)
     min-width: 0;
   }
 
-  &__dot {
-    width: 7px;
-    height: 7px;
-    flex-shrink: 0;
-    border-radius: 50%;
-    background: var(--text-faint, #{t.$ink-faint});
-
-    &--on {
-      background: var(--accent, #{t.$accent});
-    }
-  }
-
   &__name {
     margin: 0;
     font-size: 13px;
@@ -153,11 +156,6 @@ const hiddenCount = computed(() => Math.max(0, props.provider.models.length - 6)
     flex-wrap: wrap;
     align-items: center;
     gap: 4px;
-  }
-
-  &__more {
-    font-size: 10px;
-    color: var(--text-faint, #{t.$ink-faint});
   }
 
   &__empty {

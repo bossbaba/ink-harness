@@ -2,6 +2,7 @@
 
 use rusqlite::{params, OptionalExtension};
 
+use crate::error::AppError;
 use crate::infrastructure::db::DbState;
 use crate::models::{DatabaseInfo, NewProject, Project};
 
@@ -40,36 +41,36 @@ pub fn database_info(state: &DbState) -> DatabaseInfo {
     }
 }
 
-pub fn list(state: &DbState) -> Result<Vec<Project>, String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn list(state: &DbState) -> Result<Vec<Project>, AppError> {
+    let conn = state.biz();
     let mut stmt = conn
         .prepare(&format!(
             "select {SELECT_COLUMNS} from project order by updated_at desc"
         ))
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     let rows = stmt
         .query_map([], row_to_project)
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())
+        .map_err(AppError::from)
 }
 
-pub fn get(state: &DbState, id: &str) -> Result<Option<Project>, String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn get(state: &DbState, id: &str) -> Result<Option<Project>, AppError> {
+    let conn = state.biz();
     conn.query_row(
         &format!("select {SELECT_COLUMNS} from project where id = ?1"),
         params![id],
         row_to_project,
     )
     .optional()
-    .map_err(|e| e.to_string())
+    .map_err(AppError::from)
 }
 
-pub fn create(state: &DbState, input: NewProject) -> Result<Project, String> {
+pub fn create(state: &DbState, input: NewProject) -> Result<Project, AppError> {
     if input.title.trim().is_empty() {
-        return Err("作品标题不能为空".into());
+        return Err(AppError::validation("作品标题不能为空"));
     }
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+    let conn = state.biz();
     let id = gen_id();
     conn.execute(
         r#"insert into project
@@ -85,13 +86,13 @@ pub fn create(state: &DbState, input: NewProject) -> Result<Project, String> {
             input.privacy
         ],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(AppError::from)?;
     drop(conn);
-    get(state, &id)?.ok_or_else(|| "创建后读取失败".into())
+    get(state, &id)?.ok_or_else(|| AppError::internal("创建后读取失败"))
 }
 
-pub fn update(state: &DbState, project: &Project) -> Result<(), String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn update(state: &DbState, project: &Project) -> Result<(), AppError> {
+    let conn = state.biz();
     conn.execute(
         r#"update project set title=?2, genre=?3, premise=?4, audience=?5, style=?6,
            privacy=?7, status=?8, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
@@ -107,24 +108,48 @@ pub fn update(state: &DbState, project: &Project) -> Result<(), String> {
             project.status
         ],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(AppError::from)?;
     Ok(())
 }
 
-pub fn remove(state: &DbState, id: &str) -> Result<(), String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn remove(state: &DbState, id: &str) -> Result<(), AppError> {
+    // 先清向量索引：vec_rag 没有外键，project 一删就再也找不到那些 rowid，
+    // 会留下永久残留的向量（rag_chunk 本身靠外键级联删除）。
+    crate::services::rag::purge_project(state, id)?;
+    let conn = state.biz();
     conn.execute("delete from project where id = ?1", params![id])
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     Ok(())
+}
+
+/// 作品是否设为「仅本地处理」。
+///
+/// 隐私判定必须由后端查库完成：前端传来的布尔值可以被任意脚本改成 false，
+/// 那样「仅本地」作品就会把正文发到远端模型。作品不存在时按「不限制」处理，
+/// 后续查询自己会报找不到数据。
+pub fn is_local_only(state: &DbState, project_id: &str) -> Result<bool, AppError> {
+    let conn = state.biz();
+    let privacy: Option<String> = conn
+        .query_row(
+            "select privacy from project where id = ?1",
+            params![project_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(AppError::from)?;
+    Ok(privacy.as_deref() == Some("local-only"))
 }
 
 /// 向量 upsert 骨架：P4 接入 embedding 后调用，先按 entity_id 去重。
 #[allow(dead_code)]
-pub fn upsert_fragment(state: &DbState, entity_id: &str, embedding: &[f32]) -> Result<(), String> {
+pub fn upsert_fragment(state: &DbState, entity_id: &str, embedding: &[f32]) -> Result<(), AppError> {
     if embedding.len() != 768 {
-        return Err(format!("向量维度必须为 768，收到 {}", embedding.len()));
+        return Err(AppError::validation(format!(
+            "向量维度必须为 768，收到 {}",
+            embedding.len()
+        )));
     }
-    let conn = state.vec.lock().map_err(|e| e.to_string())?;
+    let conn = state.vec();
     let values = format!(
         "[{}]",
         embedding
@@ -137,7 +162,7 @@ pub fn upsert_fragment(state: &DbState, entity_id: &str, embedding: &[f32]) -> R
         "insert into vec_fragment(entity_id, embedding) values (?1, ?2)",
         params![entity_id, values],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(AppError::from)?;
     Ok(())
 }
 

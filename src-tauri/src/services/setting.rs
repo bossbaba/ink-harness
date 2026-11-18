@@ -6,35 +6,36 @@
 
 use rusqlite::{params, OptionalExtension};
 
+use crate::error::AppError;
 use crate::infrastructure::db::DbState;
 
 /// 退出应用时是否停止「由本应用拉起」的本地 Ollama 服务。默认开启。
 pub const STOP_OLLAMA_ON_EXIT: &str = "stop_ollama_on_exit";
 
-pub fn get(state: &DbState, key: &str) -> Result<Option<String>, String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn get(state: &DbState, key: &str) -> Result<Option<String>, AppError> {
+    let conn = state.biz();
     conn.query_row(
         "select value from app_meta where key = ?1",
         params![key],
         |row| row.get(0),
     )
     .optional()
-    .map_err(|e| e.to_string())
+    .map_err(AppError::from)
 }
 
-pub fn set(state: &DbState, key: &str, value: &str) -> Result<(), String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn set(state: &DbState, key: &str, value: &str) -> Result<(), AppError> {
+    let conn = state.biz();
     conn.execute(
         "insert into app_meta(key, value) values (?1, ?2) \
          on conflict(key) do update set value = excluded.value",
         params![key, value],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(AppError::from)?;
     Ok(())
 }
 
 /// 读布尔设置；没有存过时返回 `default`，让「默认开启」这类语义不需要种子数据。
-pub fn get_bool(state: &DbState, key: &str, default: bool) -> Result<bool, String> {
+pub fn get_bool(state: &DbState, key: &str, default: bool) -> Result<bool, AppError> {
     match get(state, key)? {
         Some(value) => Ok(value == "1" || value.eq_ignore_ascii_case("true")),
         None => Ok(default),
@@ -71,7 +72,7 @@ mod tests {
         set(&state, STOP_OLLAMA_ON_EXIT, "1").unwrap();
         assert!(get_bool(&state, STOP_OLLAMA_ON_EXIT, false).unwrap());
 
-        let conn = state.biz.lock().unwrap();
+        let conn = state.biz();
         let count: i64 = conn
             .query_row(
                 "select count(*) from app_meta where key = ?1",

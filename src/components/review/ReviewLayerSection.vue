@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { NEmpty, NTag } from "naive-ui";
 import ReviewIssueCard from "@/components/review/ReviewIssueCard.vue";
 import {
   REVIEW_LAYER_HINT,
@@ -35,13 +36,31 @@ const emit = defineEmits<{
   <section class="layer">
     <header class="layer__head">
       <h3 class="layer__title">{{ REVIEW_LAYER_LABEL[layer] }}</h3>
-      <span class="layer__count">{{ issues.length }}</span>
+      <NTag class="layer__count" size="tiny" round :bordered="false">{{ issues.length }}</NTag>
       <span class="layer__hint">{{ REVIEW_LAYER_HINT[layer] }}</span>
     </header>
 
-    <p v-if="running" class="layer__empty">审读中…</p>
-    <p v-else-if="note" class="layer__empty">{{ note }}</p>
-    <p v-else-if="issues.length === 0" class="layer__empty">这一层没有发现问题。</p>
+    <NEmpty
+      v-if="running"
+      class="layer__empty"
+      size="tiny"
+      :show-icon="false"
+      description="审读中…"
+    />
+    <NEmpty
+      v-else-if="note"
+      class="layer__empty"
+      size="tiny"
+      :show-icon="false"
+      :description="note"
+    />
+    <NEmpty
+      v-else-if="issues.length === 0"
+      class="layer__empty"
+      size="tiny"
+      :show-icon="false"
+      description="这一层没有发现问题。"
+    />
     <div v-else class="layer__list">
       <ReviewIssueCard
         v-for="issue in issues"
@@ -78,15 +97,10 @@ const emit = defineEmits<{
     color: var(--text-primary, #{t.$ink});
   }
 
+  // NTag 自带圆角与配色，这里只保证单个数字时也有稳定的最小宽度。
   &__count {
     min-width: 18px;
-    padding: 0 5px;
-    border-radius: 999px;
-    background: var(--bg-sunken);
-    font-size: 11px;
-    line-height: 18px;
-    text-align: center;
-    color: var(--text-soft, #{t.$ink-soft});
+    justify-content: center;
   }
 
   &__hint {

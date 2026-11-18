@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { NButton } from "naive-ui";
 import { IDEATION_STEPS } from "@/types";
 
 // 左侧步骤条：只负责展示与派发跳转，是否可达由父级的 maxReachable 决定。
@@ -12,10 +13,12 @@ const emit = defineEmits<(e: "select", index: number) => void>();
 
 <template>
   <aside class="steps">
-    <button
+    <!-- 步骤项用 NButton text 变体承载点击与禁用态，视觉仍是圆形序号 + 双行文案。 -->
+    <NButton
       v-for="(item, index) in IDEATION_STEPS"
       :key="item.label"
-      type="button"
+      text
+      block
       class="step"
       :class="{ 'step--active': index === current, 'step--done': index < current }"
       :disabled="index > maxReachable"
@@ -26,7 +29,7 @@ const emit = defineEmits<(e: "select", index: number) => void>();
         <span class="step__label">{{ item.label }}</span>
         <span class="step__hint">{{ item.hint }}</span>
       </span>
-    </button>
+    </NButton>
   </aside>
 </template>
 
@@ -63,7 +66,7 @@ const emit = defineEmits<(e: "select", index: number) => void>();
   }
 
   &:not(:disabled):hover {
-    background: rgba(128, 128, 128, 0.08);
+    background: var(--bg-hover);
   }
 
   &--active {
@@ -105,6 +108,32 @@ const emit = defineEmits<(e: "select", index: number) => void>();
     font-size: 10px;
     line-height: 1.5;
     color: var(--text-faint, #{t.$ink-faint});
+  }
+}
+
+// NButton text 变体注入的样式优先级高，这里双写类名覆盖关键布局属性与选中态。
+.step.step {
+  padding: t.$space-2;
+  border: none;
+  background: transparent;
+  font-size: inherit;
+  text-align: left;
+  white-space: normal;
+
+  // NButton 把 slot 内容包进 .n-button__content，序号与正文要在这一层做 flex，
+  // 否则写在按钮根上的 flex 只作用于唯一的内容包装层，两个子元素会挤在一起。
+  :deep(.n-button__content) {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: t.$space-2;
+    width: 100%;
+    white-space: normal;
+  }
+
+  &.step--active {
+    background: var(--bg-sunken);
+    color: var(--text-primary, #{t.$ink});
   }
 }
 </style>

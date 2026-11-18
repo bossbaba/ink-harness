@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import { tauriApi } from "@/api/tauri";
+import { runtimeService } from "@/services/runtimeService";
 import type { OllamaStatus } from "@/types";
 
 /**
@@ -15,7 +15,7 @@ export function useOllamaControl() {
   /** 静默重新探测：用于首屏和「重新检测」，失败不打扰用户。 */
   async function refresh(): Promise<void> {
     try {
-      status.value = await tauriApi.checkOllama();
+      status.value = await runtimeService.checkOllama();
     } catch {
       status.value = null;
     }
@@ -26,7 +26,7 @@ export function useOllamaControl() {
     starting.value = true;
     error.value = "";
     try {
-      status.value = await tauriApi.startOllama();
+      status.value = await runtimeService.startOllama();
       return status.value.running;
     } catch (err) {
       error.value = String(err);

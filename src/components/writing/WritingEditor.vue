@@ -4,6 +4,8 @@ import StarterKit from "@tiptap/starter-kit";
 import { EditorContent, type JSONContent, useEditor } from "@tiptap/vue-3";
 import { NButton, NTooltip } from "naive-ui";
 import { computed, ref, watch } from "vue";
+import AppIcon from "@/components/common/AppIcon.vue";
+import type { AppIconName } from "@/components/common/appIcons";
 import type { EditorPayload } from "@/composables/useWritingDesk";
 import type { AssistApplyMode, AssistSelection, AssistTask } from "@/types";
 import { parseDocument } from "@/utils/tiptap";
@@ -59,6 +61,8 @@ watch(
 interface ToolItem {
   key: string;
   label: string;
+  /** 有图标的按钮走统一 SVG，避免撤销/重做用字符箭头忽然变粗细。 */
+  icon?: AppIconName;
   hint: string;
   active: boolean;
   run: () => void;
@@ -120,14 +124,16 @@ const tools = computed<ToolItem[]>(() => {
     },
     {
       key: "undo",
-      label: "↩",
+      label: "撤销",
+      icon: "undo",
       hint: "撤销",
       active: false,
       run: () => instance.chain().focus().undo().run(),
     },
     {
       key: "redo",
-      label: "↪",
+      label: "重做",
+      icon: "redo",
       hint: "重做",
       active: false,
       run: () => instance.chain().focus().redo().run(),
@@ -238,7 +244,8 @@ defineExpose({ applyAssist, insertAtCursor });
             :class="{ 'editor__tool--active': tool.active }"
             @click="tool.run()"
           >
-            {{ tool.label }}
+            <AppIcon v-if="tool.icon" :name="tool.icon" :size="14" />
+            <template v-else>{{ tool.label }}</template>
           </NButton>
         </template>
         {{ tool.hint }}

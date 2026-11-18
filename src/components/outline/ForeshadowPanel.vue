@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NButton, NPopconfirm, NSelect, NTag } from "naive-ui";
+import { NButton, NEmpty, NPopconfirm, NSelect, NTag } from "naive-ui";
 import {
   FORESHADOW_STATUS_LABEL,
   FORESHADOW_STATUS_OPTIONS,
@@ -115,10 +115,17 @@ function isIncomplete(foreshadow: Foreshadow): boolean {
         </div>
       </article>
 
-      <div v-if="props.foreshadows.length === 0" class="foreshadow__empty">
-        <p>还没有记录伏笔。</p>
-        <NButton size="tiny" :disabled="props.busy" @click="emit('create')">新增伏笔</NButton>
-      </div>
+      <NEmpty
+        v-if="props.foreshadows.length === 0"
+        class="foreshadow__empty"
+        size="small"
+        :show-icon="false"
+        description="还没有记录伏笔。"
+      >
+        <template #extra>
+          <NButton size="tiny" :disabled="props.busy" @click="emit('create')">新增伏笔</NButton>
+        </template>
+      </NEmpty>
     </div>
   </aside>
 </template>

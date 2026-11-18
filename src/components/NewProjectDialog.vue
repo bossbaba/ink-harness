@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NInput, NModal, NSelect, NSpace } from "naive-ui";
+import { NButton, NInput, NModal, NSelect, NSpace } from "naive-ui";
 import { ref } from "vue";
 import { projectService } from "@/services/projectService";
 import type { NewProject } from "@/types";
@@ -96,10 +95,10 @@ async function submit() {
 
     <template #footer>
       <NSpace justify="end">
-        <MacButton @click="close">取消</MacButton>
-        <MacButton variant="prominent" :disabled="busy" @click="submit">
+        <NButton @click="close">取消</NButton>
+        <NButton type="primary" :disabled="busy" @click="submit">
           {{ busy ? "创建中…" : "创建作品" }}
-        </MacButton>
+        </NButton>
       </NSpace>
     </template>
   </NModal>

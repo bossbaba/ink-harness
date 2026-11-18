@@ -1,3 +1,4 @@
+pub mod chat;
 pub mod draft;
 pub mod embed;
 pub mod gateway;
@@ -7,6 +8,7 @@ pub mod outline;
 pub mod outline_context;
 pub mod project;
 pub mod provider;
+pub mod provider_kind;
 pub mod rag;
 pub mod stats;
 pub mod story_element;

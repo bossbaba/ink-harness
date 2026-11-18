@@ -1,6 +1,8 @@
+import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
 import { outlineService } from "@/services/outlineService";
 import { projectService } from "@/services/projectService";
+import { useProjectStore } from "@/stores/project";
 import type {
   Act,
   Chapter,
@@ -31,7 +33,8 @@ function emptyForeshadowDraft(): ForeshadowDraft {
  */
 export function useProjectOutline(projectIdFromRoute: string) {
   const projectId = ref(projectIdFromRoute);
-  const project = ref<Project | null>(null);
+  // 当前作品来自全局 store：别的页面改了作品状态，这里能立刻看到。
+  const project = storeToRefs(useProjectStore()).current;
   const chapters = ref<Chapter[]>([]);
   const scenes = ref<Scene[]>([]);
   const foreshadows = ref<Foreshadow[]>([]);

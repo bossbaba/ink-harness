@@ -1,9 +1,11 @@
+import { storeToRefs } from "pinia";
 import { computed, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { outlineService } from "@/services/outlineService";
 import { projectService } from "@/services/projectService";
 import { writingService } from "@/services/writingService";
 import { useDraftSyncStore } from "@/stores/draftSync";
+import { useProjectStore } from "@/stores/project";
 import type {
   Act,
   Chapter,
@@ -12,6 +14,7 @@ import type {
   DraftVersionBrief,
   Project,
 } from "@/types";
+import { clearDraftBackup, readDraftBackup, writeDraftBackup } from "@/utils/draftBackup";
 import { onReactivated } from "@/utils/lifecycle";
 import { countCharacters } from "@/utils/text";
 
@@ -39,7 +42,8 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
   const draftSync = useDraftSyncStore();
   const route = useRoute();
   const router = useRouter();
-  const project = ref<Project | null>(null);
+  // 当前作品来自全局 store：别的页面改了作品状态，这里能立刻看到。
+  const project = storeToRefs(useProjectStore()).current;
   const chapters = ref<Chapter[]>([]);
   const content = ref("");
   const wordCount = ref(0);
@@ -59,6 +63,12 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
   // 待落库的正文；自动保存与手动快照都从这里取，避免读到编辑器之外的旧值。
   let pending: { content: string; wordCount: number } | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * 是否已有一次保存在飞。
+   * 保存期间用户继续输入时不再另起请求（那会让两次 save 落库顺序不确定，
+   * 旧内容可能覆盖新内容），而是把内容留在 pending，由当前这一轮循环补写。
+   */
+  let saving = false;
   /** 载入正文时记住的版本：审稿页在外部改过正文后，靠它判断缓存是否已过期。 */
   let seenRevision = 0;
 
@@ -157,10 +167,25 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
       const data = await writingService.getContent(chapterId);
       loadedChapterId.value = chapterId;
       seenRevision = draftSync.revisionOf(chapterId);
-      content.value = data.content;
-      wordCount.value = data.wordCount;
       lastSavedAt.value = data.updatedAt;
-      saveState.value = "saved";
+
+      // 上次写库失败留下的本地备份如果比库里的正文更新，就载入编辑器并提示保存。
+      // 直接丢弃等于把用户那一段文字吞掉；时间戳无法解析时也选择载入（宁可多写一次，不丢稿）。
+      const backup = readDraftBackup(chapterId);
+      const serverTime = Date.parse(data.updatedAt);
+      const backupIsNewer =
+        backup !== null && (!Number.isFinite(serverTime) || backup.savedAt > serverTime);
+      if (backup && backupIsNewer) {
+        content.value = backup.content;
+        wordCount.value = backup.wordCount;
+        saveState.value = "error";
+        error.value = "检测到上次未保存的本地备份，已载入编辑器，请确认后保存。";
+      } else {
+        if (backup) clearDraftBackup(chapterId);
+        content.value = data.content;
+        wordCount.value = data.wordCount;
+        saveState.value = "saved";
+      }
       editorRevision.value += 1;
       await loadVersions(chapterId);
     } catch (err) {
@@ -188,14 +213,39 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
   /**
    * 立即把待保存内容写库。
    * 切章、离开页面、手动快照前都会调用它，保证「界面上看到的字」已经落盘。
+   *
+   * 单飞：同一时刻只允许一个保存请求在飞；期间产生的新内容留在 pending，
+   * 由本轮循环接着写一次。这样既不会并发覆盖，也不会丢字。
    */
   async function flush(): Promise<void> {
     clearTimer();
+    if (saving) return;
     const chapterId = loadedChapterId.value;
-    const payload = pending;
-    if (!chapterId || !payload) return;
-    pending = null;
+    if (!chapterId || !pending) return;
+    saving = true;
     saveState.value = "saving";
+    try {
+      while (pending) {
+        const payload = pending;
+        pending = null;
+        const ok = await saveOnce(chapterId, payload);
+        // 失败时内容已回到队列，这里必须停下：继续循环只会对同一个后端错误空转。
+        if (!ok) break;
+      }
+    } finally {
+      saving = false;
+    }
+  }
+
+  /**
+   * 写一次库，返回是否成功。
+   * 失败时不抛异常（避免 `void flush()` 变成 unhandled rejection），
+   * 而是把内容放回 pending 并标记 error，等下一次输入/切章/离开页面再试。
+   */
+  async function saveOnce(
+    chapterId: string,
+    payload: { content: string; wordCount: number },
+  ): Promise<boolean> {
     try {
       const saved = await writingService.saveContent({
         chapterId,
@@ -208,17 +258,23 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
         // 首次写出内容后，章节从「待写」推进到「写作中」；后端同样做了这一步。
         status: saved.wordCount > 0 ? "drafting" : undefined,
       });
+      // 已落库，本地兜底备份就没用了，及时清掉避免下次载入误判。
+      clearDraftBackup(chapterId);
       // 请求返回时用户可能已切到别的章节，此时旧结果不应覆盖当前页的状态栏。
-      if (loadedChapterId.value !== chapterId) return;
+      if (loadedChapterId.value !== chapterId) return true;
       wordCount.value = saved.wordCount;
       lastSavedAt.value = saved.updatedAt;
       saveState.value = "saved";
       if (saved.wordCount > 0) void markDraftingStage();
+      return true;
     } catch (err) {
-      // 保存失败时把内容放回待保存队列，用户继续写或再次触发保存即可重试。
+      // 期间用户又输入了新内容时优先保留新的那份，别让旧 payload 把它盖掉。
       if (!pending) pending = payload;
+      // 写库失败时把正文留在本地，否则关窗/崩溃就真的丢了；下次载入该章会提示恢复。
+      writeDraftBackup(chapterId, payload);
       saveState.value = "error";
-      error.value = `保存失败：${String(err)}`;
+      error.value = `保存失败：${String(err)}（正文已留在本地备份）`;
+      return false;
     }
   }
 
@@ -238,6 +294,7 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
         snapshot: true,
       });
       pending = null;
+      clearDraftBackup(chapterId);
       wordCount.value = saved.wordCount;
       lastSavedAt.value = saved.updatedAt;
       saveState.value = "saved";

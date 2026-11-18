@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { NRadioButton, NRadioGroup } from "naive-ui";
+import { NEmpty, NSpin } from "naive-ui";
 import { computed, onMounted, ref } from "vue";
+import SegmentedControl from "@/components/common/SegmentedControl.vue";
+import type { SegmentOption } from "@/components/common/segmentedControl";
 import BriefPanel from "@/components/publish/BriefPanel.vue";
 import ExportPanel from "@/components/publish/ExportPanel.vue";
 import PlatformPanel from "@/components/publish/PlatformPanel.vue";
@@ -48,11 +50,11 @@ const {
 
 const tab = ref<Tab>("preview");
 const pageTitle = ref("出版中心");
-const tabs: Array<{ key: Tab; label: string }> = [
-  { key: "preview", label: "排版预览" },
-  { key: "export", label: "导出" },
-  { key: "brief", label: "发布物料" },
-  { key: "platform", label: "发布清单" },
+const tabs: SegmentOption[] = [
+  { label: "排版预览", value: "preview" },
+  { label: "导出", value: "export" },
+  { label: "发布物料", value: "brief" },
+  { label: "发布清单", value: "platform" },
 ];
 
 const hint = computed(() =>
@@ -67,15 +69,21 @@ const hint = computed(() =>
 
 onMounted(async () => {
   await load();
-  const project = await projectService.get(props.projectId);
-  if (project) pageTitle.value = `《${project.title}》· 出版中心`;
+  // 标题只用于展示，读不到作品时保留默认值，不让挂载回调变成 unhandled rejection。
+  try {
+    const project = await projectService.get(props.projectId);
+    if (project) pageTitle.value = `《${project.title}》· 出版中心`;
+  } catch {
+    pageTitle.value = "出版中心";
+  }
 });
 
 // 从别的页面（如写作台改了正文）回来时重读，预览与导出才不会用旧稿。
 onReactivated(() => void load());
 
 function copyMarkdown(): void {
-  void navigator.clipboard.writeText(previewMarkdown.value);
+  // 非安全上下文或用户拒绝剪贴板权限时静默失败，不影响预览与导出。
+  navigator.clipboard.writeText(previewMarkdown.value).catch(() => undefined);
 }
 
 function updateBrief(field: keyof PublicationBrief, value: string | string[]): void {
@@ -93,13 +101,16 @@ function updateBrief(field: keyof PublicationBrief, value: string | string[]): v
 
     <p v-if="loadError" class="publish__error">{{ loadError }}</p>
 
-    <NRadioGroup :value="tab" size="small" @update:value="(value: Tab) => (tab = value)">
-      <NRadioButton v-for="item in tabs" :key="item.key" :value="item.key">
-        {{ item.label }}
-      </NRadioButton>
-    </NRadioGroup>
+    <SegmentedControl
+      :options="tabs"
+      :model-value="tab"
+      @update:model-value="(value: string) => (tab = value as Tab)"
+    />
 
-    <section v-if="loading && !doc" class="publish__empty">正在读取作品与章节…</section>
+    <div v-if="loading && !doc" class="publish__empty">
+      <NSpin size="small" />
+      <span>正在读取作品与章节…</span>
+    </div>
     <template v-else-if="doc">
       <PublishPreview
         v-if="tab === 'preview'"
@@ -137,7 +148,12 @@ function updateBrief(field: keyof PublicationBrief, value: string | string[]): v
       />
       <PlatformPanel v-else :plan="plan" @toggle="togglePlatform" @entry="setEntry" />
     </template>
-    <section v-else class="publish__empty">这部作品还没有正文，先去写作台写一点再来排版。</section>
+    <NEmpty
+      v-else
+      class="publish__empty"
+      size="small"
+      description="这部作品还没有正文，先去写作台写一点再来排版。"
+    />
   </div>
 </template>
 
@@ -180,6 +196,10 @@ function updateBrief(field: keyof PublicationBrief, value: string | string[]): v
   }
 
   &__empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: t.$space-2;
     margin-top: t.$space-4;
     padding: t.$space-4;
     @include m.card-surface(var(--bg-surface));

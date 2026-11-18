@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NTag } from "naive-ui";
+import { NButton, NEmpty, NSpin, NTag } from "naive-ui";
 import {
   type Act,
   CHAPTER_STATUS_LABEL,
@@ -34,20 +34,30 @@ function actLabel(act: Act): string {
       <span class="chapter-list__total">{{ formatCount(totalWords) }} 字</span>
     </div>
 
-    <p v-if="loading" class="chapter-list__hint">正在载入章节…</p>
-    <p v-else-if="groups.every((group) => group.chapters.length === 0)" class="chapter-list__hint">
-      还没有章节，先到「大纲」建几章再回来写。
-    </p>
+    <div v-if="loading" class="chapter-list__hint">
+      <NSpin size="small" />
+      <span>正在载入章节…</span>
+    </div>
+    <NEmpty
+      v-else-if="groups.every((group) => group.chapters.length === 0)"
+      class="chapter-list__hint"
+      size="small"
+      :show-icon="false"
+      description="还没有章节，先到「大纲」建几章再回来写。"
+    />
 
     <div v-for="group in groups" :key="group.act" class="chapter-list__group">
       <div class="chapter-list__act">
         <span>{{ actLabel(group.act) }}</span>
-        <span class="chapter-list__count">{{ group.chapters.length }}</span>
+        <NTag class="chapter-list__count" size="tiny" round :bordered="false">
+          {{ group.chapters.length }}
+        </NTag>
       </div>
-      <button
+      <NButton
         v-for="(chapter, index) in group.chapters"
         :key="chapter.id"
-        type="button"
+        text
+        block
         class="chapter-list__item"
         :class="{ 'chapter-list__item--active': chapter.id === activeChapterId }"
         @click="emit('select', chapter.id)"
@@ -62,7 +72,7 @@ function actLabel(act: Act): string {
           </NTag>
           <span class="chapter-list__words">{{ formatCount(chapter.wordCount) }}</span>
         </span>
-      </button>
+      </NButton>
     </div>
   </aside>
 </template>
@@ -103,6 +113,9 @@ function actLabel(act: Act): string {
   }
 
   &__hint {
+    display: flex;
+    align-items: center;
+    gap: t.$space-2;
     margin: 0 0 t.$space-3;
     line-height: 1.6;
   }
@@ -120,10 +133,10 @@ function actLabel(act: Act): string {
     color: var(--text-faint);
   }
 
+  // NTag 自带圆角与配色，这里只保证单个数字时的最小宽度。
   &__count {
-    padding: 0 6px;
-    border-radius: 999px;
-    background: var(--bg-sunken);
+    min-width: 20px;
+    justify-content: center;
   }
 
   &__item {
@@ -146,6 +159,40 @@ function actLabel(act: Act): string {
     &--active {
       border-color: var(--accent, #{t.$accent});
       background: var(--bg-sunken);
+    }
+  }
+
+  // NButton text 变体的默认 padding/字号会覆盖列表项布局，双写类名覆盖回来。
+  &__item.chapter-list__item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    padding: t.$space-2 t.$space-3;
+    border: 1px solid transparent;
+    border-radius: t.$radius-md;
+    background: transparent;
+    font-size: inherit;
+    text-align: left;
+    white-space: normal;
+
+    &:hover {
+      background: var(--bg-sunken);
+    }
+
+    &.chapter-list__item--active {
+      border-color: var(--accent, #{t.$accent});
+      background: var(--bg-sunken);
+    }
+
+    // 章名与字数副标题在 .n-button__content 这一层纵向排列。
+    :deep(.n-button__content) {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 4px;
+      width: 100%;
+      white-space: normal;
     }
   }
 

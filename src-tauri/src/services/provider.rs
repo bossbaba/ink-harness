@@ -6,8 +6,10 @@ use std::time::Duration;
 
 use rusqlite::{params, OptionalExtension};
 
+use crate::error::AppError;
 use crate::infrastructure::{db::DbState, id::gen_id, keychain, llm_http};
 use crate::models::{ProbeProviderInput, ProviderConfig, ProviderModel};
+use crate::services::provider_kind;
 
 const COLUMNS: &str = "id, name, source, base_url, api_key_ref, enabled, models_json";
 
@@ -26,30 +28,30 @@ fn row_to_provider(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProviderConfig> 
     })
 }
 
-pub fn list(state: &DbState) -> Result<Vec<ProviderConfig>, String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn list(state: &DbState) -> Result<Vec<ProviderConfig>, AppError> {
+    let conn = state.biz();
     let mut stmt = conn
         .prepare(&format!(
             "select {COLUMNS} from provider_config \
              order by case source when 'local' then 0 else 1 end, name collate nocase"
         ))
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     let rows = stmt
         .query_map([], row_to_provider)
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())
+        .map_err(AppError::from)
 }
 
-pub fn get(state: &DbState, id: &str) -> Result<Option<ProviderConfig>, String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn get(state: &DbState, id: &str) -> Result<Option<ProviderConfig>, AppError> {
+    let conn = state.biz();
     conn.query_row(
         &format!("select {COLUMNS} from provider_config where id = ?1"),
         params![id],
         row_to_provider,
     )
     .optional()
-    .map_err(|e| e.to_string())
+    .map_err(AppError::from)
 }
 
 /// 本地 Ollama 常见误填 http://localhost:11434（缺 /v1），保存时补全，避免对话请求 404。
@@ -65,26 +67,26 @@ fn normalize_base_url(source: &str, raw: &str) -> String {
 }
 
 /// 新增或更新 Provider；id 为空时由后端生成，返回落库后的完整配置。
-pub fn save(state: &DbState, config: &ProviderConfig) -> Result<ProviderConfig, String> {
+pub fn save(state: &DbState, config: &ProviderConfig) -> Result<ProviderConfig, AppError> {
     let name = config.name.trim();
     if name.is_empty() {
-        return Err("Provider 名称不能为空".into());
+        return Err(AppError::validation("Provider 名称不能为空"));
     }
     if config.source != "local" && config.source != "remote" {
-        return Err("Provider 来源只能是 local 或 remote".into());
+        return Err(AppError::internal("Provider 来源只能是 local 或 remote"));
     }
     let base_url = normalize_base_url(&config.source, &config.base_url);
     if base_url.is_empty() {
-        return Err("服务地址不能为空".into());
+        return Err(AppError::validation("服务地址不能为空"));
     }
     let id = if config.id.trim().is_empty() {
         gen_id("pv")
     } else {
         config.id.trim().to_string()
     };
-    let models_json = serde_json::to_string(&config.models).map_err(|e| e.to_string())?;
+    let models_json = serde_json::to_string(&config.models).map_err(AppError::from)?;
 
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+    let conn = state.biz();
     conn.execute(
         r#"insert into provider_config
            (id, name, source, base_url, api_key_ref, enabled, models_json, updated_at)
@@ -107,23 +109,23 @@ pub fn save(state: &DbState, config: &ProviderConfig) -> Result<ProviderConfig, 
             models_json
         ],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(AppError::from)?;
     drop(conn);
-    get(state, &id)?.ok_or_else(|| "保存后读取 Provider 失败".into())
+    get(state, &id)?.ok_or_else(|| AppError::internal("保存后读取 Provider 失败"))
 }
 
-pub fn remove(state: &DbState, id: &str) -> Result<(), String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn remove(state: &DbState, id: &str) -> Result<(), AppError> {
+    let conn = state.biz();
     conn.execute("delete from provider_config where id = ?1", params![id])
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     Ok(())
 }
 
 /// 依次尝试 OpenAI 兼容的 /models 与 Ollama 原生 /api/tags，返回模型 id 列表。
-pub async fn probe(input: &ProbeProviderInput) -> Result<Vec<String>, String> {
+pub async fn probe(input: &ProbeProviderInput) -> Result<Vec<String>, AppError> {
     let base = input.base_url.trim().trim_end_matches('/');
     if base.is_empty() {
-        return Err("请填写服务地址".into());
+        return Err(AppError::internal("请填写服务地址"));
     }
     // 优先用这次输入的密钥；编辑已保存的 Provider 时用户通常不会再输一遍，
     // 此时按 api_key_ref 从钥匙串取，避免「测试连接」对云端必 401。
@@ -133,19 +135,11 @@ pub async fn probe(input: &ProbeProviderInput) -> Result<Vec<String>, String> {
         .map(str::trim)
         .filter(|key| !key.is_empty())
         .map(str::to_string)
-        .or_else(|| {
-            input
-                .api_key_ref
-                .as_deref()
-                .and_then(|reference| keychain::get(reference).ok().flatten())
-        });
+        .or_else(|| keychain::optional(input.api_key_ref.as_deref()));
     let api_key = api_key.as_deref();
 
-    let mut urls = vec![format!("{base}/models")];
-    if !base.ends_with("/v1") {
-        urls.push(format!("{base}/v1/models"));
-    }
-    urls.push(format!("{base}/api/tags"));
+    // 候选地址由 provider_kind 统一给出：新增方言只改那一处。
+    let urls = provider_kind::model_list_urls(base);
 
     let client = llm_http::client();
     let mut last_error = String::new();
@@ -166,7 +160,7 @@ pub async fn probe(input: &ProbeProviderInput) -> Result<Vec<String>, String> {
             Err(err) => last_error = format!("{url} 请求失败：{err}"),
         }
     }
-    Err(format!("连接失败：{last_error}"))
+    Err(AppError::network(format!("连接失败：{last_error}")))
 }
 
 /// 兼容 OpenAI（data[].id）与 Ollama（models[].name）两种响应；去重并保持原顺序。

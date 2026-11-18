@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NInput, NSelect, NTag } from "naive-ui";
+import { NButton, NEmpty, NInput, NSelect, NTag } from "naive-ui";
+import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import { useGlobalBible } from "@/composables/useGlobalBible";
+import type { KindFilter } from "@/composables/useStoryBible";
 
 // 全局设定库页面，只负责组装界面；跨作品汇总、筛选与跳转逻辑都在 useGlobalBible 中。
 // 这里是只读视角，编辑入口由 openProject 跳到对应作品内页面。
@@ -45,18 +46,12 @@ const {
           size="small"
           @update:value="(value: string) => (projectFilter = value)"
         />
-        <div class="kind-tabs">
-          <button
-            v-for="option in kindOptions"
-            :key="option.value"
-            type="button"
-            class="kind-tabs__item"
-            :class="{ 'kind-tabs__item--active': filterKind === option.value }"
-            @click="filterKind = option.value"
-          >
-            {{ option.label }}
-          </button>
-        </div>
+        <SegmentedControl
+          wrap
+          :options="kindOptions"
+          :model-value="filterKind"
+          @update:model-value="(value: string) => (filterKind = value as KindFilter)"
+        />
         <NInput
           v-model:value="keyword"
           placeholder="搜索名称、别名、作品或摘要"
@@ -64,10 +59,11 @@ const {
           clearable
         />
         <div class="item-list">
-          <button
+          <NButton
             v-for="item in filtered"
             :key="item.id"
-            type="button"
+            text
+            block
             class="item"
             :class="{ 'item--active': item.id === selectedId }"
             @click="selectElement(item.id)"
@@ -77,10 +73,14 @@ const {
               <NTag size="tiny" :bordered="false">{{ kindLabel(item.kind) }}</NTag>
             </span>
             <span class="item__project">{{ item.projectTitle }}</span>
-          </button>
-          <p v-if="filtered.length === 0" class="item-list__empty">
-            {{ busy ? "加载中…" : "没有匹配的设定条目。" }}
-          </p>
+          </NButton>
+          <NEmpty
+            v-if="filtered.length === 0"
+            class="item-list__empty"
+            size="small"
+            :show-icon="false"
+            :description="busy ? '加载中…' : '没有匹配的设定条目。'"
+          />
         </div>
       </aside>
 
@@ -92,7 +92,7 @@ const {
               <h2 class="detail-head__title serif">{{ selected.name }}</h2>
               <p class="detail-head__project">所属作品：{{ selected.projectTitle }}</p>
             </div>
-            <MacButton size="regular" @click="openProject(selected)"> 进入该作品设定库 </MacButton>
+            <NButton size="small" @click="openProject(selected)"> 进入该作品设定库 </NButton>
           </div>
 
           <div class="detail-body">
@@ -114,9 +114,13 @@ const {
             </section>
             <section class="detail-section">
               <h3 class="detail-section__title">关联设定</h3>
-              <p v-if="!selected.detail.relations?.length" class="detail-section__empty">
-                暂无关联。
-              </p>
+              <NEmpty
+                v-if="!selected.detail.relations?.length"
+                class="detail-section__empty"
+                size="small"
+                :show-icon="false"
+                description="暂无关联。"
+              />
               <p
                 v-for="relation in selected.detail.relations"
                 :key="relation.targetId"
@@ -128,9 +132,12 @@ const {
             </section>
           </div>
         </template>
-        <div v-else class="panel__empty">
-          <p>暂无设定条目。请进入某部作品的设定库添加。</p>
-        </div>
+        <NEmpty
+          v-else
+          class="panel__empty"
+          size="small"
+          description="暂无设定条目。请进入某部作品的设定库添加。"
+        />
       </section>
     </div>
   </div>
@@ -209,27 +216,6 @@ const {
   min-height: 260px;
 }
 
-.kind-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: t.$space-1;
-
-  &__item {
-    padding: 3px 9px;
-    border: 1px solid var(--divider, #{t.$divider});
-    border-radius: 999px;
-    background: transparent;
-    color: var(--text-soft, #{t.$ink-soft});
-    font-size: 11px;
-    cursor: pointer;
-
-    &--active {
-      border-color: var(--accent, #{t.$accent});
-      color: var(--accent, #{t.$accent});
-    }
-  }
-}
-
 .item-list {
   display: flex;
   flex-direction: column;
@@ -261,7 +247,7 @@ const {
   cursor: pointer;
 
   &:hover {
-    background: rgba(128, 128, 128, 0.08);
+    background: var(--bg-hover);
   }
 
   &--active {
@@ -285,6 +271,40 @@ const {
     font-size: 11px;
     color: var(--text-faint, #{t.$ink-faint});
     @include m.ellipsis;
+  }
+}
+
+// NButton text 变体自带 padding/居中，双写类名把设定条目的列表布局覆盖回来。
+.item.item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: t.$space-2;
+  border: none;
+  border-radius: t.$radius-sm;
+  background: transparent;
+  color: var(--text-primary, #{t.$ink});
+  font-size: inherit;
+  text-align: left;
+  white-space: normal;
+
+  &:hover {
+    background: var(--bg-hover);
+  }
+
+  &.item--active {
+    background: var(--bg-sunken, #{t.$paper-sunken});
+  }
+
+  // 名称行与作品名在 .n-button__content 这一层纵向排列。
+  :deep(.n-button__content) {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    width: 100%;
+    white-space: normal;
   }
 }
 

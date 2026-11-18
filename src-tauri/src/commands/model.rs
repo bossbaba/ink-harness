@@ -1,52 +1,42 @@
 //! Provider 管理与流式对话命令：只做 Tauri IPC 与 service 之间的适配。
 
 use tauri::ipc::Channel;
-use tauri::State;
 
-use crate::infrastructure::db::DbState;
+use crate::commands::blocking;
+use crate::error::AppError;
 use crate::models::{ChatChunk, ChatParams, ProbeProviderInput, ProviderConfig};
-use crate::services::{gateway, provider, usage as usage_service};
+use crate::services::{chat, provider};
 
 #[tauri::command]
-pub fn list_providers(state: State<'_, DbState>) -> Result<Vec<ProviderConfig>, String> {
-    provider::list(&state)
+pub async fn list_providers(app: tauri::AppHandle) -> Result<Vec<ProviderConfig>, AppError> {
+    blocking(app, |state| provider::list(state)).await
 }
 
 #[tauri::command]
-pub fn save_provider(
-    state: State<'_, DbState>,
+pub async fn save_provider(
+    app: tauri::AppHandle,
     config: ProviderConfig,
-) -> Result<ProviderConfig, String> {
-    provider::save(&state, &config)
+) -> Result<ProviderConfig, AppError> {
+    blocking(app, move |state| provider::save(state, &config)).await
 }
 
 #[tauri::command]
-pub fn remove_provider(state: State<'_, DbState>, id: String) -> Result<(), String> {
-    provider::remove(&state, &id)
+pub async fn remove_provider(app: tauri::AppHandle, id: String) -> Result<(), AppError> {
+    blocking(app, move |state| provider::remove(state, &id)).await
 }
 
 /// 探测连接并拉取模型列表；允许在保存前用未落库的 API Key 测试。
 #[tauri::command]
-pub async fn probe_provider(input: ProbeProviderInput) -> Result<Vec<String>, String> {
+pub async fn probe_provider(input: ProbeProviderInput) -> Result<Vec<String>, AppError> {
     provider::probe(&input).await
 }
 
 #[tauri::command]
 pub async fn chat_completions(
-    state: State<'_, DbState>,
+    state: tauri::State<'_, crate::infrastructure::db::DbState>,
     params: ChatParams,
     on_chunk: Channel<ChatChunk>,
-) -> Result<(), String> {
-    // 把 service 的回调适配到 Channel；service 本身不认识 Tauri。
-    let usage = gateway::stream_chat(&state, &params, |chunk| {
-        let _ = on_chunk.send(chunk);
-    })
-    .await?;
-    if let Some(token_usage) = usage {
-        // 统计写库失败不能反过来让一次已经生成完的对话报错。
-        if let Err(err) = usage_service::record(&state, &params, &token_usage) {
-            eprintln!("记录 token 用量失败：{err}");
-        }
-    }
-    Ok(())
+) -> Result<(), AppError> {
+    // 只做 IPC 适配：send 失败说明用户已取消，返回 false 让 service 停止读取与计费。
+    chat::stream_with_usage(&state, &params, |chunk| on_chunk.send(chunk).is_ok()).await
 }

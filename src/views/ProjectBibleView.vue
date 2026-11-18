@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NSpace } from "naive-ui";
+import { NButton, NSpace, NSpin } from "naive-ui";
 import StoryBibleList from "@/components/storyBible/StoryBibleList.vue";
 import StoryElementCreateDialog from "@/components/storyBible/StoryElementCreateDialog.vue";
 import StoryElementForm from "@/components/storyBible/StoryElementForm.vue";
@@ -54,24 +53,20 @@ const {
         </p>
       </div>
       <NSpace>
-        <MacButton size="regular" :disabled="busy || !projectTitle" @click="checkConsistency">
+        <NButton size="small" :disabled="busy || !projectTitle" @click="checkConsistency">
           {{ busy ? "检查中…" : "一致性检查" }}
-        </MacButton>
-        <MacButton
-          size="regular"
-          variant="prominent"
-          :disabled="busy || !projectTitle"
-          @click="startNew"
-        >
+        </NButton>
+        <NButton size="small" type="primary" :disabled="busy || !projectTitle" @click="startNew">
           新建设定
-        </MacButton>
+        </NButton>
       </NSpace>
     </header>
 
     <p v-if="error" class="project-bible__error">{{ error }}</p>
 
     <div v-if="!projectTitle && !error" class="project-bible__empty">
-      <p>正在载入作品设定库…</p>
+      <NSpin size="small" />
+      <span>正在载入作品设定库…</span>
     </div>
 
     <div v-else-if="projectTitle" class="bible-grid">
@@ -156,6 +151,10 @@ const {
   }
 
   &__empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: t.$space-2;
     margin-top: t.$space-6;
     padding: t.$space-8;
     text-align: center;
@@ -173,14 +172,6 @@ const {
   margin-top: t.$space-5;
   align-items: start;
   min-width: 0;
-
-  @media (max-width: 1180px) {
-    grid-template-columns: 230px minmax(0, 1fr);
-
-    .panel--graph {
-      grid-column: 1 / -1;
-    }
-  }
 
   @container (max-width: 1000px) {
     grid-template-columns: 230px minmax(0, 1fr);

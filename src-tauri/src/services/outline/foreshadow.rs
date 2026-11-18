@@ -2,6 +2,7 @@
 
 use rusqlite::{params, Connection};
 
+use crate::error::AppError;
 use crate::infrastructure::db::DbState;
 use crate::infrastructure::id::gen_id;
 use crate::models::{Foreshadow, NewForeshadow};
@@ -27,26 +28,26 @@ fn validate_chapter_owner(
     conn: &Connection,
     project_id: &str,
     chapter_id: &Option<String>,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let Some(chapter_id) = chapter_id else {
         return Ok(());
     };
     match chapter_project(conn, chapter_id)? {
         Some(owner) if owner == project_id => Ok(()),
-        Some(_) => Err("伏笔引用的章节不属于当前作品".into()),
-        None => Err("伏笔引用的章节不存在".into()),
+        Some(_) => Err(AppError::not_found("伏笔引用的章节不属于当前作品")),
+        None => Err(AppError::not_found("伏笔引用的章节不存在")),
     }
 }
 
-pub fn create_foreshadow(state: &DbState, input: NewForeshadow) -> Result<Foreshadow, String> {
+pub fn create_foreshadow(state: &DbState, input: NewForeshadow) -> Result<Foreshadow, AppError> {
     let title = input.title.trim();
     if title.is_empty() {
-        return Err("伏笔标题不能为空".into());
+        return Err(AppError::validation("伏笔标题不能为空"));
     }
     validate_status(&input.status, &FORESHADOW_STATUSES, "伏笔")?;
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+    let conn = state.biz();
     if !project_exists(&conn, &input.project_id)? {
-        return Err("作品不存在".into());
+        return Err(AppError::not_found("作品不存在"));
     }
     validate_chapter_owner(&conn, &input.project_id, &input.setup_chapter_id)?;
     validate_chapter_owner(&conn, &input.project_id, &input.payoff_chapter_id)?;
@@ -64,22 +65,22 @@ pub fn create_foreshadow(state: &DbState, input: NewForeshadow) -> Result<Foresh
             input.status
         ],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(AppError::from)?;
     conn.query_row(
         &format!("select {FORESHADOW_COLUMNS} from foreshadow where id = ?1"),
         params![id],
         row_to_foreshadow,
     )
-    .map_err(|e| e.to_string())
+    .map_err(AppError::from)
 }
 
-pub fn update_foreshadow(state: &DbState, foreshadow: &Foreshadow) -> Result<(), String> {
+pub fn update_foreshadow(state: &DbState, foreshadow: &Foreshadow) -> Result<(), AppError> {
     let title = foreshadow.title.trim();
     if title.is_empty() {
-        return Err("伏笔标题不能为空".into());
+        return Err(AppError::validation("伏笔标题不能为空"));
     }
     validate_status(&foreshadow.status, &FORESHADOW_STATUSES, "伏笔")?;
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+    let conn = state.biz();
     validate_chapter_owner(&conn, &foreshadow.project_id, &foreshadow.setup_chapter_id)?;
     validate_chapter_owner(&conn, &foreshadow.project_id, &foreshadow.payoff_chapter_id)?;
     let changed = conn
@@ -94,16 +95,16 @@ pub fn update_foreshadow(state: &DbState, foreshadow: &Foreshadow) -> Result<(),
                 foreshadow.status
             ],
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     if changed == 0 {
-        return Err("伏笔不存在".into());
+        return Err(AppError::not_found("伏笔不存在"));
     }
     Ok(())
 }
 
-pub fn delete_foreshadow(state: &DbState, id: &str) -> Result<(), String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn delete_foreshadow(state: &DbState, id: &str) -> Result<(), AppError> {
+    let conn = state.biz();
     conn.execute("delete from foreshadow where id = ?1", params![id])
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     Ok(())
 }

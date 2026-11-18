@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { NInput } from "naive-ui";
+import { NButton, NEmpty, NInput } from "naive-ui";
+import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import type { KindFilter } from "@/composables/useStoryBible";
 import { STORY_KIND_ICON, type StoryElement } from "@/types";
 
@@ -23,18 +24,13 @@ const emit = defineEmits<{
 
 <template>
   <aside class="panel panel--list">
-    <div class="kind-tabs">
-      <button
-        v-for="option in filterOptions"
-        :key="option.value"
-        type="button"
-        class="kind-tabs__item"
-        :class="{ 'kind-tabs__item--active': filterKind === option.value }"
-        @click="emit('update:filterKind', option.value)"
-      >
-        {{ option.label }}
-      </button>
-    </div>
+    <SegmentedControl
+      wrap
+      size="small"
+      :options="filterOptions"
+      :model-value="filterKind"
+      @update:model-value="(value: string) => emit('update:filterKind', value as KindFilter)"
+    />
     <NInput
       :value="keyword"
       placeholder="搜索名称、别名或摘要"
@@ -43,10 +39,11 @@ const emit = defineEmits<{
       @update:value="(value: string) => emit('update:keyword', value)"
     />
     <div class="element-list">
-      <button
+      <NButton
         v-for="element in filteredElements"
         :key="element.id"
-        type="button"
+        text
+        block
         class="element-item"
         :class="{ 'element-item--active': element.id === selectedId }"
         @click="emit('select', element.id)"
@@ -59,12 +56,16 @@ const emit = defineEmits<{
         <span v-if="element.detail.relations?.length" class="element-item__count">
           {{ element.detail.relations.length }}
         </span>
-      </button>
-      <p v-if="filteredElements.length === 0" class="element-list__empty">
-        {{
-          elements.length === 0 ? "还没有设定条目，点击「新建设定」开始。" : "没有匹配的设定条目。"
-        }}
-      </p>
+      </NButton>
+      <NEmpty
+        v-if="filteredElements.length === 0"
+        class="element-list__empty"
+        size="small"
+        :show-icon="false"
+        :description="
+          elements.length === 0 ? '还没有设定条目，点击「新建设定」开始。' : '没有匹配的设定条目。'
+        "
+      />
     </div>
   </aside>
 </template>
@@ -82,27 +83,6 @@ const emit = defineEmits<{
   padding: t.$space-4;
   overflow: auto;
   @include m.card-surface(var(--bg-surface));
-}
-
-.kind-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: t.$space-1;
-
-  &__item {
-    padding: 3px 9px;
-    border: 1px solid var(--divider, #{t.$divider});
-    border-radius: 999px;
-    background: transparent;
-    color: var(--text-soft, #{t.$ink-soft});
-    font-size: 11px;
-    cursor: pointer;
-
-    &--active {
-      border-color: var(--accent, #{t.$accent});
-      color: var(--accent, #{t.$accent});
-    }
-  }
 }
 
 .element-list {
@@ -133,11 +113,11 @@ const emit = defineEmits<{
   cursor: pointer;
 
   &:hover {
-    background: rgba(128, 128, 128, 0.08);
+    background: var(--bg-hover);
   }
 
   &--active {
-    background: var(--bg-sunken, #{t.$paper-sunken});
+    background: var(--accent-soft);
   }
 
   &__icon {
@@ -148,7 +128,7 @@ const emit = defineEmits<{
     height: 24px;
     flex-shrink: 0;
     border-radius: t.$radius-sm;
-    background: var(--accent-soft, rgba(0, 193, 0, 0.1));
+    background: var(--bg-surface);
     color: var(--accent, #{t.$accent});
     font-size: 11px;
   }
@@ -175,6 +155,39 @@ const emit = defineEmits<{
   &__count {
     font-size: 10px;
     color: var(--text-faint, #{t.$ink-faint});
+  }
+}
+
+// NButton text 变体自带 padding/居中，双写类名把设定条目的列表布局覆盖回来。
+.element-item.element-item {
+  display: flex;
+  align-items: center;
+  gap: t.$space-2;
+  width: 100%;
+  padding: t.$space-2;
+  border: none;
+  border-radius: t.$radius-sm;
+  background: transparent;
+  color: var(--text-primary, #{t.$ink});
+  font-size: inherit;
+  text-align: left;
+  white-space: normal;
+
+  &:hover {
+    background: var(--bg-hover);
+  }
+
+  &.element-item--active {
+    background: var(--accent-soft);
+  }
+
+  // 图标、正文与计数在 .n-button__content 这一层横向排列。
+  :deep(.n-button__content) {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: t.$space-2;
+    width: 100%;
   }
 }
 </style>

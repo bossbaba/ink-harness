@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NCheckbox, NInput, NSpin, NTag } from "naive-ui";
+import { NButton, NCheckbox, NInput, NSpin, NTag } from "naive-ui";
 import { computed } from "vue";
 import type { IdeaProposal } from "@/types";
 
@@ -44,13 +43,13 @@ const needModel = computed(() => props.parseError.includes("模型管理"));
         <h2 class="proposal__title">方案预览</h2>
         <p v-if="props.modelLabel" class="proposal__meta">由 {{ props.modelLabel }} 生成</p>
       </div>
-      <MacButton
-        size="regular"
+      <NButton
+        size="small"
         :disabled="props.generating || props.applying"
         @click="emit('generate')"
       >
         {{ props.generating ? "生成中…" : "重新生成" }}
-      </MacButton>
+      </NButton>
     </header>
 
     <div v-if="props.generating" class="stream">
@@ -60,23 +59,24 @@ const needModel = computed(() => props.parseError.includes("模型管理"));
 
     <div v-if="props.parseError && !props.generating" class="notice">
       <p class="notice__text">{{ props.parseError }}</p>
-      <MacButton v-if="needModel" size="regular" @click="emit('open-models')">去模型管理</MacButton>
+      <NButton v-if="needModel" size="small" @click="emit('open-models')">去模型管理</NButton>
     </div>
 
     <template v-if="proposal && !props.generating">
       <section class="block">
         <h3 class="block__title">书名候选</h3>
         <div v-if="proposal.titles.length" class="titles">
-          <button
+          <!-- 书名候选是单选语义的胶囊标签，用 NButton 承载点击，样式仍保持圆角 chip。 -->
+          <NButton
             v-for="title in proposal.titles"
             :key="title"
-            type="button"
+            size="small"
             class="title-chip"
             :class="{ 'title-chip--active': selectedTitle === title }"
             @click="selectedTitle = title"
           >
             {{ title }}
-          </button>
+          </NButton>
         </div>
         <p v-else class="hint">没有候选书名，可直接沿用作品现有标题。</p>
         <label class="field">
@@ -140,9 +140,9 @@ const needModel = computed(() => props.parseError.includes("模型管理"));
       </section>
 
       <div class="apply">
-        <MacButton size="regular" variant="prominent" :disabled="!canApply" @click="emit('apply')">
+        <NButton size="small" type="primary" :disabled="!canApply" @click="emit('apply')">
           {{ props.applying ? "写入中…" : "写入作品" }}
-        </MacButton>
+        </NButton>
         <span class="hint">写入会覆盖作品当前的标题、梗概、简介、读者画像与风格。</span>
       </div>
     </template>
@@ -209,7 +209,7 @@ const needModel = computed(() => props.parseError.includes("模型管理"));
   gap: t.$space-3;
   padding: t.$space-3;
   border-radius: t.$radius-sm;
-  background: rgba(200, 60, 60, 0.08);
+  background: var(--error-soft);
 
   &__text {
     margin: 0;
@@ -247,16 +247,17 @@ const needModel = computed(() => props.parseError.includes("模型管理"));
   gap: t.$space-2;
 }
 
-.title-chip {
+// 双写类名压过 NButton 的默认高度与内边距，保留胶囊候选标签的紧凑外观。
+.title-chip.title-chip {
+  height: auto;
   padding: 5px 12px;
   border: 1px solid var(--divider, #{t.$divider});
   border-radius: 999px;
   background: transparent;
   color: var(--text-primary, #{t.$ink});
   font-size: 12px;
-  cursor: pointer;
 
-  &--active {
+  &.title-chip--active {
     border-color: var(--accent, #{t.$accent});
     color: var(--accent, #{t.$accent});
   }

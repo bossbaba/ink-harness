@@ -56,3 +56,16 @@ pub struct OllamaStatus {
     pub running: bool,
     pub models: Vec<String>,
 }
+
+/// 把路由用的模型标识拆成 (providerId, modelId)。
+///
+/// 模型名自己也可能带冒号（Ollama 的 `qwen2.5:7b`），所以只按**第一个**冒号切一次，
+/// 剩下的整体当模型名；没有冒号或切出空串时视为「只有模型名」。
+pub fn split_model_ref(reference: &str) -> (Option<&str>, &str) {
+    match reference.split_once(':') {
+        Some((provider_id, model_id)) if !provider_id.is_empty() && !model_id.is_empty() => {
+            (Some(provider_id), model_id)
+        }
+        _ => (None, reference),
+    }
+}

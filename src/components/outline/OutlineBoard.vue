@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { NButton, NEmpty, NTag } from "naive-ui";
 import { computed, ref } from "vue";
 import { type Act, type Chapter, OUTLINE_ACTS, type Scene } from "@/types";
 import OutlineChapterCard from "./OutlineChapterCard.vue";
@@ -124,7 +125,9 @@ function dropOnScene(chapter: Chapter, index: number): void {
             <h3 class="act__title serif">{{ act.label }}</h3>
             <p class="act__hint">{{ act.hint }}</p>
           </div>
-          <span class="act__count">{{ chaptersByAct[act.value].length }}</span>
+          <NTag class="act__count" size="tiny" round :bordered="false">
+            {{ chaptersByAct[act.value].length }}
+          </NTag>
         </header>
 
         <div class="act__body">
@@ -148,13 +151,23 @@ function dropOnScene(chapter: Chapter, index: number): void {
             @drop-scene="dropOnScene"
           />
 
-          <button class="act__add" type="button" @click="emit('add-chapter', act.value)">
+          <NButton
+            dashed
+            block
+            size="small"
+            class="act__add"
+            @click="emit('add-chapter', act.value)"
+          >
             + 新增章节
-          </button>
+          </NButton>
 
-          <p v-if="chaptersByAct[act.value].length === 0" class="act__empty">
-            这一幕还没有章节，点击上方按钮创建，或把其他幕的章节拖进来。
-          </p>
+          <NEmpty
+            v-if="chaptersByAct[act.value].length === 0"
+            class="act__empty"
+            size="tiny"
+            :show-icon="false"
+            description="这一幕还没有章节，点击上方按钮创建，或把其他幕的章节拖进来。"
+          />
         </div>
       </section>
     </div>
@@ -214,12 +227,10 @@ function dropOnScene(chapter: Chapter, index: number): void {
     @include m.ellipsis;
   }
 
+  // NTag 自带圆角与配色，这里只保证单个数字时的最小宽度。
   &__count {
-    padding: 0 7px;
-    border-radius: 999px;
-    background: var(--bg-sunken);
-    font-size: 11px;
-    color: var(--text-faint, #{t.$ink-faint});
+    min-width: 22px;
+    justify-content: center;
   }
 
   &__body {
@@ -229,14 +240,15 @@ function dropOnScene(chapter: Chapter, index: number): void {
     min-width: 0;
   }
 
-  &__add {
+  // NButton dashed 变体自带高度/圆角，双写类名保留新增章节按钮的虚线卡片外观。
+  &__add.act__add {
+    height: auto;
     padding: t.$space-2;
     border: 1px dashed var(--divider, #{t.$divider});
     border-radius: t.$radius-sm;
     background: transparent;
     color: var(--text-soft, #{t.$ink-soft});
     font-size: 11px;
-    cursor: pointer;
     transition: border-color t.$duration t.$ease, color t.$duration t.$ease;
 
     &:hover {

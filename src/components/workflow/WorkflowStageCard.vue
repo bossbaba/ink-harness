@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
 import { NButton, NInput, NSelect } from "naive-ui";
 import { ref, watch } from "vue";
 import type { WorkflowStageState } from "@/types";
@@ -86,24 +85,24 @@ function copyArtifact(): void {
         placeholder="审批备注（打回时建议写明原因）"
       />
       <div class="stage__actions">
-        <MacButton
-          size="regular"
-          variant="prominent"
+        <NButton
+          size="small"
+          type="primary"
           :disabled="busy"
           @click="emit('approve', 'approved', note)"
         >
           通过并落地
-        </MacButton>
-        <MacButton size="regular" :disabled="busy" @click="emit('approve', 'rejected', note)">
+        </NButton>
+        <NButton size="small" :disabled="busy" @click="emit('approve', 'rejected', note)">
           打回重做
-        </MacButton>
+        </NButton>
       </div>
     </div>
 
     <div v-else class="stage__actions">
-      <MacButton size="regular" :disabled="running || busy || !unlocked" @click="emit('run')">
+      <NButton size="small" :disabled="running || busy || !unlocked" @click="emit('run')">
         {{ running ? `生成中… ${received} 字` : state.artifact ? "重新生成" : "运行本阶段" }}
-      </MacButton>
+      </NButton>
       <span v-if="!unlocked" class="stage__locked">需先通过上一阶段</span>
     </div>
   </div>

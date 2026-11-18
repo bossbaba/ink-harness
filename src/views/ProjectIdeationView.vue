@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
+import { NButton, NSpin } from "naive-ui";
 import { useRouter } from "vue-router";
 import IdeationForm from "@/components/ideation/IdeationForm.vue";
 import IdeationProposal from "@/components/ideation/IdeationProposal.vue";
@@ -66,13 +66,14 @@ function backWorkspace(): void {
           分步回答几个问题，AI 会整理成书名、梗概、简介、读者画像与三幕骨架；每一步都可以回头修改。
         </p>
       </div>
-      <MacButton size="regular" :disabled="!project" @click="openOutline">打开大纲</MacButton>
+      <NButton size="small" :disabled="!project" @click="openOutline">打开大纲</NButton>
     </header>
 
     <p v-if="error" class="ideation__error">{{ error }}</p>
 
     <div v-if="!project && !error" class="ideation__loading">
-      <p>正在载入作品…</p>
+      <NSpin size="small" />
+      <span>正在载入作品…</span>
     </div>
 
     <div v-else-if="project" class="ideation__body">
@@ -90,17 +91,12 @@ function backWorkspace(): void {
               </template>
             </p>
             <div class="done__actions">
-              <MacButton
-                v-if="outlineCreated"
-                size="regular"
-                variant="prominent"
-                @click="openOutline"
-              >
+              <NButton v-if="outlineCreated" size="small" type="primary" @click="openOutline">
                 去大纲调整
-              </MacButton>
-              <MacButton size="regular" @click="openBible">打开设定库</MacButton>
-              <MacButton size="regular" @click="resetProposal">重新构思</MacButton>
-              <MacButton size="regular" @click="backWorkspace">返回工作台</MacButton>
+              </NButton>
+              <NButton size="small" @click="openBible">打开设定库</NButton>
+              <NButton size="small" @click="resetProposal">重新构思</NButton>
+              <NButton size="small" @click="backWorkspace">返回工作台</NButton>
             </div>
           </div>
         </template>
@@ -125,31 +121,25 @@ function backWorkspace(): void {
           />
 
           <footer v-if="step <= 2" class="actions">
-            <MacButton v-if="step > 0" size="regular" :disabled="generating" @click="prev">
+            <NButton v-if="step > 0" size="small" :disabled="generating" @click="prev">
               上一步
-            </MacButton>
+            </NButton>
             <span v-if="!canNext" class="actions__hint">
               先填写{{ step === 0 ? "你的灵感" : "主角" }}再继续。
             </span>
             <span class="actions__spacer" />
-            <MacButton
-              v-if="step < 2"
-              size="regular"
-              variant="prominent"
-              :disabled="!canNext"
-              @click="next"
-            >
+            <NButton v-if="step < 2" size="small" type="primary" :disabled="!canNext" @click="next">
               下一步
-            </MacButton>
-            <MacButton
+            </NButton>
+            <NButton
               v-else
-              size="regular"
-              variant="prominent"
+              size="small"
+              type="primary"
               :disabled="!canNext || generating"
               @click="generate"
             >
               {{ generating ? "生成中…" : "生成方案" }}
-            </MacButton>
+            </NButton>
           </footer>
         </template>
       </section>
@@ -194,6 +184,10 @@ function backWorkspace(): void {
   }
 
   &__loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: t.$space-2;
     margin-top: t.$space-6;
     padding: t.$space-8;
     text-align: center;

@@ -1,28 +1,18 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NSelect, NTag } from "naive-ui";
 import { computed, ref, watch } from "vue";
-import { useRouter } from "vue-router";
-import ChapterSummaryControl from "@/components/writing/ChapterSummaryControl.vue";
+import { onBeforeRouteLeave, useRouter } from "vue-router";
 import WritingAiPanel from "@/components/writing/WritingAiPanel.vue";
 import WritingChapterList from "@/components/writing/WritingChapterList.vue";
 import WritingEditor from "@/components/writing/WritingEditor.vue";
 import WritingEmptyState from "@/components/writing/WritingEmptyState.vue";
-import WritingSaveStatus from "@/components/writing/WritingSaveStatus.vue";
+import WritingHeader from "@/components/writing/WritingHeader.vue";
 import WritingVersionsDrawer from "@/components/writing/WritingVersionsDrawer.vue";
 import { useRagIndex } from "@/composables/useRagIndex";
 import { useWritingAssist } from "@/composables/useWritingAssist";
 import { useWritingCopilot } from "@/composables/useWritingCopilot";
 import { useWritingDesk } from "@/composables/useWritingDesk";
 import { useAppStore } from "@/stores/app";
-import {
-  type AssistApplyMode,
-  type AssistSelection,
-  CHAPTER_STATUS_LABEL,
-  CHAPTER_STATUS_TAG_TYPE,
-  type CopilotReference,
-} from "@/types";
-import { formatCount } from "@/utils/text";
+import type { AssistApplyMode, AssistSelection, CopilotReference } from "@/types";
 import { documentToPlainText, EMPTY_DOCUMENT_TEXT } from "@/utils/tiptap";
 
 /**
@@ -68,6 +58,18 @@ const {
   closeVersionPreview,
   restoreVersion,
 } = useWritingDesk(props.projectId, () => props.chapterId ?? "");
+
+/**
+ * 离开写作台前把待保存内容落库。
+ *
+ * 页面被 keep-alive 缓存时走的是 deactivated 而不是 unmount，那里只能 `void flush()`
+ * 不阻塞跳转；切章、去审稿、回工作台都在路由上发生，所以必须在守卫里 await，
+ * 否则最后 1~2 秒（防抖窗口内）的输入会随切页丢掉。
+ */
+onBeforeRouteLeave(async () => {
+  await flush();
+  return true;
+});
 
 // 两个 AI 入口共用同一份章节口径，避免各写一遍标题格式。
 const chapterTitle = () =>
@@ -194,59 +196,29 @@ async function handleRestore(versionId: string): Promise<void> {
 
 <template>
   <div class="writing">
-    <header class="writing__header">
-      <div class="writing__titles">
-        <h1 class="writing__title serif">{{ pageTitle }}</h1>
-        <p class="writing__subtitle">
-          <template v-if="activeChapter">
-            <span>{{ activeChapter.title }}</span>
-            <NTag
-              size="small"
-              :bordered="false"
-              :type="CHAPTER_STATUS_TAG_TYPE[activeChapter.status]"
-            >
-              {{ CHAPTER_STATUS_LABEL[activeChapter.status] }}
-            </NTag>
-            <span>本章 {{ formatCount(wordCount) }} 字</span>
-            <span>全书 {{ formatCount(totalWords) }} 字</span>
-            <WritingSaveStatus :state="saveState" :saved-at="lastSavedAt" />
-          </template>
-          <template v-else>从左侧选一章开始写，正文会在停笔后自动保存。</template>
-        </p>
-      </div>
-
-      <div class="writing__actions">
-        <NSelect
-          v-if="chapterOptions.length"
-          class="writing__picker"
-          size="small"
-          :value="activeChapterId || null"
-          :options="chapterOptions"
-          placeholder="选择章节"
-          @update:value="openChapter"
-        />
-        <MacButton size="regular" :disabled="!activeChapterId" @click="flush()">立即保存</MacButton>
-        <MacButton size="regular" :disabled="!activeChapterId" @click="showVersions = true">
-          版本快照
-        </MacButton>
-        <ChapterSummaryControl
-          :project="project"
-          :chapter="activeChapter"
-          :content="content"
-          :disabled="!activeChapterId"
-          @persisted="
-            (value: string) => activeChapter && patchChapter(activeChapter.id, { summary: value })
-          "
-        />
-        <MacButton size="regular" @click="goOutline">去大纲</MacButton>
-        <MacButton size="regular" @click="app.toggleCopilot()">
-          {{ app.copilotOpen ? "收起 AI 对话" : "AI 对话" }}
-        </MacButton>
-        <MacButton size="regular" variant="prominent" @click="toggleFocus">
-          {{ app.focusMode ? "退出专注" : "专注模式" }}
-        </MacButton>
-      </div>
-    </header>
+    <WritingHeader
+      :title="pageTitle"
+      :chapter="activeChapter"
+      :chapter-options="chapterOptions"
+      :active-chapter-id="activeChapterId"
+      :project="project"
+      :content="content"
+      :word-count="wordCount"
+      :total-words="totalWords"
+      :save-state="saveState"
+      :last-saved-at="lastSavedAt"
+      :copilot-open="app.copilotOpen"
+      :focus-mode="app.focusMode"
+      @select-chapter="openChapter"
+      @save="flush()"
+      @show-versions="showVersions = true"
+      @summary-persisted="
+        (value: string) => activeChapter && patchChapter(activeChapter.id, { summary: value })
+      "
+      @go-outline="goOutline"
+      @toggle-copilot="app.toggleCopilot()"
+      @toggle-focus="toggleFocus"
+    />
 
     <p v-if="error" class="writing__error">{{ error }}</p>
 
@@ -352,48 +324,6 @@ async function handleRestore(versionId: string): Promise<void> {
   container-type: inline-size;
   background: var(--bg-app);
 
-  &__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: t.$space-4;
-    padding: t.$space-4 t.$space-6;
-    border-bottom: 1px solid var(--divider, #{t.$divider});
-  }
-
-  &__titles {
-    min-width: 0;
-  }
-
-  &__title {
-    margin: 0;
-    font-size: 1.5rem;
-    font-weight: 600;
-  }
-
-  &__subtitle {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: t.$space-2;
-    margin: t.$space-2 0 0;
-    font-size: 11px;
-    color: var(--text-soft, #{t.$ink-soft});
-  }
-
-  &__actions {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: t.$space-2;
-  }
-
-  // 章节下拉只在窄屏出现，宽屏用左侧列表即可。
-  &__picker {
-    display: none;
-    width: 200px;
-  }
-
   &__error {
     margin: t.$space-3 t.$space-6 0;
     font-size: 12px;
@@ -447,14 +377,6 @@ async function handleRestore(versionId: string): Promise<void> {
 }
 
 @container (max-width: 1000px) {
-  .writing__header {
-    flex-direction: column;
-  }
-
-  .writing__actions {
-    width: 100%;
-  }
-
   // 窄屏用标题栏下拉切章，把左侧列表让给 AI 对话；两栏时辅助卡片不再加宽。
   .writing__body--copilot .writing__chapters {
     display: none;
@@ -468,9 +390,6 @@ async function handleRestore(versionId: string): Promise<void> {
     grid-template-columns: minmax(0, 1fr) 340px;
   }
 
-  .writing__picker {
-    display: block;
-  }
 }
 
 @container (max-width: 620px) {

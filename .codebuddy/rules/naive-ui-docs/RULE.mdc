@@ -1,0 +1,52 @@
+---
+description: 使用 Naive UI 开发或审查 Vue 页面/组件时的官方文档来源。当任务涉及新增或改动页面、组件开发、代码维护与检查，且需要使用或核对 NButton、NModal、NForm、NTable、NSelect、NTag、NTree、NDataTable 等 naive-ui 控件时，必须先访问 Naive UI 官方 LLM 文档确认权威 API 与示例源码，避免凭记忆猜测用法
+alwaysApply: false
+enabled: true
+updatedAt: 2026-11-18T00:00:00.000Z
+provider:
+---
+
+# Naive UI 官方文档查阅规范
+
+适用范围：本项目所有 Vue 页面与组件开发、代码维护与检查。项目已强制通用控件统一使用 Naive UI（见 `.codebuddy/rules/ui-consistency/RULE.mdc` 第 4 节），因此凡涉及界面控件，默认「可以使用且应当使用」Naive UI；仅在纯逻辑、后端、脚本等不涉及 UI 的任务中才无需查阅。
+
+## 1. 何时访问
+
+- 新增页面或组件，需要选用 naive-ui 控件并确认其 props / 事件 / 插槽 / 主题 API 时；
+- 修改、重构、审查已有页面，需要核对某控件的正确用法、受控模式、版本兼容时；
+- 遇到控件报错、行为不符合预期、不确定某个 API 是否存在时；
+- 需要配置主题（`n-config-provider`）、国际化、按需引入（tree shaking）、`createDiscreteApi` 脱离 setup 使用等场景时。
+
+## 2. 访问哪些地址（用 web_fetch 获取 Markdown 版本）
+
+- **文档索引（llms.txt）**：`https://www.naiveui.com/zh-CN/llms.txt` —— 先访问此文件确认组件页面清单与描述，这是本规则的主入口。
+- **合并版全文**：`https://www.naiveui.com/zh-CN/llms-full.txt` —— 需要一次拿到全部页面内容时用。
+- **单个组件页**：`https://www.naiveui.com/zh-CN/components/<组件英文名>.md`，包含该组件完整 API 与每个示例的源码，例如 Button 为 `components/button.md`、Data Table 为 `components/data-table.md`。
+- **通用文档页**：`https://www.naiveui.com/zh-CN/docs/<名称>.md`，例如 `installation.md`、`import-on-demand.md`、`customize-theme.md`、`i18n.md`、`controlled-uncontrolled.md`、`common-issues.md`。
+
+## 3. 常用组件文档速查
+
+路径前缀均为 `https://www.naiveui.com/zh-CN/components/`，下表为 `<文件名>.md`：
+
+- 通用：`avatar`、`button`、`card`、`carousel`、`collapse`、`divider`、`dropdown`、`ellipsis`、`icon`、`page-header`、`tag`、`typography`、`watermark`、`float-button`
+- 数据录入：`auto-complete`、`cascader`、`color-picker`、`checkbox`、`date-picker`、`dynamic-input`、`dynamic-tags`、`form`、`input`、`input-number`、`input-otp`、`mention`、`radio`、`rate`、`select`、`slider`、`switch`、`time-picker`、`transfer`、`tree-select`、`upload`
+- 数据展示：`calendar`、`countdown`、`code`、`data-table`、`descriptions`、`empty`、`image`、`list`、`log`、`number-animation`、`qr-code`、`statistic`、`table`、`thing`、`time`、`timeline`、`tree`、`infinite-scroll`、`highlight`、`heatmap`
+- 导航：`affix`、`anchor`、`back-top`、`breadcrumb`、`loading-bar`、`menu`、`pagination`、`steps`、`tabs`
+- 反馈：`alert`、`badge`、`dialog`、`drawer`、`marquee`、`message`、`modal`、`notification`、`popconfirm`、`popover`、`popselect`、`progress`、`result`、`skeleton`、`spin`、`tooltip`
+- 布局：`flex`（2.37.0+）、`layout`、`legacy-grid`、`grid`、`space`、`split`
+- 工具：`collapse-transition`、`discrete`（2.29.0+，createDiscreteApi）、`scrollbar`、`virtual-list`
+- 配置：`config-provider`、`element`、`global-style`
+
+## 4. 使用原则
+
+- 以官方文档为准：props、事件名、插槽、主题变量名不要凭记忆猜测；拿不准就访问对应 `.md` 页面。
+- 项目约定优先：官方默认值与本项目 `ui-consistency/RULE.mdc` 冲突时（如按钮统一 `size="small"`、Tag 统一 `size="small" :bordered="false"`、新建用 `NModal preset="card"`、危险操作配 `NPopconfirm`），以项目约定为准；官方文档只解决「这个控件怎么用」的问题。
+- 同一组件上不要同时写 `v-model:xxx` 和 `on-update:xxx`；模板里 `@update:xxx` 与 `on-update:xxx` 等价。
+- 主题与语言统一在 `n-config-provider` 层配置，不在业务组件里硬编码色值；颜色仍需来自 `src/styles/_tokens.scss` / `src/theme/palette.ts` 的语义变量。
+- 只在需要时访问：项目中已有大量同款用法的简单控件（如 `<NButton size="small">`），参考现有代码即可，无需每次联网。
+
+## 5. 反模式
+
+- 凭印象写 API（如把 `NDataTable` 列配置、`NForm` 校验规则写错）却不查文档；
+- 用其它 UI 组件库替代 Naive UI，或引入与项目主题冲突的第三方控件；
+- 把官方文档示例里的硬编码色值 / 字号直接搬进业务组件，绕过设计令牌。

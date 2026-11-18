@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashSet};
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Map, Value};
 
+use crate::error::AppError;
 use crate::infrastructure::db::DbState;
 use crate::models::{ConsistencyIssue, NewStoryElement, StoryElement, StoryElementOverview};
 
@@ -38,10 +39,10 @@ fn row_to_element(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoryElement> {
     })
 }
 
-fn detail_object(value: &Value) -> Result<&Map<String, Value>, String> {
+fn detail_object(value: &Value) -> Result<&Map<String, Value>, AppError> {
     value
         .as_object()
-        .ok_or_else(|| "扩展字段必须是 JSON 对象".to_string())
+        .ok_or_else(|| AppError::validation("扩展字段必须是 JSON 对象"))
 }
 
 fn relation_targets(detail: &Value) -> Vec<String> {
@@ -71,7 +72,7 @@ fn detail_string(detail: &Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn project_exists(conn: &rusqlite::Connection, project_id: &str) -> Result<bool, String> {
+fn project_exists(conn: &rusqlite::Connection, project_id: &str) -> Result<bool, AppError> {
     conn.query_row(
         "select 1 from project where id = ?1",
         params![project_id],
@@ -79,7 +80,7 @@ fn project_exists(conn: &rusqlite::Connection, project_id: &str) -> Result<bool,
     )
     .optional()
     .map(|v| v.is_some())
-    .map_err(|e| e.to_string())
+    .map_err(AppError::from)
 }
 
 fn validate(
@@ -88,15 +89,15 @@ fn validate(
     kind: &str,
     name: &str,
     detail: &Value,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     if name.trim().is_empty() {
-        return Err("设定名称不能为空".into());
+        return Err(AppError::validation("设定名称不能为空"));
     }
     if !ELEMENT_KINDS.contains(&kind) {
-        return Err(format!("不支持的设定类型：{kind}"));
+        return Err(AppError::validation(format!("不支持的设定类型：{kind}")));
     }
     if !project_exists(conn, project_id)? {
-        return Err("作品不存在".into());
+        return Err(AppError::not_found("作品不存在"));
     }
     detail_object(detail)?;
     for target in relation_targets(detail) {
@@ -108,16 +109,16 @@ fn validate(
             )
             .optional()
             .map(|v| v.is_some())
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
         if !exists {
-            return Err(format!("关联目标不存在：{target}"));
+            return Err(AppError::not_found(format!("关联目标不存在：{target}")));
         }
     }
     Ok(())
 }
 
-pub fn list(state: &DbState, project_id: &str) -> Result<Vec<StoryElement>, String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn list(state: &DbState, project_id: &str) -> Result<Vec<StoryElement>, AppError> {
+    let conn = state.biz();
     let mut stmt = conn
         .prepare(&format!(
             "select {SELECT_COLUMNS} from story_element where project_id = ?1 \
@@ -125,17 +126,17 @@ pub fn list(state: &DbState, project_id: &str) -> Result<Vec<StoryElement>, Stri
                when 'character' then 0 when 'place' then 1 when 'org' then 2 \
                when 'event' then 3 when 'term' then 4 else 5 end, name collate nocase"
         ))
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     let rows = stmt
         .query_map(params![project_id], row_to_element)
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())
+        .map_err(AppError::from)
 }
 
 /// 全局设定库：跨作品汇总，仅供浏览，不在此修改。
-pub fn list_all(state: &DbState) -> Result<Vec<StoryElementOverview>, String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn list_all(state: &DbState) -> Result<Vec<StoryElementOverview>, AppError> {
+    let conn = state.biz();
     let mut stmt = conn
         .prepare(&format!(
             "select se.{}, p.title \
@@ -145,7 +146,7 @@ pub fn list_all(state: &DbState) -> Result<Vec<StoryElementOverview>, String> {
                    when 'event' then 3 when 'term' then 4 else 5 end, se.name collate nocase",
             SELECT_COLUMNS.replace(", ", ", se.")
         ))
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     let rows = stmt
         .query_map([], |row| {
             Ok(StoryElementOverview {
@@ -153,24 +154,24 @@ pub fn list_all(state: &DbState) -> Result<Vec<StoryElementOverview>, String> {
                 project_title: row.get(8)?,
             })
         })
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())
+        .map_err(AppError::from)
 }
 
-pub fn get(state: &DbState, id: &str) -> Result<Option<StoryElement>, String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn get(state: &DbState, id: &str) -> Result<Option<StoryElement>, AppError> {
+    let conn = state.biz();
     conn.query_row(
         &format!("select {SELECT_COLUMNS} from story_element where id = ?1"),
         params![id],
         row_to_element,
     )
     .optional()
-    .map_err(|e| e.to_string())
+    .map_err(AppError::from)
 }
 
-pub fn create(state: &DbState, input: NewStoryElement) -> Result<StoryElement, String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn create(state: &DbState, input: NewStoryElement) -> Result<StoryElement, AppError> {
+    let conn = state.biz();
     validate(
         &conn,
         &input.project_id,
@@ -179,7 +180,7 @@ pub fn create(state: &DbState, input: NewStoryElement) -> Result<StoryElement, S
         &input.detail,
     )?;
     let id = gen_id();
-    let detail = serde_json::to_string(&input.detail).map_err(|e| e.to_string())?;
+    let detail = serde_json::to_string(&input.detail).map_err(AppError::from)?;
     conn.execute(
         r#"insert into story_element
            (id, project_id, kind, name, summary, detail_json, created_at, updated_at)
@@ -194,13 +195,13 @@ pub fn create(state: &DbState, input: NewStoryElement) -> Result<StoryElement, S
             detail
         ],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(AppError::from)?;
     drop(conn);
-    get(state, &id)?.ok_or_else(|| "创建后读取失败".into())
+    get(state, &id)?.ok_or_else(|| AppError::internal("创建后读取失败"))
 }
 
-pub fn update(state: &DbState, element: &StoryElement) -> Result<(), String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn update(state: &DbState, element: &StoryElement) -> Result<(), AppError> {
+    let conn = state.biz();
     validate(
         &conn,
         &element.project_id,
@@ -208,7 +209,7 @@ pub fn update(state: &DbState, element: &StoryElement) -> Result<(), String> {
         &element.name,
         &element.detail,
     )?;
-    let detail = serde_json::to_string(&element.detail).map_err(|e| e.to_string())?;
+    let detail = serde_json::to_string(&element.detail).map_err(AppError::from)?;
     let changed = conn
         .execute(
             r#"update story_element set kind=?2, name=?3, summary=?4, detail_json=?5,
@@ -221,18 +222,22 @@ pub fn update(state: &DbState, element: &StoryElement) -> Result<(), String> {
                 detail
             ],
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     if changed == 0 {
-        return Err("设定条目不存在".into());
+        return Err(AppError::not_found("设定条目不存在"));
     }
     Ok(())
 }
 
-pub fn remove(state: &DbState, id: &str) -> Result<(), String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
-    conn.execute("delete from story_element where id = ?1", params![id])
-        .map_err(|e| e.to_string())?;
-    Ok(())
+pub fn remove(state: &DbState, id: &str) -> Result<(), AppError> {
+    {
+        let conn = state.biz();
+        conn.execute("delete from story_element where id = ?1", params![id])
+            .map_err(AppError::from)?;
+    }
+    // 设定条目也被 RAG 索引过（kind = element）：不清理会让已删除的设定继续出现在参考资料里。
+    // 在锁外调用，避免嵌套获取业务库锁。
+    crate::services::rag::purge_source(state, id)
 }
 
 /// 从自由文本中提取年份，支持「2024-03」「公元前221年」「19世纪」等写法。
@@ -264,7 +269,7 @@ fn normalize_name(name: &str) -> String {
 pub fn check_consistency(
     state: &DbState,
     project_id: &str,
-) -> Result<Vec<ConsistencyIssue>, String> {
+) -> Result<Vec<ConsistencyIssue>, AppError> {
     let elements = list(state, project_id)?;
     let mut issues = Vec::new();
 

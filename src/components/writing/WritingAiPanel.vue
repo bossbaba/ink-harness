@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
 import { NButton, NInput, NTag } from "naive-ui";
 import { computed, nextTick, ref, watch } from "vue";
 import CopilotReferencePicker from "@/components/writing/CopilotReferencePicker.vue";
@@ -119,9 +118,11 @@ function isLive(message: CopilotMessage): boolean {
       <template v-if="contextChars">已注入作品上下文 {{ contextChars }} 字</template>
       <template v-else>发送第一条消息后加载作品上下文</template>
       <span class="chat__meta-gap" />
-      <MacButton size="small" :disabled="messages.length === 0" @click="emit('clear')">
+      <!-- 与下一行的「更新索引」同一形态：行内轻量操作统一用 NButton quaternary tiny，
+           保证同一组按钮高度和圆角一致。 -->
+      <NButton size="tiny" quaternary :disabled="messages.length === 0" @click="emit('clear')">
         清空对话
-      </MacButton>
+      </NButton>
     </p>
 
     <!-- 索引状态与维护入口：检索是隐式行为，作者需要知道它有没有生效、是不是过期了。 -->
@@ -149,15 +150,16 @@ function isLive(message: CopilotMessage): boolean {
           选中正文后用编辑器工具条的改写 / 扩写 / 润色，结果也会出现在这里，确认后再插入。
         </p>
         <div class="chat__prompts">
-          <button
+          <NButton
             v-for="prompt in COPILOT_QUICK_PROMPTS"
             :key="prompt"
-            type="button"
+            size="small"
+            block
             class="chat__prompt"
             @click="fillPrompt(prompt)"
           >
             {{ prompt }}
-          </button>
+          </NButton>
         </div>
       </div>
 
@@ -245,10 +247,10 @@ function isLive(message: CopilotMessage): boolean {
           @pick="emit('pick', $event)"
         />
         <span class="chat__tools-spacer" />
-        <MacButton v-if="streaming" size="small" @click="emit('stop')">停止</MacButton>
-        <MacButton v-else size="small" variant="prominent" :disabled="!canSend" @click="submit">
+        <NButton v-if="streaming" size="small" @click="emit('stop')">停止</NButton>
+        <NButton v-else size="small" type="primary" :disabled="!canSend" @click="submit">
           发送
-        </MacButton>
+        </NButton>
       </div>
     </div>
   </div>
@@ -343,7 +345,9 @@ function isLive(message: CopilotMessage): boolean {
     margin-top: t.$space-2;
   }
 
-  &__prompt {
+  // 双写类名压过 NButton 默认样式，保留快捷提问卡片的边框与左对齐排版。
+  &__prompt.chat__prompt {
+    height: auto;
     padding: t.$space-2 t.$space-3;
     border: 1px solid var(--divider, #{t.$divider});
     border-radius: t.$radius-md;
@@ -351,7 +355,7 @@ function isLive(message: CopilotMessage): boolean {
     text-align: left;
     font-size: 12px;
     color: var(--text-primary);
-    cursor: pointer;
+    white-space: normal;
     transition: border-color t.$duration t.$ease;
 
     &:hover {

@@ -7,6 +7,7 @@ use std::fmt::Write as _;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 
+use crate::error::AppError;
 use crate::infrastructure::db::DbState;
 use crate::models::{Chapter, Foreshadow, Scene};
 use crate::services::outline::{query_chapters, query_foreshadows, query_scenes};
@@ -78,7 +79,7 @@ fn detail_str(detail: &Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn query_project(conn: &Connection, project_id: &str) -> Result<ProjectBrief, String> {
+fn query_project(conn: &Connection, project_id: &str) -> Result<ProjectBrief, AppError> {
     conn.query_row(
         "select title, genre, premise, audience, style, privacy from project where id = ?1",
         params![project_id],
@@ -94,11 +95,11 @@ fn query_project(conn: &Connection, project_id: &str) -> Result<ProjectBrief, St
         },
     )
     .optional()
-    .map_err(|e| e.to_string())?
-    .ok_or_else(|| "作品不存在".to_string())
+    .map_err(AppError::from)?
+    .ok_or_else(|| AppError::not_found("作品不存在"))
 }
 
-fn query_elements(conn: &Connection, project_id: &str) -> Result<Vec<ElementBrief>, String> {
+fn query_elements(conn: &Connection, project_id: &str) -> Result<Vec<ElementBrief>, AppError> {
     let mut stmt = conn
         .prepare(
             "select id, kind, name, summary, detail_json from story_element where project_id = ?1 \
@@ -106,7 +107,7 @@ fn query_elements(conn: &Connection, project_id: &str) -> Result<Vec<ElementBrie
                when 'character' then 0 when 'place' then 1 when 'org' then 2 \
                when 'event' then 3 when 'term' then 4 else 5 end, name collate nocase",
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     let rows = stmt
         .query_map(params![project_id], |row| {
             let raw: String = row.get(4)?;
@@ -151,9 +152,9 @@ fn query_elements(conn: &Connection, project_id: &str) -> Result<Vec<ElementBrie
                 relations,
             })
         })
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())
+        .map_err(AppError::from)
 }
 
 /// 把单个章节下的场景格式化为上下文条目。
@@ -310,8 +311,8 @@ fn write_elements(out: &mut String, elements: &[ElementBrief]) {
 }
 
 /// 生成作品上下文。返回 Markdown 文本，既用于界面预览，也作为 AI 的 system 上下文。
-pub fn build_context(state: &DbState, project_id: &str) -> Result<String, String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn build_context(state: &DbState, project_id: &str) -> Result<String, AppError> {
+    let conn = state.biz();
     let project = query_project(&conn, project_id)?;
     let elements = query_elements(&conn, project_id)?;
     let chapters = query_chapters(&conn, project_id)?;

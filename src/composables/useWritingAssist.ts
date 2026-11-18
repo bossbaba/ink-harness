@@ -1,7 +1,7 @@
 import { computed, ref } from "vue";
-import { tauriApi } from "@/api/tauri";
 import { contextCharCount } from "@/services/aiContext";
 import { modelRouter } from "@/services/modelRouter";
+import { outlineService } from "@/services/outlineService";
 import { loadRelatedNotes } from "@/services/ragService";
 import { getContextBudget } from "@/services/summaryService";
 import { buildAssistMessages, toTaskKind } from "@/services/writingAiService";
@@ -63,7 +63,7 @@ export function useWritingAssist(options: WritingAssistOptions) {
 
   async function loadContext(): Promise<string> {
     if (contextCache !== null) return contextCache;
-    contextCache = await tauriApi.buildProjectContext(options.projectId);
+    contextCache = await outlineService.buildContext(options.projectId);
     return contextCache;
   }
 

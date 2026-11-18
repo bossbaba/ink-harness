@@ -1,37 +1,39 @@
 //! 作品命令层：薄适配，调 project service。
 
-use tauri::State;
-
-use crate::infrastructure::db::DbState;
+use crate::error::AppError;
 use crate::models::{DatabaseInfo, NewProject, Project};
 use crate::services::project;
+use crate::commands::blocking;
 
 #[tauri::command]
-pub fn database_info(state: State<'_, DbState>) -> Result<DatabaseInfo, String> {
-    Ok(project::database_info(&state))
+pub async fn database_info(app: tauri::AppHandle) -> Result<DatabaseInfo, AppError> {
+    blocking(app, |state| Ok(project::database_info(state))).await
 }
 
 #[tauri::command]
-pub fn list_projects(state: State<'_, DbState>) -> Result<Vec<Project>, String> {
-    project::list(&state)
+pub async fn list_projects(app: tauri::AppHandle) -> Result<Vec<Project>, AppError> {
+    blocking(app, |state| project::list(state)).await
 }
 
 #[tauri::command]
-pub fn get_project(state: State<'_, DbState>, id: String) -> Result<Option<Project>, String> {
-    project::get(&state, &id)
+pub async fn get_project(app: tauri::AppHandle, id: String) -> Result<Option<Project>, AppError> {
+    blocking(app, move |state| project::get(state, &id)).await
 }
 
 #[tauri::command]
-pub fn create_project(state: State<'_, DbState>, input: NewProject) -> Result<Project, String> {
-    project::create(&state, input)
+pub async fn create_project(
+    app: tauri::AppHandle,
+    input: NewProject,
+) -> Result<Project, AppError> {
+    blocking(app, move |state| project::create(state, input)).await
 }
 
 #[tauri::command]
-pub fn update_project(state: State<'_, DbState>, project: Project) -> Result<(), String> {
-    project::update(&state, &project)
+pub async fn update_project(app: tauri::AppHandle, project: Project) -> Result<(), AppError> {
+    blocking(app, move |state| project::update(state, &project)).await
 }
 
 #[tauri::command]
-pub fn delete_project(state: State<'_, DbState>, id: String) -> Result<(), String> {
-    project::remove(&state, &id)
+pub async fn delete_project(app: tauri::AppHandle, id: String) -> Result<(), AppError> {
+    blocking(app, move |state| project::remove(state, &id)).await
 }

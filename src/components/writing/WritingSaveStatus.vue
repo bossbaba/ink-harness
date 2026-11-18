@@ -1,7 +1,11 @@
 <script setup lang="ts">
+import { NTag } from "naive-ui";
 import { computed } from "vue";
 import type { SaveState } from "@/composables/useWritingDesk";
 import { formatDateTime } from "@/utils/text";
+
+// 保存状态与 NTag 语义色一一对应，避免散落的颜色判断漏掉某个状态。
+type TagType = "default" | "success" | "warning" | "error" | "info";
 
 /**
  * 标题栏里的保存状态：未保存 / 保存中 / 已保存 + 时间 / 保存失败。
@@ -29,27 +33,21 @@ const label = computed(() => {
       return "";
   }
 });
+
+// 配色与状态一一对应：未保存/保存中给 warning，失败给 error，已保存用默认弱色。
+const tagType = computed<TagType>(() => {
+  switch (props.state) {
+    case "dirty":
+    case "saving":
+      return "warning";
+    case "error":
+      return "error";
+    default:
+      return "default";
+  }
+});
 </script>
 
 <template>
-  <span v-if="label" class="save" :class="`save--${state}`">{{ label }}</span>
+  <NTag v-if="label" size="small" :bordered="false" :type="tagType">{{ label }}</NTag>
 </template>
-
-<style scoped lang="scss">
-@use "../../styles/tokens" as t;
-
-.save {
-  &--saving,
-  &--dirty {
-    color: var(--warning, #{t.$warning});
-  }
-
-  &--error {
-    color: var(--error, #{t.$error});
-  }
-
-  &--saved {
-    color: var(--text-faint, #{t.$ink-faint});
-  }
-}
-</style>

@@ -8,9 +8,10 @@ use std::time::Duration;
 use reqwest::Client;
 use serde_json::json;
 
+use crate::error::AppError;
 use crate::infrastructure::{db::DbState, keychain};
-use crate::models::ProviderConfig;
-use crate::services::{gateway, provider, setting};
+use crate::models::{split_model_ref, ProviderConfig};
+use crate::services::{provider, provider_kind, setting};
 
 /// 用户在模型管理页选定的检索模型（`providerId:modelId`）。
 pub const RAG_MODEL_KEY: &str = "rag_embedding_model";
@@ -37,10 +38,10 @@ pub struct EmbedTarget {
 ///
 /// 设为仅本地处理的作品，正文不能被送去云端做向量化，否则隐私承诺就破了；
 /// 因此 RAG 的建索引与检索都要按作品的 privacy 传 `local_only`。
-pub fn resolve_target_for(state: &DbState, local_only: bool) -> Result<EmbedTarget, String> {
+pub fn resolve_target_for(state: &DbState, local_only: bool) -> Result<EmbedTarget, AppError> {
     let providers = provider::list(state)?;
     if providers.is_empty() {
-        return Err("还没有配置任何 Provider，请先在模型管理页添加".into());
+        return Err(AppError::validation("还没有配置任何 Provider，请先在模型管理页添加"));
     }
 
     if let Some(saved) = setting::get(state, RAG_MODEL_KEY)? {
@@ -48,9 +49,13 @@ pub fn resolve_target_for(state: &DbState, local_only: bool) -> Result<EmbedTarg
         if !saved.is_empty() {
             return locate(&providers, &saved, local_only).ok_or_else(|| {
                 if local_only && locate(&providers, &saved, false).is_some() {
-                    format!("检索模型 {saved} 不是本地模型，仅本地作品不能把正文送去云端向量化")
+                    AppError::validation(format!(
+                        "检索模型 {saved} 不是本地模型，仅本地作品不能把正文送去云端向量化"
+                    ))
                 } else {
-                    format!("检索模型 {saved} 已不可用，请在模型管理页重新选择")
+                    AppError::validation(format!(
+                        "检索模型 {saved} 已不可用，请在模型管理页重新选择"
+                    ))
                 }
             });
         }
@@ -58,21 +63,26 @@ pub fn resolve_target_for(state: &DbState, local_only: bool) -> Result<EmbedTarg
 
     guess(&providers, local_only).ok_or_else(|| {
         if local_only {
-            "没有找到本地 embedding 模型，请先用 Ollama 拉取 nomic-embed-text 一类模型".to_string()
+            AppError::validation(
+                "没有找到本地 embedding 模型，请先用 Ollama 拉取 nomic-embed-text 一类模型",
+            )
         } else {
-            "没有找到 embedding 模型，请在模型管理页把检索模型设为 nomic-embed-text 这类模型"
-                .to_string()
+            AppError::validation(
+                "没有找到 embedding 模型，请在模型管理页把检索模型设为 nomic-embed-text 这类模型",
+            )
         }
     })
 }
 
 /// 按 `providerId:modelId` 精确找；Provider 必须仍处于启用状态。
 fn locate(providers: &[ProviderConfig], reference: &str, local_only: bool) -> Option<EmbedTarget> {
-    let (provider_id, model) = gateway::split_model_ref(reference);
+    let (provider_id, model) = split_model_ref(reference);
     let provider_id = provider_id?;
     let provider = providers
         .iter()
-        .find(|p| p.id == provider_id && p.enabled && (!local_only || p.source == "local"))?;
+        .find(|p| {
+            p.id == provider_id && p.enabled && (!local_only || provider_kind::is_local(&p.source))
+        })?;
     Some(build(provider, model.to_string(), reference.to_string()))
 }
 
@@ -80,7 +90,7 @@ fn locate(providers: &[ProviderConfig], reference: &str, local_only: bool) -> Op
 fn guess(providers: &[ProviderConfig], local_only: bool) -> Option<EmbedTarget> {
     for provider in providers
         .iter()
-        .filter(|p| p.enabled && (!local_only || p.source == "local"))
+        .filter(|p| p.enabled && (!local_only || provider_kind::is_local(&p.source)))
     {
         for model in &provider.models {
             let name = model.id.to_ascii_lowercase();
@@ -94,10 +104,7 @@ fn guess(providers: &[ProviderConfig], local_only: bool) -> Option<EmbedTarget> 
 }
 
 fn build(provider: &ProviderConfig, model: String, reference: String) -> EmbedTarget {
-    let api_key = provider
-        .api_key_ref
-        .as_ref()
-        .and_then(|key| keychain::get(key).ok().flatten());
+    let api_key = keychain::optional(provider.api_key_ref.as_deref());
     EmbedTarget {
         provider: provider.clone(),
         api_key,
@@ -119,19 +126,16 @@ pub async fn embed_texts(
     state: &DbState,
     texts: &[String],
     local_only: bool,
-) -> Result<EmbedResult, String> {
+) -> Result<EmbedResult, AppError> {
     if texts.is_empty() {
-        return Err("没有需要向量化的文本".into());
+        return Err(AppError::internal("没有需要向量化的文本"));
     }
     let target = resolve_target_for(state, local_only)?;
-    let url = format!(
-        "{}/embeddings",
-        target.provider.base_url.trim_end_matches('/')
-    );
+    let url = provider_kind::embeddings_url(&target.provider.base_url);
     let client = Client::builder()
         .timeout(Duration::from_secs(TIMEOUT_SECS))
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
 
     let mut vectors = Vec::with_capacity(texts.len());
     for batch in texts.chunks(BATCH_SIZE) {
@@ -149,7 +153,9 @@ pub async fn embed_texts(
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             let brief: String = body.chars().take(300).collect();
-            return Err(format!("embedding 服务返回 {status}：{brief}"));
+            return Err(AppError::upstream(format!(
+                "embedding 服务返回 {status}：{brief}"
+            )));
         }
         let value: serde_json::Value = response
             .json()
@@ -165,7 +171,7 @@ pub async fn embed_texts(
 }
 
 /// 解析 OpenAI 兼容的 embedding 响应；按 `index` 还原顺序，不依赖服务端返回次序。
-fn parse_embeddings(value: &serde_json::Value, expected: usize) -> Result<Vec<Vec<f32>>, String> {
+fn parse_embeddings(value: &serde_json::Value, expected: usize) -> Result<Vec<Vec<f32>>, AppError> {
     let data = value
         .get("data")
         .and_then(|d| d.as_array())
@@ -188,23 +194,23 @@ fn parse_embeddings(value: &serde_json::Value, expected: usize) -> Result<Vec<Ve
             .map(|v| v as f32)
             .collect();
         if vector.is_empty() {
-            return Err("embedding 返回了空向量".into());
+            return Err(AppError::internal("embedding 返回了空向量"));
         }
         items.push((index, vector));
     }
 
     if items.len() != expected {
-        return Err(format!(
+        return Err(AppError::internal(format!(
             "embedding 返回 {} 条，期望 {expected} 条",
             items.len()
-        ));
+        )));
     }
     items.sort_by_key(|(index, _)| *index);
 
     // 同一次请求的向量维度必须一致：维度混着写进 vec0，KNN 会直接报错。
     let dim = items[0].1.len();
     if items.iter().any(|(_, vector)| vector.len() != dim) {
-        return Err("embedding 返回的向量维度不一致".into());
+        return Err(AppError::internal("embedding 返回的向量维度不一致"));
     }
     Ok(items.into_iter().map(|(_, vector)| vector).collect())
 }

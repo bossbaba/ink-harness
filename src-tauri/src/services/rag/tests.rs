@@ -12,7 +12,7 @@ fn temp_state(tag: &str) -> (DbState, std::path::PathBuf) {
 
 /// 建一条作品记录，rag_chunk 靠外键挂着它。
 fn seed_project(state: &DbState, id: &str) {
-    let conn = state.biz.lock().unwrap();
+    let conn = state.biz();
     conn.execute(
         "insert into project (id, title, created_at, updated_at)
          values (?1, ?1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
@@ -23,7 +23,7 @@ fn seed_project(state: &DbState, id: &str) {
 
 /// 插一条 Provider，用于验证检索模型的隐私过滤（base_url 随便写，测试不会真的发请求）。
 fn seed_provider(state: &DbState, id: &str, source: &str, model: &str) {
-    let conn = state.biz.lock().unwrap();
+    let conn = state.biz();
     conn.execute(
         "insert or replace into provider_config
          (id, name, source, base_url, api_key_ref, enabled, models_json, updated_at)
@@ -41,6 +41,16 @@ fn draft(title: &str, content: &str) -> ChunkDraft {
         title: title.into(),
         content: content.into(),
     }
+}
+
+/// 测试专用的写入入口：默认只替换当前作品，不牵连别的作品。
+fn write_chunks(
+    state: &DbState,
+    project_id: &str,
+    drafts: &[ChunkDraft],
+    vectors: &[Vec<f32>],
+) -> Result<(), AppError> {
+    replace_chunks(state, project_id, drafts, vectors, false)
 }
 
 #[test]
@@ -127,6 +137,52 @@ fn ensure_vec_table_rebuilds_on_dim_change() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// 删章节 / 删设定条目后必须把片段与向量一起清掉：
+/// 只清一侧会留下孤儿数据，不清则已删除的正文还能被当成参考资料检索出来。
+#[test]
+fn purge_source_removes_chunk_and_vector() {
+    let (state, dir) = temp_state("purge-source");
+    seed_project(&state, "p-1");
+    ensure_vec_table(&state, 3).unwrap();
+    write_chunks(
+        &state,
+        "p-1",
+        &[draft("甲", "A"), draft("乙", "B")],
+        &[vec![1.0, 0.0, 0.0], vec![0.0, 1.0, 0.0]],
+    )
+    .unwrap();
+
+    purge_source(&state, "src-甲").unwrap();
+
+    // 片段与向量都要少一条：向量还在的话 KNN 会命中一个查不到正文的 rowid。
+    let candidates = knn(&state, &[1.0, 0.0, 0.0], 3).unwrap();
+    assert_eq!(candidates.len(), 1, "被删片段的向量也应清掉");
+    let hits = load_hits(&state, "p-1", &candidates, 3).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].title, "乙");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// 删作品前要把该作品的向量清空：rag_chunk 靠外键级联，vec_rag 没有外键。
+#[test]
+fn purge_project_removes_all_vectors() {
+    let (state, dir) = temp_state("purge-project");
+    seed_project(&state, "p-1");
+    seed_project(&state, "p-2");
+    ensure_vec_table(&state, 3).unwrap();
+    write_chunks(&state, "p-1", &[draft("甲", "A")], &[vec![1.0, 0.0, 0.0]]).unwrap();
+    write_chunks(&state, "p-2", &[draft("乙", "B")], &[vec![0.0, 1.0, 0.0]]).unwrap();
+
+    purge_project(&state, "p-1").unwrap();
+
+    let candidates = knn(&state, &[1.0, 0.0, 0.0], 5).unwrap();
+    assert_eq!(candidates.len(), 1, "只清被删作品的向量");
+    let remaining = load_hits(&state, "p-2", &candidates, 5).unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].title, "乙");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// 手动验证用：需要本机 Ollama 正在运行且装好 nomic-embed-text。
 /// `cargo test manual_embedding_roundtrip -- --ignored --nocapture`
 #[tokio::test]
@@ -135,7 +191,7 @@ async fn manual_embedding_roundtrip() {
     let (state, dir) = temp_state("manual");
     seed_project(&state, "p-1");
     {
-        let conn = state.biz.lock().unwrap();
+        let conn = state.biz();
         conn.execute(
             "insert or replace into provider_config
              (id, name, source, base_url, api_key_ref, enabled, models_json, updated_at)

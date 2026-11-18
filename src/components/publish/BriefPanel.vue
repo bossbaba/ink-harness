@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NInput, NTag } from "naive-ui";
+import { NButton, NEmpty, NInput, NTag } from "naive-ui";
 import type { PublicationBrief } from "@/types";
 
 /** 发布物料面板：模型产出只是草稿，四个字段都能直接改。 */
@@ -34,10 +33,10 @@ function asText(value: string | string[] | undefined): string {
     <div class="brief__bar">
       <p class="brief__hint">简介、标签、封面简报和投稿信一次生成，改成你要的措辞后再复制。</p>
       <span class="brief__spacer" />
-      <MacButton size="small" :disabled="!brief" @click="emit('copy')">复制物料</MacButton>
-      <MacButton size="small" variant="prominent" :disabled="generating" @click="emit('generate')">
+      <NButton size="small" :disabled="!brief" @click="emit('copy')">复制物料</NButton>
+      <NButton size="small" type="primary" :disabled="generating" @click="emit('generate')">
         {{ generating ? "生成中…" : brief ? "重新生成" : "生成物料" }}
-      </MacButton>
+      </NButton>
     </div>
 
     <p v-if="generating" class="brief__status">模型正在写物料… 已收到 {{ received }} 字</p>
@@ -81,7 +80,13 @@ function asText(value: string | string[] | undefined): string {
       </div>
     </div>
 
-    <p v-else-if="!generating" class="brief__empty">还没有发布物料，点「生成物料」开始。</p>
+    <NEmpty
+      v-else-if="!generating"
+      class="brief__empty"
+      size="small"
+      :show-icon="false"
+      description="还没有发布物料，点「生成物料」开始。"
+    />
 
     <pre v-if="raw && !brief" class="brief__raw">{{ raw }}</pre>
   </section>

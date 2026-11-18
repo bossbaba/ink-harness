@@ -1,44 +1,27 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NButton, NTag } from "naive-ui";
-import { computed, onMounted, ref } from "vue";
+import { NButton, NEmpty, NTag, NTooltip } from "naive-ui";
 import { useRouter } from "vue-router";
-import { tauriApi } from "@/api/tauri";
+import AppIcon from "@/components/common/AppIcon.vue";
 import NewProjectDialog from "@/components/NewProjectDialog.vue";
-import { useOllamaControl } from "@/composables/useOllamaControl";
-import { projectService } from "@/services/projectService";
-import { useAppStore } from "@/stores/app";
-import { type DatabaseInfo, PROJECT_STATUS_LABEL, type Project } from "@/types";
-import { onReactivated } from "@/utils/lifecycle";
+import { useWorkspace } from "@/composables/useWorkspace";
+import { PROJECT_STATUS_LABEL } from "@/types";
 
-const app = useAppStore();
 const router = useRouter();
-// 页面状态：作品列表是主体，其余三项只服务于顶部/底部的状态卡片。
-const backend = ref("检测中…"); // 后端 ping 结果文案，初始值先给「检测中」
-// 本地模型状态交给共享组合式函数，工作台可以直接把服务拉起来，不用让用户去终端执行命令。
+// 数据与本地运行时状态由 composable 负责，本页只保留导航与模板组装。
 const {
-  status: ollama,
-  starting: ollamaStarting,
-  error: ollamaError,
-  refresh: refreshOllama,
-  start: startOllama,
-} = useOllamaControl();
-const ollamaRunning = computed(() => ollama.value?.running ?? false);
-const ollamaModels = computed(() => ollama.value?.models ?? []);
-const projects = ref<Project[]>([]); // 作品卡片数据
-const dbInfo = ref<DatabaseInfo | null>(null); // 数据库路径，null 表示没取到，模板据此不显示
-const showNew = ref(false); // 新建作品弹窗开关
-const error = ref(""); // 作品列表读取失败文案
-
-// 工作台：展示作品卡片，以及后端、Ollama、主题等本地运行状态。
-// 这些状态探测失败都不影响页面主体，各自单独兜底。
-async function loadProjects() {
-  try {
-    projects.value = await projectService.list();
-  } catch (err) {
-    error.value = `读取作品失败：${String(err)}`;
-  }
-}
+  app,
+  backend,
+  projects,
+  dbInfo,
+  showNew,
+  error,
+  ollamaRunning,
+  ollamaModels,
+  ollamaError,
+  ollamaStarting,
+  startOllama,
+  loadProjects,
+} = useWorkspace();
 
 // 新建作品弹窗创建成功后的回调：重新拉取列表，让新作品立即出现在卡片区。
 async function onCreated() {
@@ -79,33 +62,6 @@ function openModels(): void {
   // 模型管理是全局页，与当前作品无关，直接按路由名跳转。
   void router.push({ name: "models" });
 }
-
-/**
- * 首屏初始化：把主题同步到 document，再并行探测本地运行时环境。
- * 三个探测（后端、Ollama、数据库路径）彼此独立且都能失败，所以各自 try/catch，
- * 任何一个挂掉都只让对应状态卡片降级显示，绝不阻断作品列表这个主体内容。
- */
-onMounted(async () => {
-  app.initAppearance();
-  // 后端探测失败也只影响状态卡片，不阻断作品列表加载。
-  try {
-    backend.value = await tauriApi.ping();
-  } catch (err) {
-    backend.value = `后端未就绪：${String(err)}`;
-  }
-  // 检测失败时状态保持 null，界面上只显示「未运行」，不弹错误打扰首屏。
-  await refreshOllama();
-  await loadProjects();
-  try {
-    dbInfo.value = await projectService.databaseInfo();
-  } catch {
-    dbInfo.value = null;
-  }
-});
-
-// 页面被 keep-alive 缓存后 onMounted 只跑一次：从作品里回来时补刷作品列表，
-// 否则新建/改名/删除的作品在工作台上看不到变化。
-onReactivated(() => void loadProjects());
 </script>
 
 <template>
@@ -114,17 +70,23 @@ onReactivated(() => void loadProjects());
       <h1 class="hero__title serif">开始你的下一部作品</h1>
       <p class="hero__subtitle">从构思到出版，AI 全程辅助，数据留在你的电脑。</p>
       <div class="hero__actions">
-        <MacButton variant="prominent" @click="showNew = true">新建作品</MacButton>
+        <NButton type="primary" @click="showNew = true">新建作品</NButton>
       </div>
     </section>
 
     <p v-if="error" class="error">{{ error }}</p>
 
     <section class="section">
-      <h2 class="section__title">我的作品 <span class="count">{{ projects.length }}</span></h2>
-      <div v-if="projects.length === 0" class="empty">
-        <p>还没有作品。点击「新建作品」开始。</p>
-      </div>
+      <h2 class="section__title">
+        我的作品
+        <NTag class="count" size="tiny" round :bordered="false">{{ projects.length }}</NTag>
+      </h2>
+      <NEmpty
+        v-if="projects.length === 0"
+        class="empty"
+        size="small"
+        description="还没有作品。点击「新建作品」开始。"
+      />
       <div v-else class="project-grid">
         <article v-for="p in projects" :key="p.id" class="project-card">
           <div class="project-card__head">
@@ -139,12 +101,24 @@ onReactivated(() => void loadProjects());
             <span v-if="p.privacy === 'local-only'">仅本地</span>
           </div>
           <div class="project-card__actions">
-            <NButton size="small" quaternary @click="openIdeation(p.id)">构思向导 →</NButton>
-            <NButton size="small" quaternary @click="openOutline(p.id)">进入大纲 →</NButton>
-            <NButton size="small" quaternary @click="openWriting(p.id)">进入写作台 →</NButton>
-            <NButton size="small" quaternary @click="openBible(p.id)">进入设定库 →</NButton>
-            <NButton size="small" quaternary @click="openPublish(p.id)">出版中心 →</NButton>
-            <NButton size="small" quaternary @click="openWorkflow(p.id)">创作工作流 →</NButton>
+            <NButton size="small" quaternary @click="openIdeation(p.id)">
+              构思向导 <AppIcon name="chevron-right" :size="13" />
+            </NButton>
+            <NButton size="small" quaternary @click="openOutline(p.id)">
+              进入大纲 <AppIcon name="chevron-right" :size="13" />
+            </NButton>
+            <NButton size="small" quaternary @click="openWriting(p.id)">
+              进入写作台 <AppIcon name="chevron-right" :size="13" />
+            </NButton>
+            <NButton size="small" quaternary @click="openBible(p.id)">
+              进入设定库 <AppIcon name="chevron-right" :size="13" />
+            </NButton>
+            <NButton size="small" quaternary @click="openPublish(p.id)">
+              出版中心 <AppIcon name="chevron-right" :size="13" />
+            </NButton>
+            <NButton size="small" quaternary @click="openWorkflow(p.id)">
+              创作工作流 <AppIcon name="chevron-right" :size="13" />
+            </NButton>
           </div>
         </article>
       </div>
@@ -187,7 +161,13 @@ onReactivated(() => void loadProjects());
       </div>
     </section>
 
-    <p v-if="dbInfo" class="db-path" :title="dbInfo.path">作品库：{{ dbInfo.path }}</p>
+    <!-- 作品库路径可能很长，用 NTooltip 展示完整路径，避免原生 title 的样式与延迟。 -->
+    <NTooltip v-if="dbInfo">
+      <template #trigger>
+        <p class="db-path">作品库：{{ dbInfo.path }}</p>
+      </template>
+      {{ dbInfo.path }}
+    </NTooltip>
 
     <NewProjectDialog v-model:show="showNew" @created="onCreated" />
   </div>
@@ -201,6 +181,9 @@ onReactivated(() => void loadProjects());
   max-width: 900px;
   margin: 0 auto;
   padding: t.$space-8 t.$space-6;
+  // 页面根必须声明容器：卡片栅格按「内容区宽度」而不是窗口宽度决定列数，
+  // 否则侧栏/专注模式切换时会算出错误的列数。
+  container-type: inline-size;
 }
 
 .hero {
@@ -236,14 +219,10 @@ onReactivated(() => void loadProjects());
   }
 }
 
+// NTag 自带圆角与配色，这里只补一个与标题的间距。
 .count {
-  display: inline-block;
   margin-left: t.$space-2;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--bg-sunken);
-  font-size: 11px;
-  color: var(--text-faint);
+  vertical-align: middle;
 }
 
 .project-grid {

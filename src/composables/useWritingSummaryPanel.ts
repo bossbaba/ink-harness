@@ -69,13 +69,25 @@ export function useWritingSummaryPanel(options: {
   }
 
   async function updateBudget(value: number): Promise<void> {
+    const previous = budget.value;
     budget.value = value;
-    await setContextBudget(value);
+    try {
+      await setContextBudget(value);
+    } catch (err) {
+      budget.value = previous;
+      summary.error.value = `保存摘要预算失败：${String(err)}`;
+    }
   }
 
   async function updateAuto(value: boolean): Promise<void> {
+    const previous = auto.value;
     auto.value = value;
-    await setAutoSummary(value);
+    try {
+      await setAutoSummary(value);
+    } catch (err) {
+      auto.value = previous;
+      summary.error.value = `保存自动摘要开关失败：${String(err)}`;
+    }
   }
 
   return {

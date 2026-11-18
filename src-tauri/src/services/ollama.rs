@@ -8,6 +8,7 @@ use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use crate::error::AppError;
 use crate::infrastructure::llm_http;
 use crate::models::OllamaStatus;
 
@@ -16,7 +17,7 @@ const START_TIMEOUT: Duration = Duration::from_secs(20);
 /// 就绪轮询间隔；太密会刷屏，太疏用户会觉得卡。
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
-pub async fn check() -> Result<OllamaStatus, String> {
+pub async fn check() -> Result<OllamaStatus, AppError> {
     let client = llm_http::probe_client()?;
 
     let running = client
@@ -40,7 +41,7 @@ pub async fn check() -> Result<OllamaStatus, String> {
     })
 }
 
-async fn fetch_models(client: &reqwest::Client) -> Result<Vec<String>, String> {
+async fn fetch_models(client: &reqwest::Client) -> Result<Vec<String>, AppError> {
     #[derive(serde::Deserialize)]
     struct TagsResponse {
         models: Vec<TagsModel>,
@@ -54,19 +55,19 @@ async fn fetch_models(client: &reqwest::Client) -> Result<Vec<String>, String> {
         .get(llm_http::OLLAMA_TAGS_URL)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
-    let tags: TagsResponse = res.json().await.map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
+    let tags: TagsResponse = res.json().await.map_err(AppError::from)?;
     Ok(tags.models.into_iter().map(|m| m.name).collect())
 }
 
 /// 从程序内启动本地 Ollama，并等到服务可用后返回最新状态。
-pub async fn start() -> Result<OllamaStatus, String> {
+pub async fn start() -> Result<OllamaStatus, AppError> {
     let status = check().await?;
     if status.running {
         return Ok(status);
     }
     if !status.installed {
-        return Err("未检测到 Ollama。请先安装桌面版（ollama.com）或命令行工具，再回来点「启动本地模型」。".into());
+        return Err(AppError::validation("未检测到 Ollama。请先安装桌面版（ollama.com）或命令行工具，再回来点「启动本地模型」。"));
     }
 
     launch()?;
@@ -79,16 +80,16 @@ pub async fn start() -> Result<OllamaStatus, String> {
             return Ok(current);
         }
         if Instant::now() >= deadline {
-            return Err(format!(
+            return Err(AppError::network(format!(
                 "Ollama 已发出启动指令，但 {} 秒内仍未就绪。可稍等片刻后点「重新检测」，或手动执行 `ollama serve` 查看报错。",
                 START_TIMEOUT.as_secs()
-            ));
+            )));
         }
     }
 }
 
 /// 拉起 Ollama。桌面版 App 会顺带把后台服务带起来，CLI 则直接跑 `ollama serve`。
-fn launch() -> Result<(), String> {
+fn launch() -> Result<(), AppError> {
     #[cfg(target_os = "macos")]
     {
         // 大多数 macOS 用户装的是桌面版；`open -a` 会立刻返回，服务在后台异步起来。
@@ -110,9 +111,9 @@ fn launch() -> Result<(), String> {
 ///
 /// 记下自己拉起的 PID：App 退出时只停这一个实例，
 /// 用户手动启动或别的工具正在用的服务不会被误杀（见 `stop_spawned`）。
-fn spawn_serve() -> Result<(), String> {
+fn spawn_serve() -> Result<(), AppError> {
     let binary = resolve_binary()
-        .ok_or_else(|| "找不到 ollama 可执行文件，请先安装 Ollama（ollama.com）。".to_string())?;
+        .ok_or_else(|| AppError::not_found("找不到 ollama 可执行文件，请先安装 Ollama（ollama.com）。"))?;
     let mut child = Command::new(binary)
         .arg("serve")
         .stdout(Stdio::null())

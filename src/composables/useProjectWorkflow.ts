@@ -1,3 +1,4 @@
+import { storeToRefs } from "pinia";
 import { computed, ref } from "vue";
 import { parseProposal } from "@/services/ideationService";
 import { outlineService } from "@/services/outlineService";
@@ -12,6 +13,7 @@ import {
   saveWorkflowState,
 } from "@/services/workflowService";
 import { writingService } from "@/services/writingService";
+import { useProjectStore } from "@/stores/project";
 import type {
   Chapter,
   Project,
@@ -29,7 +31,8 @@ import { documentToPlainText, plainTextToDocument } from "@/utils/tiptap";
  * 状态存在 app_meta（见 workflowService），复用已有构思/审稿/出版服务，不新增数据表与命令。
  */
 export function useProjectWorkflow(projectId: string) {
-  const project = ref<Project | null>(null);
+  // 当前作品来自全局 store：别的页面改了作品状态，这里能立刻看到。
+  const project = storeToRefs(useProjectStore()).current;
   const chapters = ref<Chapter[]>([]);
   const state = ref<WorkflowState | null>(null);
   const loading = ref(false);
@@ -89,11 +92,17 @@ export function useProjectWorkflow(projectId: string) {
     }
   }
 
-  /** 选章只影响写作/编辑，改动立即持久化，避免审批落地时找不到目标章。 */
+  /** 选章只影响写作/编辑，改动立即持久化；写失败要回滚，避免界面与落库状态不一致。 */
   async function selectChapter(chapterId: string): Promise<void> {
     if (!state.value) return;
+    const previous = state.value.selectedChapterId;
     state.value.selectedChapterId = chapterId;
-    await saveWorkflowState(projectId, state.value);
+    try {
+      await saveWorkflowState(projectId, state.value);
+    } catch (err) {
+      state.value.selectedChapterId = previous;
+      loadError.value = `保存选章失败：${String(err)}`;
+    }
   }
 
   async function readChapterText(chapterId: string): Promise<string> {
@@ -161,7 +170,11 @@ export function useProjectWorkflow(projectId: string) {
       if (ticket !== requestSeq) return;
       target.status = "rejected";
       target.error = err instanceof Error ? err.message : String(err);
-      await saveWorkflowState(projectId, workflow).catch(() => undefined);
+      // 打回状态同样要落库，否则刷新后阶段会停在「进行中」；写失败必须让用户看见，
+      // 不能像以前那样吞掉——界面显示已打回、实际没保存是最难排查的状态。
+      await saveWorkflowState(projectId, workflow).catch((saveErr: unknown) => {
+        notice.value = `工作流状态保存失败：${String(saveErr)}，刷新后可能丢失本次结果。`;
+      });
     } finally {
       if (ticket === requestSeq) {
         running.value = null;

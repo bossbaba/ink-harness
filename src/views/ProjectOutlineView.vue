@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NSpace } from "naive-ui";
+import { NButton, NSpace, NSpin } from "naive-ui";
 import ChapterEditDialog from "@/components/outline/ChapterEditDialog.vue";
 import ForeshadowCreateDialog from "@/components/outline/ForeshadowCreateDialog.vue";
 import ForeshadowPanel from "@/components/outline/ForeshadowPanel.vue";
@@ -65,24 +64,25 @@ const {
         </p>
       </div>
       <NSpace>
-        <MacButton size="regular" :disabled="busy || !projectTitle" @click="openContext">
+        <NButton size="small" :disabled="busy || !projectTitle" @click="openContext">
           结构化上下文
-        </MacButton>
-        <MacButton
-          size="regular"
-          variant="prominent"
+        </NButton>
+        <NButton
+          size="small"
+          type="primary"
           :disabled="busy || !projectTitle"
           @click="openCreateChapter(1)"
         >
           新增章节
-        </MacButton>
+        </NButton>
       </NSpace>
     </header>
 
     <p v-if="error" class="outline__error">{{ error }}</p>
 
     <div v-if="!projectTitle && !error" class="outline__empty">
-      <p>正在载入作品大纲…</p>
+      <NSpin size="small" />
+      <span>正在载入作品大纲…</span>
     </div>
 
     <template v-else-if="projectTitle">
@@ -193,6 +193,10 @@ const {
   }
 
   &__empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: t.$space-2;
     margin-top: t.$space-6;
     padding: t.$space-8;
     text-align: center;

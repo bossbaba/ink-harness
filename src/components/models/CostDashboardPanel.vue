@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NInputNumber, NProgress } from "naive-ui";
+import { NButton, NEmpty, NInputNumber, NProgress, NTooltip } from "naive-ui";
 import { computed } from "vue";
 import { estimateCost } from "@/services/usageService";
 import { type ProviderConfig, TASK_KIND_LABEL, type UsageStats } from "@/types";
@@ -47,9 +46,9 @@ const taskLabel = (kind: string): string => TASK_KIND_LABEL[kind] ?? kind;
           @update:value="(value: number | null) => emit('update:budget', value ?? 0)"
         />
       </label>
-      <MacButton size="small" :disabled="loading" @click="emit('refresh')">
+      <NButton size="small" :disabled="loading" @click="emit('refresh')">
         {{ loading ? "读取中…" : "刷新" }}
-      </MacButton>
+      </NButton>
     </div>
 
     <p v-if="!stats" class="dashboard__empty">还没有调用记录，用一次 AI 写作或审稿后再刷新。</p>
@@ -83,7 +82,7 @@ const taskLabel = (kind: string): string => TASK_KIND_LABEL[kind] ?? kind;
           :percentage="percent"
           :height="8"
           :show-indicator="false"
-          :color="percent >= 90 ? 'var(--error, #d03050)' : 'var(--accent, #409eff)'"
+          :color="percent >= 90 ? 'var(--error)' : 'var(--accent)'"
         />
         <span>{{ stats.totalTokens.toLocaleString() }} / {{ budget.toLocaleString() }} token</span>
       </div>
@@ -91,7 +90,12 @@ const taskLabel = (kind: string): string => TASK_KIND_LABEL[kind] ?? kind;
       <div class="dashboard__columns">
         <div class="dashboard__column">
           <h3 class="dashboard__subtitle">按任务</h3>
-          <p v-if="stats.byTask.length === 0" class="dashboard__muted">暂无数据</p>
+          <NEmpty
+            v-if="stats.byTask.length === 0"
+            size="tiny"
+            :show-icon="false"
+            description="暂无数据"
+          />
           <ul v-else class="dashboard__list">
             <li v-for="item in stats.byTask" :key="item.taskKind">
               <span>{{ taskLabel(item.taskKind) }}</span>
@@ -102,10 +106,20 @@ const taskLabel = (kind: string): string => TASK_KIND_LABEL[kind] ?? kind;
         </div>
         <div class="dashboard__column">
           <h3 class="dashboard__subtitle">按模型</h3>
-          <p v-if="stats.byModel.length === 0" class="dashboard__muted">暂无数据</p>
+          <NEmpty
+            v-if="stats.byModel.length === 0"
+            size="tiny"
+            :show-icon="false"
+            description="暂无数据"
+          />
           <ul v-else class="dashboard__list">
             <li v-for="item in stats.byModel" :key="item.model">
-              <span class="dashboard__model" :title="item.model">{{ item.model }}</span>
+              <NTooltip>
+                <template #trigger>
+                  <span class="dashboard__model">{{ item.model }}</span>
+                </template>
+                {{ item.model }}
+              </NTooltip>
               <span class="dashboard__muted">{{ item.calls }} 次</span>
               <strong>{{ item.tokens.toLocaleString() }}</strong>
             </li>

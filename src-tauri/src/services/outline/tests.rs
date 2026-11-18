@@ -239,7 +239,7 @@ fn foreshadow_rejects_chapter_from_other_project() {
         },
     )
     .unwrap_err();
-    assert!(error.contains("不属于当前作品"));
+    assert!(error.message.contains("不属于当前作品"));
 }
 
 #[test]

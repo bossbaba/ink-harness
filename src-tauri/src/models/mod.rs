@@ -3,8 +3,11 @@ pub mod draft;
 pub mod outline;
 pub mod project;
 pub mod provider;
+pub mod publish;
 pub mod rag;
+pub mod stats;
 pub mod story_element;
+pub mod usage;
 
 pub use chat::{ChatChunk, ChatParams, TokenUsage};
 pub use draft::{
@@ -15,6 +18,11 @@ pub use outline::{
     OutlineSnapshot, Scene,
 };
 pub use project::{DatabaseInfo, NewProject, Project};
-pub use provider::{OllamaStatus, ProbeProviderInput, ProviderConfig, ProviderModel};
+pub use provider::{
+    split_model_ref, OllamaStatus, ProbeProviderInput, ProviderConfig, ProviderModel,
+};
+pub use publish::ExportResult;
 pub use rag::{RagHit, RagStatus};
+pub use stats::{CountItem, WorkspaceStats};
 pub use story_element::{ConsistencyIssue, NewStoryElement, StoryElement, StoryElementOverview};
+pub use usage::{ModelUsage, TaskUsage, UsageStats};

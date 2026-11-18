@@ -38,10 +38,10 @@ provider:
 
 ## 4. 组件与交互统一
 
-- 通用控件只用项目已引入的两套：Naive UI（表单、表格、树、弹窗、Tag、Select、Input）与 MacVue（`@macvue/core` 的按钮等原生控件）。
-- **同一按钮组必须来自同一控件体系并显式使用同一 `size`**：页面级主次按钮统一用 `<MacButton size="regular">`，仅用 `variant="prominent"` 区分主次；禁止把 `<NButton>` 与 `<MacButton>` 混排在同一组（两者默认高度不同，会造成按钮大小不一）。
+- 通用控件统一使用 Naive UI：按钮、表单、表格、树、弹窗、Tag、Select、Input 等一律从 `naive-ui` 取，不引入其他 UI 组件库。控件 API / 用法不确定时，按 `.codebuddy/rules/naive-ui-docs/RULE.mdc` 访问 Naive UI 官方 Markdown 文档确认，不要凭记忆猜测。
+- **同一按钮组必须显式使用同一 `size`**：页面级主次按钮统一用 `<NButton size="small">`，仅用 `type="primary"` 区分主次；禁止同一组内混用不同尺寸。
 - 表格行内/表单末尾的轻量操作可用 `<NButton size="tiny" quaternary>`，但同一组内的尺寸必须一致；危险操作用 `type="error"` 并配 `NPopconfirm`；禁用态统一由 `disabled` 表达，不靠改颜色模拟。
-- 主操作用 `<MacButton variant="prominent">`；次操作用默认 `<MacButton>`；工具栏图标按钮统一 `<NButton quaternary size="small">`。
+- 主操作用 `<NButton type="primary">`；次操作用默认 `<NButton>`；工具栏图标按钮统一 `<NButton quaternary size="small">`。
 - **新建操作必须使用弹窗（NModal preset="card"）**：弹窗只放最小必要字段（类型/名称/一句话摘要等），创建成功后关闭弹窗并选中新实体，再进入详情面板继续编辑；禁止用详情面板内联承载完整新建流程。
 - 标签统一 `<NTag size="small" :bordered="false">`，严重级别用 `type="warning" | "info" | "error" | "success"`，不自定义彩色标签样式。
 - 同类列表项、表格行、详情字段的视觉结构保持一致：左侧图标/标签 + 主体文字 + 右侧计数/操作；文字超长统一 `@include m.ellipsis`。

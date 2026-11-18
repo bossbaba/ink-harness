@@ -104,11 +104,16 @@ export function useGlobalBible() {
     if (typeof legacyProject === "string") {
       const query = { ...route.query };
       delete query.project;
-      await router.replace({
-        name: "project-bible",
-        params: { projectId: legacyProject },
-        query,
-      });
+      try {
+        await router.replace({
+          name: "project-bible",
+          params: { projectId: legacyProject },
+          query,
+        });
+      } catch {
+        // 导航被守卫取消时仍把全局页填上内容，避免用户停在空白页。
+        await loadOverview();
+      }
       return;
     }
     await loadOverview();

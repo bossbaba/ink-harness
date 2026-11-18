@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NRadioButton, NRadioGroup, NSpace, NSwitch, NTag } from "naive-ui";
+import { NButton, NSpace, NSwitch, NTag } from "naive-ui";
 import { computed } from "vue";
-import CostDashboardPanel from "@/components/models/CostDashboardPanel.vue";
+import SegmentedControl from "@/components/common/SegmentedControl.vue";
+import type { SegmentOption } from "@/components/common/segmentedControl";
 import ProviderCard from "@/components/models/ProviderCard.vue";
 import ProviderEditDialog from "@/components/models/ProviderEditDialog.vue";
 import RagSettingsPanel from "@/components/models/RagSettingsPanel.vue";
@@ -17,9 +17,6 @@ const {
   ollamaError,
   stopOllamaOnExit,
   routeStrategy,
-  usageStats,
-  tokenBudget,
-  usageLoading,
   savingSetting,
   loading,
   busy,
@@ -38,8 +35,6 @@ const {
   startOllama,
   setStopOllamaOnExit,
   setRouteStrategy,
-  loadUsage,
-  updateBudget,
   openCreate,
   openEdit,
   probeDraft,
@@ -71,6 +66,13 @@ const ROUTES = [
 ];
 
 const ollamaRunning = computed(() => ollama.value?.running ?? false);
+
+/** 全局策略只有三档，改为分段控件后与系统设置里的外观/路由切换保持一致。 */
+const routeOptions: SegmentOption[] = [
+  { label: "质量优先", value: "quality" },
+  { label: "成本优先", value: "cost" },
+  { label: "隐私优先", value: "privacy" },
+];
 </script>
 
 <template>
@@ -84,12 +86,10 @@ const ollamaRunning = computed(() => ollama.value?.running ?? false);
         </p>
       </div>
       <NSpace>
-        <MacButton size="regular" :disabled="loading" @click="refreshOllama">
-          重新检测 Ollama
-        </MacButton>
-        <MacButton size="regular" variant="prominent" :disabled="loading" @click="openCreate">
+        <NButton size="small" :disabled="loading" @click="refreshOllama"> 重新检测 Ollama </NButton>
+        <NButton size="small" type="primary" :disabled="loading" @click="openCreate">
           新增 Provider
-        </MacButton>
+        </NButton>
       </NSpace>
     </header>
 
@@ -110,15 +110,15 @@ const ollamaRunning = computed(() => ollama.value?.running ?? false);
           <NTag size="small" :bordered="false" :type="ollamaRunning ? 'success' : 'default'">
             {{ ollamaRunning ? "运行中" : "未运行" }}
           </NTag>
-          <MacButton
+          <NButton
             v-if="!ollamaRunning"
-            size="regular"
-            variant="prominent"
+            size="small"
+            type="primary"
             :disabled="ollamaStarting"
             @click="startOllama"
           >
             {{ ollamaStarting ? "启动中…" : "启动本地模型" }}
-          </MacButton>
+          </NButton>
         </div>
       </header>
       <p v-if="ollamaError" class="panel__error">{{ ollamaError }}</p>
@@ -186,16 +186,12 @@ const ollamaRunning = computed(() => ollama.value?.running ?? false);
             动作生效。
           </p>
         </div>
-        <NRadioGroup
-          :value="routeStrategy"
+        <SegmentedControl
           size="small"
-          :disabled="savingSetting"
-          @update:value="(value: RouteStrategy) => setRouteStrategy(value)"
-        >
-          <NRadioButton value="quality">质量优先</NRadioButton>
-          <NRadioButton value="cost">成本优先</NRadioButton>
-          <NRadioButton value="privacy">隐私优先</NRadioButton>
-        </NRadioGroup>
+          :options="routeOptions.map((option) => ({ ...option, disabled: savingSetting }))"
+          :model-value="routeStrategy"
+          @update:model-value="(value: string) => setRouteStrategy(value as RouteStrategy)"
+        />
       </div>
       <div class="routing__list">
         <span v-for="item in ROUTES" :key="item.task" class="routing__item">
@@ -204,16 +200,6 @@ const ollamaRunning = computed(() => ollama.value?.running ?? false);
         </span>
       </div>
     </section>
-
-    <!-- 用量看板：token 由后端按任务/模型记录，费用在前端按单价估算 -->
-    <CostDashboardPanel
-      :stats="usageStats"
-      :providers="providers"
-      :budget="tokenBudget"
-      :loading="usageLoading"
-      @refresh="loadUsage"
-      @update:budget="updateBudget"
-    />
 
     <!-- 检索模型选择：这里只定用哪个模型做向量化，索引状态与重建按作品进行 -->
     <RagSettingsPanel :providers="providers" />

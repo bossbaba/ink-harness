@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NInput, NTag } from "naive-ui";
+import { NButton, NInput, NTag } from "naive-ui";
 import { computed } from "vue";
 import {
   REVIEW_DECISION_LABEL,
@@ -86,20 +85,20 @@ const segments = computed(() =>
         @update:value="(text: string) => emit('comment', issue.id, text)"
       />
       <div class="issue__actions">
-        <MacButton
+        <NButton
           size="small"
           :disabled="issue.decision === 'applied'"
           @click="emit('decide', issue.id, 'accepted')"
         >
           {{ issue.decision === "accepted" || issue.decision === "applied" ? "已采纳" : "接受" }}
-        </MacButton>
-        <MacButton
+        </NButton>
+        <NButton
           size="small"
           :disabled="issue.decision === 'applied'"
           @click="emit('decide', issue.id, 'rejected')"
         >
           {{ issue.decision === "rejected" ? "已忽略" : "忽略" }}
-        </MacButton>
+        </NButton>
       </div>
     </div>
 

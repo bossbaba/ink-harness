@@ -2,9 +2,16 @@ use std::time::Duration;
 
 use rusqlite::{ffi::sqlite3_auto_extension, Connection};
 
+/// sqlite-vec 初始化符号签名与 rusqlite 期望的不同，需转成 auto extension 要求的 C 函数指针。
+type VecEntryPoint = unsafe extern "C" fn(
+    *mut rusqlite::ffi::sqlite3,
+    *mut *mut i8,
+    *const rusqlite::ffi::sqlite3_api_routines,
+) -> i32;
+
 fn register_vec() {
     unsafe {
-        sqlite3_auto_extension(Some(std::mem::transmute(
+        sqlite3_auto_extension(Some(std::mem::transmute::<*const (), VecEntryPoint>(
             sqlite_vec::sqlite3_vec_init as *const (),
         )));
     }

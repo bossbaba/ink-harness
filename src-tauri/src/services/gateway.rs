@@ -1,36 +1,48 @@
 //! 模型网关领域服务：provider 解析、隐私分级、SSE 流式代理。
 //! 不依赖任何 Tauri 类型——流式输出通过回调注入，便于纯 Rust 单测。
 
-use futures_util::StreamExt;
+use std::time::Duration;
 
+use futures_util::StreamExt;
+use tokio::time::timeout;
+
+use crate::error::AppError;
 use crate::infrastructure::{db::DbState, keychain, llm_http};
-use crate::models::{ChatChunk, ChatParams, ProviderConfig, TokenUsage};
-use crate::services::provider;
+use crate::models::{split_model_ref, ChatChunk, ChatParams, ProviderConfig, TokenUsage};
+use crate::services::{project, provider, provider_kind};
 
 // ── 核心：流式对话 ────────────────────────────────────────────
 
 /// 发起流式对话，每收到一块就调用 `on_chunk`。
-/// `on_chunk` 由调用方（commands 层）注入，service 不关心它落到 Channel 还是别处。
+/// `on_chunk` 由调用方（commands 层）注入，返回 false 表示接收端已断开，应立刻停止读取。
 pub async fn stream_chat<F>(
     state: &DbState,
     params: &ChatParams,
     mut on_chunk: F,
-) -> Result<Option<TokenUsage>, String>
+) -> Result<Option<TokenUsage>, AppError>
 where
-    F: FnMut(ChatChunk),
+    F: FnMut(ChatChunk) -> bool,
 {
     let resolved = resolve_provider(state, params)?;
     let provider = resolved.provider;
     let api_key = resolved.api_key;
 
-    if params.privacy_local_only && provider.source != "local" {
-        return Err("该作品设为仅本地处理，拒绝发送到远端模型".into());
+    // 隐私分级以库里作品的 privacy 为准，前端声明只能收紧张不能放宽：
+    // 传了 project_id 就必须受作品设置约束，避免改一个 IPC 参数就把仅本地作品发往云端。
+    let local_only = match params.project_id.as_deref() {
+        Some(project_id) => {
+            project::is_local_only(state, project_id)? || params.privacy_local_only
+        }
+        // 没有作品上下文（工作台级请求）时只能采信调用方声明，这是已知的次要缺口。
+        None => params.privacy_local_only,
+    };
+    if local_only && !provider_kind::is_local(&provider.source) {
+        return Err(AppError::validation(
+            "该作品设为仅本地处理，拒绝发送到远端模型",
+        ));
     }
 
-    let url = format!(
-        "{}/chat/completions",
-        provider.base_url.trim_end_matches('/')
-    );
+    let url = provider_kind::chat_url(&provider.base_url);
     // 注意用 resolved.model（已剥掉 `providerId:` 前缀）：上游只认自己家的模型名，
     // 把路由标识整串发过去，Ollama 会直接回 400 invalid model name。
     let mut body = serde_json::json!({
@@ -38,49 +50,88 @@ where
         "messages": params.messages,
         "stream": true,
     });
-    if let Some(t) = params.temperature {
+    // NaN/Infinity 会被序列化成 null 导致上游 400，非有限值和无效 token 上限就地丢弃。
+    if let Some(t) = params.temperature.filter(|t| t.is_finite()) {
         body["temperature"] = serde_json::json!(t);
     }
-    if let Some(m) = params.max_tokens {
+    if let Some(m) = params.max_tokens.filter(|m| *m > 0) {
         body["max_tokens"] = serde_json::json!(m);
     }
 
-    let mut req = llm_http::client().post(&url).json(&body);
-    if let Some(key) = api_key {
-        req = req.bearer_auth(key);
-    }
-
-    let response = req
-        .send()
-        .await
-        .map_err(|e| format!("请求模型失败：{}", e))?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("模型返回错误 {status}：{}", truncate(&text, 500)));
-    }
+    // 只在「还没收到任何流式数据」时重试：一旦开始出字再重试，
+    // 会把前后两次生成的半截内容拼在一起，比直接报错更糟。
+    let client = llm_http::client();
+    let mut attempt = 0u32;
+    let response = loop {
+        let mut req = client.post(&url).json(&body);
+        if let Some(key) = api_key.as_deref() {
+            req = req.bearer_auth(key);
+        }
+        match req.send().await {
+            Ok(response) if response.status().is_success() => break response,
+            Ok(response) => {
+                let status = response.status();
+                let retryable = llm_http::retryable_status(status);
+                let text = response.text().await.unwrap_or_default();
+                if retryable && attempt + 1 < llm_http::MAX_ATTEMPTS {
+                    eprintln!("模型请求返回 {status}，第 {} 次重试", attempt + 1);
+                    tokio::time::sleep(llm_http::backoff(attempt)).await;
+                    attempt += 1;
+                    continue;
+                }
+                return Err(AppError::upstream(format!(
+                    "模型返回错误 {status}：{}",
+                    truncate(&text, 500)
+                )));
+            }
+            Err(err) => {
+                if llm_http::retryable_error(&err) && attempt + 1 < llm_http::MAX_ATTEMPTS {
+                    eprintln!("模型请求失败（{err}），第 {} 次重试", attempt + 1);
+                    tokio::time::sleep(llm_http::backoff(attempt)).await;
+                    attempt += 1;
+                    continue;
+                }
+                return Err(AppError::network(format!("请求模型失败：{err}")));
+            }
+        }
+    };
 
     // SSE 解析委托给纯函数组件，便于单测；用量可能在 [DONE] 之前的某块到达。
     let mut parser = SseParser::new();
     let mut usage: Option<TokenUsage> = None;
     let mut stream = response.bytes_stream();
-    while let Some(item) = stream.next().await {
-        let bytes = item.map_err(|e| format!("读取流失败：{}", e))?;
+    loop {
+        // 长文本生成允许整体耗时很久，但连续 120 秒收不到任何字节就视为上游假死。
+        let next = timeout(Duration::from_secs(120), stream.next())
+            .await
+            .map_err(|_| AppError::network("模型长时间未返回数据，已中断本次对话"))?;
+        let Some(item) = next else { break };
+        let bytes = item.map_err(|e| AppError::network(format!("读取流失败：{e}")))?;
         let events = parser.push(&String::from_utf8_lossy(&bytes));
         for event in events {
             match event {
                 SseEvent::Done => {
-                    on_chunk(ChatChunk::done());
-                    return Ok(usage);
+                    return if on_chunk(ChatChunk::done()) {
+                        Ok(usage)
+                    } else {
+                        Err(AppError::internal("对话已被取消"))
+                    };
                 }
-                SseEvent::Delta(text) => on_chunk(ChatChunk::delta(text)),
+                SseEvent::Delta(text) => {
+                    if !on_chunk(ChatChunk::delta(text)) {
+                        return Err(AppError::internal("对话已被取消"));
+                    }
+                }
                 SseEvent::Usage(found) => usage = Some(found),
             }
         }
     }
 
-    on_chunk(ChatChunk::done());
-    Ok(usage)
+    if on_chunk(ChatChunk::done()) {
+        Ok(usage)
+    } else {
+        Err(AppError::internal("对话已被取消"))
+    }
 }
 
 /// 一次对话实际要打到哪个 Provider、用哪个模型名。
@@ -91,7 +142,7 @@ struct ResolvedProvider {
     model: String,
 }
 
-fn resolve_provider(state: &DbState, params: &ChatParams) -> Result<ResolvedProvider, String> {
+fn resolve_provider(state: &DbState, params: &ChatParams) -> Result<ResolvedProvider, AppError> {
     let providers = provider::list(state)?;
     let (provider, model) = locate_provider(&providers, &params.model).ok_or_else(|| {
         format!(
@@ -100,29 +151,13 @@ fn resolve_provider(state: &DbState, params: &ChatParams) -> Result<ResolvedProv
         )
     })?;
 
-    let api_key = provider
-        .api_key_ref
-        .as_ref()
-        .and_then(|k| keychain::get(k).ok().flatten());
+    let api_key = keychain::optional(provider.api_key_ref.as_deref());
 
     Ok(ResolvedProvider {
         provider,
         api_key,
         model,
     })
-}
-
-/// 把路由用的模型标识拆成 (providerId, modelId)。
-///
-/// 模型名自己也可能带冒号（Ollama 的 `qwen2.5:7b`），所以只按**第一个**冒号切一次，
-/// 剩下的整体当模型名；没有冒号或切出空串时视为「只有模型名」。
-pub fn split_model_ref(reference: &str) -> (Option<&str>, &str) {
-    match reference.split_once(':') {
-        Some((provider_id, model_id)) if !provider_id.is_empty() && !model_id.is_empty() => {
-            (Some(provider_id), model_id)
-        }
-        _ => (None, reference),
-    }
 }
 
 /// 按模型标识找到 Provider，并给出真正要发给上游的模型名。
@@ -224,12 +259,14 @@ fn extract_delta(data: &str) -> Option<String> {
 fn extract_usage(data: &str) -> Option<TokenUsage> {
     let value: serde_json::Value = serde_json::from_str(data).ok()?;
     let usage = value.get("usage");
+    // 上游计数字段不可信：超出 u32 的值直接丢弃，避免 as 截断或加法溢出 panic。
     let count = |openai: &str, ollama: &str| -> u32 {
         usage
             .and_then(|item| item.get(openai))
             .or_else(|| value.get(ollama))
             .and_then(|item| item.as_u64())
-            .unwrap_or(0) as u32
+            .and_then(|n| u32::try_from(n).ok())
+            .unwrap_or(0)
     };
     let prompt = count("prompt_tokens", "prompt_eval_count");
     let completion = count("completion_tokens", "eval_count");
@@ -239,7 +276,8 @@ fn extract_usage(data: &str) -> Option<TokenUsage> {
     let total = usage
         .and_then(|item| item.get("total_tokens"))
         .and_then(|item| item.as_u64())
-        .unwrap_or((prompt + completion) as u64) as u32;
+        .and_then(|n| u32::try_from(n).ok())
+        .unwrap_or_else(|| prompt.saturating_add(completion));
     Some(TokenUsage {
         prompt_tokens: prompt,
         completion_tokens: completion,

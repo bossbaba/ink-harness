@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NRadioButton, NRadioGroup, NSelect } from "naive-ui";
+import { NButton, NEmpty, NSelect, NSpin } from "naive-ui";
 import { computed, onMounted, ref, watch } from "vue";
+import SegmentedControl from "@/components/common/SegmentedControl.vue";
+import type { SegmentOption } from "@/components/common/segmentedControl";
 import ReviewLayerSection from "@/components/review/ReviewLayerSection.vue";
 import { useProjectReview } from "@/composables/useProjectReview";
 import { reviewToMarkdown } from "@/services/reviewService";
-import { REVIEW_LAYER_ORDER } from "@/types";
+import { REVIEW_LAYER_ORDER, type ReviewScope } from "@/types";
 
 /**
  * 作品审稿页：选范围 → 跑一致性检查与模型审读 → 按结构/一致性/语言三层看报告。
@@ -46,6 +47,12 @@ const {
 } = useProjectReview(props.projectId);
 
 const copied = ref(false);
+
+/** 审读范围只有两种，用分段控件比 RadioButton 更贴近原生 macOS 工具栏。 */
+const scopeOptions: SegmentOption[] = [
+  { label: "本章", value: "chapter" },
+  { label: "全书概览", value: "book" },
+];
 
 const pageTitle = computed(() =>
   project.value ? `《${project.value.title}》· 编辑审稿` : "编辑审稿",
@@ -110,10 +117,12 @@ async function copyReport(): Promise<void> {
 
     <section class="controls">
       <div class="controls__row">
-        <NRadioGroup v-model:value="scope" size="small" :disabled="running">
-          <NRadioButton value="chapter">本章</NRadioButton>
-          <NRadioButton value="book">全书概览</NRadioButton>
-        </NRadioGroup>
+        <SegmentedControl
+          size="small"
+          :options="scopeOptions.map((option) => ({ ...option, disabled: running }))"
+          :model-value="scope"
+          @update:model-value="(value: string) => (scope = value as ReviewScope)"
+        />
 
         <NSelect
           v-if="scope === 'chapter'"
@@ -127,26 +136,27 @@ async function copyReport(): Promise<void> {
 
         <span class="controls__spacer" />
 
-        <MacButton v-if="running" size="regular" @click="stop">停止</MacButton>
-        <MacButton
-          v-else
-          size="regular"
-          variant="prominent"
-          :disabled="!canRun"
-          @click="startReview"
-        >
+        <NButton v-if="running" size="small" @click="stop">停止</NButton>
+        <NButton v-else size="small" type="primary" :disabled="!canRun" @click="startReview">
           {{ report ? "重新审读" : "开始审读" }}
-        </MacButton>
+        </NButton>
       </div>
 
       <p v-if="running" class="controls__status">
         {{ progress || "准备中…" }}
         <template v-if="received">已收到 {{ received }} 字</template>
       </p>
-      <p v-else-if="loading" class="controls__hint">正在读取作品与章节…</p>
-      <p v-else-if="scope === 'chapter' && chapterOptions.length === 0" class="controls__hint">
-        这部作品还没有章节，先去大纲建一章再来审。
-      </p>
+      <div v-else-if="loading" class="controls__hint">
+        <NSpin size="small" />
+        <span>正在读取作品与章节…</span>
+      </div>
+      <NEmpty
+        v-else-if="scope === 'chapter' && chapterOptions.length === 0"
+        class="controls__hint"
+        size="tiny"
+        :show-icon="false"
+        description="这部作品还没有章节，先去大纲建一章再来审。"
+      />
     </section>
 
     <p v-if="error" class="review__error">{{ error }}</p>
@@ -165,18 +175,16 @@ async function copyReport(): Promise<void> {
         <span v-if="acceptedCount || rejectedCount" class="summary__progress">
           采纳 {{ acceptedCount }} · 忽略 {{ rejectedCount }}
         </span>
-        <MacButton size="regular" @click="copyReport">{{
-          copied ? "已复制" : "复制报告"
-        }}</MacButton>
-        <MacButton
+        <NButton size="small" @click="copyReport">{{ copied ? "已复制" : "复制报告" }}</NButton>
+        <NButton
           v-if="report.scope === 'chapter'"
-          size="regular"
-          variant="prominent"
+          size="small"
+          type="primary"
           :disabled="applyableCount === 0 || applying"
           @click="applyAccepted"
         >
           {{ applying ? "写入中…" : `应用 ${applyableCount} 处修改` }}
-        </MacButton>
+        </NButton>
         <RouterLink
           v-if="report.scope === 'chapter' && chapterId"
           class="summary__link"
@@ -201,12 +209,12 @@ async function copyReport(): Promise<void> {
       />
     </template>
 
-    <section v-else-if="!running" class="placeholder">
-      <p class="placeholder__title">还没有审稿报告。</p>
-      <p class="placeholder__hint">
-        选「本章」可以连语言一起看；选「全书概览」只根据目录与摘要检查结构与一致性，速度快、不读正文。
-      </p>
-    </section>
+    <NEmpty
+      v-else-if="!running"
+      class="placeholder"
+      size="small"
+      description="还没有审稿报告。选「本章」可以连语言一起看；选「全书概览」只根据目录与摘要检查结构与一致性，速度快、不读正文。"
+    />
   </div>
 </template>
 

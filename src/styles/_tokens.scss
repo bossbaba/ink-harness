@@ -20,10 +20,24 @@ $warning: #e8a317;
 $error: #d4342a;
 $divider: rgba(31, 30, 29, 0.1);
 
-// 字体
-$font-sans: "Inter", "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+// 字体：macOS 上优先用系统 UI 字体（San Francisco），保证与原生控件字形一致。
+$font-sans:
+  -apple-system,
+  BlinkMacSystemFont,
+  "SF Pro Text",
+  "Inter",
+  "PingFang SC",
+  "Microsoft YaHei",
+  sans-serif;
 $font-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", serif;
 $font-mono: "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+// 语义底色的编译期兜底：运行时由 palette.ts 注入同名 CSS 变量覆盖。
+// 这些低饱和底色撑起 macOS 的 hover / 选中 / 状态分组，不要在组件里另写 rgba。
+$bg-hover: rgba(31, 30, 29, 0.06);
+$accent-soft: rgba(0, 193, 0, 0.1);
+$error-soft: rgba(212, 52, 42, 0.1);
+$success-soft: rgba(0, 137, 123, 0.1);
 
 // 间距基准（4px 网格）
 $space-1: 4px;

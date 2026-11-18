@@ -1,3 +1,4 @@
+import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
 import {
   buildIdeationMessages,
@@ -8,6 +9,7 @@ import {
 import { modelRouter } from "@/services/modelRouter";
 import { outlineService } from "@/services/outlineService";
 import { projectService } from "@/services/projectService";
+import { useProjectStore } from "@/stores/project";
 import type { IdeaProposal, IdeationAnswers, Project } from "@/types";
 
 /**
@@ -15,7 +17,8 @@ import type { IdeaProposal, IdeationAnswers, Project } from "@/types";
  * 作品 ID 来自路由参数；缺失或作品不存在时停止后续操作。
  */
 export function useIdeationWizard(projectId: string) {
-  const project = ref<Project | null>(null);
+  // 当前作品来自全局 store：别的页面改了作品状态，这里能立刻看到。
+  const project = storeToRefs(useProjectStore()).current;
   const answers = ref<IdeationAnswers>(createIdeationAnswers({ genre: "", audience: "" }));
   const step = ref(0);
   const maxStep = ref(0);

@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NInput, NSelect } from "naive-ui";
+import { NButton, NInput, NSelect } from "naive-ui";
 import { computed } from "vue";
 import {
   EXPORT_FORMAT_LABEL,
@@ -69,24 +68,18 @@ const isPdf = computed(() => props.format === "pdf");
     </p>
 
     <div class="export__actions">
-      <MacButton
+      <NButton
         v-if="isPdf"
-        size="regular"
-        variant="prominent"
+        size="small"
+        type="primary"
         :disabled="exporting"
         @click="emit('print')"
       >
         打印 / 另存为 PDF
-      </MacButton>
-      <MacButton
-        v-else
-        size="regular"
-        variant="prominent"
-        :disabled="exporting"
-        @click="emit('export')"
-      >
+      </NButton>
+      <NButton v-else size="small" type="primary" :disabled="exporting" @click="emit('export')">
         {{ exporting ? "导出中…" : `导出 ${EXPORT_FORMAT_LABEL[format]}` }}
-      </MacButton>
+      </NButton>
     </div>
 
     <p v-if="notice" class="export__notice">{{ notice }}</p>

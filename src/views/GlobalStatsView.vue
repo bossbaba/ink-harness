@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NTag } from "naive-ui";
+import { NEmpty, NTag } from "naive-ui";
 import { computed, onMounted } from "vue";
 import CostDashboardPanel from "@/components/models/CostDashboardPanel.vue";
 import { useGlobalStats } from "@/composables/useGlobalStats";
@@ -84,9 +84,12 @@ onReactivated(() => void load());
           </div>
         </div>
 
-        <div v-if="totalWorks === 0" class="stats__empty">
-          还没有作品。先到工作台新建一部作品，统计会随创作自动更新。
-        </div>
+        <NEmpty
+          v-if="totalWorks === 0"
+          class="stats__empty"
+          size="small"
+          description="还没有作品。先到工作台新建一部作品，统计会随创作自动更新。"
+        />
         <div v-else class="stats__columns">
           <div class="stats__group">
             <h3 class="stats__group-title">作品阶段</h3>
@@ -104,7 +107,13 @@ onReactivated(() => void load());
           </div>
           <div class="stats__group">
             <h3 class="stats__group-title">设定类型</h3>
-            <p v-if="elementKindRows.length === 0" class="stats__group-empty">暂无设定条目</p>
+            <NEmpty
+              v-if="elementKindRows.length === 0"
+              class="stats__group-empty"
+              size="tiny"
+              :show-icon="false"
+              description="暂无设定条目"
+            />
             <p v-for="row in elementKindRows" :key="row.label" class="stats__row">
               <span>{{ row.label }}</span>
               <NTag size="small" :bordered="false">{{ row.count }}</NTag>

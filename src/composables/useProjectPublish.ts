@@ -173,7 +173,8 @@ export function useProjectPublish(projectId: string) {
       `【封面需求】\n${value.coverBrief}`,
       `【投稿信】\n${value.queryLetter}`,
     ].join("\n\n");
-    void navigator.clipboard.writeText(text);
+    // 非安全上下文或用户拒绝剪贴板权限时静默失败，物料本身仍可查看。
+    navigator.clipboard.writeText(text).catch(() => undefined);
   }
 
   function togglePlatform(key: string): void {

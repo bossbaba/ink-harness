@@ -1,15 +1,19 @@
 <script setup lang="ts">
+import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { projectService } from "@/services/projectService";
-import type { Project } from "@/types";
+import { useProjectStore } from "@/stores/project";
 
 const route = useRoute();
+const projectStore = useProjectStore();
 // 作品作用域父路由的入口：ID 缺失或作品不存在时只显示错误，不渲染子页面。
 // 外壳本身会被 keep-alive 缓存，projectId 必须跟着路由实时变——否则从一个作品
 // 跳到另一个作品时，面包屑与子页面的作用域都还是上一个作品的。
 const projectId = computed(() => String(route.params.projectId ?? ""));
-const project = ref<Project | null>(null);
+// 作品本身放在全局 store：子页面（大纲/写作台/审稿）都是同一份数据，
+// 一处保存后其它页面的标题与状态立刻同步。
+const project = storeToRefs(projectStore).current;
 const error = ref("");
 
 async function loadProject(): Promise<void> {
@@ -20,10 +24,10 @@ async function loadProject(): Promise<void> {
   // 从别处回到同一个作品：沿用已加载的作品与缓存，不重新挂载子页面。
   if (project.value?.id === id) return;
   // 真正切换作品时才清空，避免新作品页面带着上一篇的标题渲染。
-  project.value = null;
+  projectStore.clear();
   error.value = "";
   try {
-    project.value = await projectService.get(id);
+    projectStore.set(await projectService.get(id));
     if (!project.value) error.value = "作品不存在或已删除。";
   } catch (err) {
     error.value = `读取作品失败：${String(err)}`;
@@ -44,7 +48,7 @@ watch(projectId, loadProject, { immediate: true });
     </header>
 
     <div class="project-shell__body">
-      <p v-if="error" class="project-shell__error">{{ error }}</p>
+      <p v-if="error" class="project-shell__error" role="alert">{{ error }}</p>
       <!--
         作品内的子页面各缓存一份：同一作品里切页保留状态，换作品时重新挂载。
         key 必须同时带上路由名：KeepAlive 只按 key 找缓存，若只用 projectId，

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { NEmpty } from "naive-ui";
 import { computed } from "vue";
 import { RELATION_TYPE_OPTIONS, STORY_KIND_LABEL, type StoryElement } from "@/types";
 
@@ -88,7 +89,13 @@ function shortName(name: string, max = 6): string {
 
 <template>
   <div class="graph">
-    <div v-if="!center" class="graph__empty">选择作品后添加设定，即可查看关系图。</div>
+    <NEmpty
+      v-if="!center"
+      class="graph__empty"
+      size="small"
+      :show-icon="false"
+      description="选择作品后添加设定，即可查看关系图。"
+    />
     <template v-else>
       <svg class="graph__canvas" viewBox="0 0 300 300" role="img" aria-label="设定关系图">
         <g v-for="edge in edges" :key="`edge-${edge.id}`">
@@ -113,9 +120,13 @@ function shortName(name: string, max = 6): string {
           </text>
         </g>
       </svg>
-      <p v-if="related.length === 0" class="graph__hint">
-        当前设定还没有关联。在详情中为它添加关系后，这里会显示关系图。
-      </p>
+      <NEmpty
+        v-if="related.length === 0"
+        class="graph__hint"
+        size="tiny"
+        :show-icon="false"
+        description="当前设定还没有关联。在详情中为它添加关系后，这里会显示关系图。"
+      />
     </template>
   </div>
 </template>

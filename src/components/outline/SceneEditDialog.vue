@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NInput, NModal, NSpace } from "naive-ui";
+import { NButton, NInput, NModal, NSpace } from "naive-ui";
 import type { SceneDraft } from "@/types";
 
 // 场景弹窗：POV/地点/时间是场景卡的三个关键要素，也是 AI 续写的最小上下文。
@@ -66,15 +65,15 @@ function close(): void {
 
     <template #footer>
       <NSpace justify="end">
-        <MacButton size="regular" :disabled="props.busy" @click="close">取消</MacButton>
-        <MacButton
-          size="regular"
-          variant="prominent"
+        <NButton size="small" :disabled="props.busy" @click="close">取消</NButton>
+        <NButton
+          size="small"
+          type="primary"
           :disabled="props.busy || !draft.title.trim()"
           @click="emit('save')"
         >
           {{ props.busy ? "保存中…" : props.isNew ? "创建场景" : "保存修改" }}
-        </MacButton>
+        </NButton>
       </NSpace>
     </template>
   </NModal>

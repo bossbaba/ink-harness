@@ -9,6 +9,7 @@
 
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::error::AppError;
 use crate::infrastructure::db::DbState;
 use crate::infrastructure::id::gen_id;
 use crate::models::{ChapterContent, DraftVersion, DraftVersionBrief, SaveContentInput};
@@ -29,19 +30,19 @@ fn row_to_content(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChapterContent> {
 
 /// 读取章节正文；章节不存在直接报错，不做「返回空正文」的兜底——
 /// 空正文与不存在的章节在写作台上必须区分开，否则用户会以为正文丢了。
-pub fn get_content(state: &DbState, chapter_id: &str) -> Result<ChapterContent, String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
-    query_content(&conn, chapter_id)?.ok_or_else(|| "章节不存在".to_string())
+pub fn get_content(state: &DbState, chapter_id: &str) -> Result<ChapterContent, AppError> {
+    let conn = state.biz();
+    query_content(&conn, chapter_id)?.ok_or_else(|| AppError::not_found("章节不存在"))
 }
 
-fn query_content(conn: &Connection, chapter_id: &str) -> Result<Option<ChapterContent>, String> {
+fn query_content(conn: &Connection, chapter_id: &str) -> Result<Option<ChapterContent>, AppError> {
     conn.query_row(
         "select id, content, word_count, updated_at from chapter where id = ?1",
         params![chapter_id],
         row_to_content,
     )
     .optional()
-    .map_err(|e| e.to_string())
+    .map_err(AppError::from)
 }
 
 /// 章节当前正文 + 上一版快照的字数与内容，用于判断是否需要留快照。
@@ -50,7 +51,7 @@ struct DraftState {
     word_count: i64,
 }
 
-fn query_draft_state(conn: &Connection, chapter_id: &str) -> Result<DraftState, String> {
+fn query_draft_state(conn: &Connection, chapter_id: &str) -> Result<DraftState, AppError> {
     conn.query_row(
         "select content, word_count from chapter where id = ?1",
         params![chapter_id],
@@ -62,12 +63,12 @@ fn query_draft_state(conn: &Connection, chapter_id: &str) -> Result<DraftState, 
         },
     )
     .optional()
-    .map_err(|e| e.to_string())?
-    .ok_or_else(|| "章节不存在".to_string())
+    .map_err(AppError::from)?
+    .ok_or_else(|| AppError::not_found("章节不存在"))
 }
 
 /// 最近一版快照（序号、字数、正文），没有则返回 None。
-fn last_version(conn: &Connection, chapter_id: &str) -> Result<Option<(i64, i64, String)>, String> {
+fn last_version(conn: &Connection, chapter_id: &str) -> Result<Option<(i64, i64, String)>, AppError> {
     conn.query_row(
         "select version, word_count, content from draft_version \
          where chapter_id = ?1 order by version desc limit 1",
@@ -75,16 +76,16 @@ fn last_version(conn: &Connection, chapter_id: &str) -> Result<Option<(i64, i64,
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     )
     .optional()
-    .map_err(|e| e.to_string())
+    .map_err(AppError::from)
 }
 
-fn next_version(conn: &Connection, chapter_id: &str) -> Result<i64, String> {
+fn next_version(conn: &Connection, chapter_id: &str) -> Result<i64, AppError> {
     conn.query_row(
         "select coalesce(max(version), 0) + 1 from draft_version where chapter_id = ?1",
         params![chapter_id],
         |row| row.get(0),
     )
-    .map_err(|e| e.to_string())
+    .map_err(AppError::from)
 }
 
 /// 写入一版快照，并把该章版本数裁到上限，避免历史无限增长。
@@ -93,32 +94,32 @@ fn insert_version(
     chapter_id: &str,
     content: &str,
     word_count: i64,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let version = next_version(conn, chapter_id)?;
     conn.execute(
         r#"insert into draft_version (id, chapter_id, content, version, word_count, created_at)
            values (?1, ?2, ?3, ?4, ?5, strftime('%Y-%m-%dT%H:%M:%fZ','now'))"#,
         params![gen_id("dv"), chapter_id, content, version, word_count],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(AppError::from)?;
     conn.execute(
         r#"delete from draft_version where chapter_id = ?1 and id not in (
              select id from draft_version where chapter_id = ?1 order by version desc limit ?2
            )"#,
         params![chapter_id, MAX_VERSIONS_PER_CHAPTER],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(AppError::from)?;
     Ok(())
 }
 
 /// 保存正文。返回保存后的实际状态（字数、更新时间以库里的为准）。
 ///
 /// 自动保存（snapshot=false）只更新正文；首次写入有内容时自动把章节从「待写」推进到「写作中」。
-pub fn save_content(state: &DbState, input: SaveContentInput) -> Result<ChapterContent, String> {
+pub fn save_content(state: &DbState, input: SaveContentInput) -> Result<ChapterContent, AppError> {
     if input.word_count < 0 {
-        return Err("字数不能为负数".into());
+        return Err(AppError::validation("字数不能为负数"));
     }
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+    let conn = state.biz();
     let current = query_draft_state(&conn, &input.chapter_id)?;
     let content_changed = current.content != input.content;
     let previous = last_version(&conn, &input.chapter_id)?;
@@ -128,14 +129,14 @@ pub fn save_content(state: &DbState, input: SaveContentInput) -> Result<ChapterC
     let last_words = previous.as_ref().map_or(0, |item| item.1);
     let last_content_differs = previous
         .as_ref()
-        .map_or(true, |(_, _, last)| last != &input.content);
+        .is_none_or(|(_, _, last)| last != &input.content);
     let should_snapshot = content_changed
         && last_content_differs
         && (input.snapshot
             || (previous.is_none() && input.word_count > 0)
             || (input.word_count - last_words).abs() >= AUTO_SNAPSHOT_CHARS);
 
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(AppError::from)?;
     tx.execute(
         r#"update chapter set content = ?2, word_count = ?3,
              status = case when status = 'planned' and ?3 > 0 then 'drafting' else status end,
@@ -143,26 +144,26 @@ pub fn save_content(state: &DbState, input: SaveContentInput) -> Result<ChapterC
            where id = ?1"#,
         params![input.chapter_id, input.content, input.word_count],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(AppError::from)?;
 
     if should_snapshot {
         insert_version(&tx, &input.chapter_id, &input.content, input.word_count)?;
     }
-    tx.commit().map_err(|e| e.to_string())?;
+    tx.commit().map_err(AppError::from)?;
     drop(conn);
 
     get_content(state, &input.chapter_id)
 }
 
 /// 版本列表：新的在前，不带正文，避免一次拉回整章全文。
-pub fn list_versions(state: &DbState, chapter_id: &str) -> Result<Vec<DraftVersionBrief>, String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn list_versions(state: &DbState, chapter_id: &str) -> Result<Vec<DraftVersionBrief>, AppError> {
+    let conn = state.biz();
     let mut stmt = conn
         .prepare(
             "select id, chapter_id, version, word_count, created_at from draft_version \
              where chapter_id = ?1 order by version desc",
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     let rows = stmt
         .query_map(params![chapter_id], |row| {
             Ok(DraftVersionBrief {
@@ -173,13 +174,13 @@ pub fn list_versions(state: &DbState, chapter_id: &str) -> Result<Vec<DraftVersi
                 created_at: row.get(4)?,
             })
         })
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())
+        .map_err(AppError::from)
 }
 
-pub fn get_version(state: &DbState, id: &str) -> Result<DraftVersion, String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn get_version(state: &DbState, id: &str) -> Result<DraftVersion, AppError> {
+    let conn = state.biz();
     conn.query_row(
         "select id, chapter_id, version, content, word_count, created_at \
          from draft_version where id = ?1",
@@ -196,13 +197,13 @@ pub fn get_version(state: &DbState, id: &str) -> Result<DraftVersion, String> {
         },
     )
     .optional()
-    .map_err(|e| e.to_string())?
-    .ok_or_else(|| "版本不存在".to_string())
+    .map_err(AppError::from)?
+    .ok_or_else(|| AppError::not_found("版本不存在"))
 }
 
 /// 恢复到某个历史版本：先把当前正文留一版，再用历史内容覆盖。
-pub fn restore_version(state: &DbState, version_id: &str) -> Result<ChapterContent, String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn restore_version(state: &DbState, version_id: &str) -> Result<ChapterContent, AppError> {
+    let conn = state.biz();
     let (chapter_id, content, word_count): (String, String, i64) = conn
         .query_row(
             "select chapter_id, content, word_count from draft_version where id = ?1",
@@ -210,11 +211,11 @@ pub fn restore_version(state: &DbState, version_id: &str) -> Result<ChapterConte
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "版本不存在".to_string())?;
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::not_found("版本不存在"))?;
 
     let current = query_draft_state(&conn, &chapter_id)?;
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(AppError::from)?;
     // 当前正文与目标版本不同、且还没被任何快照收录时先补一版底稿，
     // 否则用户点恢复就等于把刚写的内容彻底弄丢了。
     if !current.content.trim().is_empty() && current.content != content {
@@ -225,7 +226,7 @@ pub fn restore_version(state: &DbState, version_id: &str) -> Result<ChapterConte
                 |_| Ok(()),
             )
             .optional()
-            .map_err(|e| e.to_string())?
+            .map_err(AppError::from)?
             .is_some();
         if !already_saved {
             insert_version(&tx, &chapter_id, &current.content, current.word_count)?;
@@ -237,8 +238,8 @@ pub fn restore_version(state: &DbState, version_id: &str) -> Result<ChapterConte
            where id = ?1"#,
         params![chapter_id, content, word_count],
     )
-    .map_err(|e| e.to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
+    .map_err(AppError::from)?;
+    tx.commit().map_err(AppError::from)?;
     drop(conn);
 
     get_content(state, &chapter_id)

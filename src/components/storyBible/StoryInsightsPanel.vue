@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NTag } from "naive-ui";
+import { NButton, NEmpty, NTag } from "naive-ui";
 import RelationGraph from "@/components/RelationGraph.vue";
 import { CONSISTENCY_KIND_LABEL, type ConsistencyIssue, type StoryElement } from "@/types";
 
@@ -27,13 +27,18 @@ const emit = defineEmits<{
     />
     <div class="issues">
       <h2 class="panel__title">一致性报告</h2>
-      <p v-if="issues.length === 0" class="issues__empty">
-        点击顶部「一致性检查」查看重复名称与时间线冲突。
-      </p>
-      <button
+      <NEmpty
+        v-if="issues.length === 0"
+        class="issues__empty"
+        size="tiny"
+        :show-icon="false"
+        description="点击顶部「一致性检查」查看重复名称与时间线冲突。"
+      />
+      <NButton
         v-for="issue in issues"
         :key="issue.id"
-        type="button"
+        text
+        block
         class="issue"
         @click="emit('focusIssue', issue)"
       >
@@ -48,7 +53,7 @@ const emit = defineEmits<{
           <span class="issue__title">{{ issue.title }}</span>
         </span>
         <span class="issue__detail">{{ issue.detail }}</span>
-      </button>
+      </NButton>
     </div>
   </aside>
 </template>
@@ -115,6 +120,37 @@ const emit = defineEmits<{
   &__detail {
     font-size: 11px;
     color: var(--text-soft, #{t.$ink-soft});
+  }
+}
+
+// NButton text 变体自带 padding 与居中样式，双写类名把问题条目的卡片布局覆盖回来。
+.issue.issue {
+  display: flex;
+  flex-direction: column;
+  gap: t.$space-1;
+  width: 100%;
+  margin-bottom: t.$space-2;
+  padding: t.$space-2;
+  border: 1px solid var(--divider, #{t.$divider});
+  border-radius: t.$radius-sm;
+  background: transparent;
+  color: var(--text-primary, #{t.$ink});
+  font-size: inherit;
+  text-align: left;
+  white-space: normal;
+
+  &:hover {
+    border-color: var(--accent, #{t.$accent});
+  }
+
+  // 标题行与详情行在 .n-button__content 这一层纵向排列。
+  :deep(.n-button__content) {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: t.$space-1;
+    width: 100%;
+    white-space: normal;
   }
 }
 </style>

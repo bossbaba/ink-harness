@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { NButton, NTooltip } from "naive-ui";
+import { storeToRefs } from "pinia";
 import { computed, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { GLOBAL_NAV as navItems, PROJECT_NAV as projectNavItems } from "@/app/router/nav";
+import AppIcon from "@/components/common/AppIcon.vue";
 import { useAppStore } from "@/stores/app";
+import { useProjectStore } from "@/stores/project";
 
 /**
  * 应用外壳：标题栏 + 左侧导航 + 内容插槽。
  * 这里最关键的是按路由作用域切换侧栏——全局页显示全局菜单，进入某个作品后
  * 换成该作品的二级导航并带「返回工作台」，两者不混排，保证功能页面唯一性。
- * 专注模式下标题栏与侧栏全部隐藏，只留正文和一个悬浮退出按钮。
+ * 专注模式下标题栏与侧栏全部隐藏，只留正文和一个毛玻璃悬浮退出按钮。
  * AI 对话面板归写作台所有（作品作用域），外壳不再常驻占位面板。
  */
 const app = useAppStore();
@@ -16,34 +20,29 @@ const route = useRoute();
 const router = useRouter();
 
 // 主题按钮显示的是「切换后」的图标：当前浅色则给出月亮，暗示点下去进入深色；反之给太阳。
-const appearanceIcon = computed(() => (app.appearance === "light" ? "☾" : "☀"));
+const appearanceIcon = computed(() => (app.appearance === "light" ? "moon" : "sun"));
 // 专注模式按钮的 tooltip 同样显示「切换后」的动作文案。
 const focusTitle = computed(() => (app.focusMode ? "退出专注模式" : "进入专注模式"));
 
-// 全局导航只放真正有全局页面的功能。大纲、写作台、审稿、出版都必须带作品 ID，
-// 只在作品内二级导航出现；以前这里的同名禁用占位既无路由也无入口，已移除。
-const navItems = [
-  { key: "workspace", label: "工作台", icon: "◫", path: "/" },
-  { key: "bible", label: "设定库", icon: "▤", path: "/bible" },
-  { key: "stats", label: "统计", icon: "▦", path: "/stats" },
-  { key: "models", label: "模型管理", icon: "⚙", path: "/models" },
-];
+/**
+ * macOS 上标题栏用 Overlay 样式，系统红绿灯直接画在我们的标题栏里。
+ * 这时左侧要给红绿灯留出安全区，否则「墨」标会压在按钮上；浏览器预览没有红绿灯。
+ */
+const hasTrafficLights = (() => {
+  if (typeof window === "undefined") return false;
+  const isTauri = "__TAURI_INTERNALS__" in window;
+  return isTauri && /Mac/i.test(navigator.userAgent);
+})();
 
+// 导航表在 @/app/router/nav 里与路由同源：改一处即可，菜单不会指向不存在的页面。
 // 是否处于作品作用域。进入作品后侧栏要换成该作品的二级导航，
 // 全局菜单不再高亮，避免把「全部」和「某一个」混在同一套导航里。
 const isProjectRoute = computed(() => /^\/projects\/[^/]+/.test(route.path));
 const projectId = computed(() => String(route.params.projectId ?? ""));
 
-// 作品内二级导航：每一项都有对应子路由，不存在禁用占位。
-const projectNavItems = [
-  { key: "ideation", label: "构思向导", icon: "✷", name: "project-ideation" },
-  { key: "bible", label: "设定库", icon: "▤", name: "project-bible" },
-  { key: "outline", label: "大纲", icon: "☷", name: "project-outline" },
-  { key: "write", label: "写作台", icon: "✎", name: "project-writing" },
-  { key: "review", label: "编辑审稿", icon: "◎", name: "project-review" },
-  { key: "publish", label: "出版中心", icon: "⇧", name: "project-publish" },
-  { key: "workflow", label: "创作工作流", icon: "⇄", name: "project-workflow" },
-];
+// 作品名来自全局 store：子页面保存后标题立刻同步，不再显示「作品 · 大纲」这种泛称。
+const projectStore = useProjectStore();
+const project = storeToRefs(projectStore).current;
 
 /** 全局菜单高亮：只做路径精确相等，不做前缀匹配。 */
 function isGlobalActive(path: string): boolean {
@@ -60,7 +59,9 @@ const activeProjectNav = computed(() => projectNavItems.find((item) => item.name
  */
 const activeLabel = computed(() => {
   if (isProjectRoute.value) {
-    return activeProjectNav.value ? `作品 · ${activeProjectNav.value.label}` : "作品";
+    // 用真实作品名替代「作品」占位：用户在多部作品间切换时靠这行区分。
+    const scope = project.value?.title ?? "作品";
+    return activeProjectNav.value ? `${scope} · ${activeProjectNav.value.label}` : scope;
   }
   return navItems.find((item) => isGlobalActive(item.path))?.label ?? "工作台";
 });
@@ -87,7 +88,12 @@ watch(
 
 <template>
   <div class="shell" :class="{ 'shell--focus': app.focusMode }">
-    <header v-if="!app.focusMode" class="titlebar" data-tauri-drag-region>
+    <header
+      v-if="!app.focusMode"
+      class="titlebar"
+      :class="{ 'titlebar--lights': hasTrafficLights }"
+      data-tauri-drag-region
+    >
       <div class="titlebar__brand" data-tauri-drag-region>
         <span class="titlebar__mark">墨</span>
         <span class="titlebar__name serif">INK-HARNESS</span>
@@ -98,15 +104,17 @@ watch(
       <div class="titlebar__actions">
         <NTooltip>
           <template #trigger>
-            <NButton quaternary size="small" @click="app.toggleAppearance()">
-              {{ appearanceIcon }}
+            <NButton quaternary size="small" class="tool-button" @click="app.toggleAppearance()">
+              <AppIcon :name="appearanceIcon" :size="16" />
             </NButton>
           </template>
           {{ app.appearance === "light" ? "切换到深色" : "切换到浅色" }}
         </NTooltip>
         <NTooltip>
           <template #trigger>
-            <NButton quaternary size="small" @click="app.toggleFocusMode()">◎</NButton>
+            <NButton quaternary size="small" class="tool-button" @click="app.toggleFocusMode()">
+              <AppIcon name="focus" :size="16" />
+            </NButton>
           </template>
           {{ focusTitle }}
         </NTooltip>
@@ -117,7 +125,7 @@ watch(
       <aside v-if="!app.focusMode" class="sidebar">
         <template v-if="isProjectRoute">
           <RouterLink to="/" class="nav__item nav__back">
-            <span class="nav__icon">←</span>
+            <AppIcon name="chevron-left" :size="15" />
             <span class="nav__label">返回工作台</span>
           </RouterLink>
           <div class="sidebar__section">当前作品</div>
@@ -129,28 +137,30 @@ watch(
               class="nav__item"
               :class="{ 'nav__item--active': route.name === item.name }"
             >
-              <span class="nav__icon">{{ item.icon }}</span>
+              <AppIcon class="nav__icon" :name="item.icon" :size="16" />
               <span class="nav__label">{{ item.label }}</span>
             </RouterLink>
           </nav>
         </template>
         <nav v-else class="nav">
-          <button
+          <!-- 侧栏导航项用 NButton text 变体，保留原有列表式排版；文案已可见，不再重复 title。 -->
+          <NButton
             v-for="item in navItems"
             :key="item.key"
+            text
+            block
             class="nav__item"
             :class="{ 'nav__item--active': isGlobalActive(item.path) }"
-            type="button"
-            :title="item.label"
             @click="open(item)"
           >
-            <span class="nav__icon">{{ item.icon }}</span>
+            <AppIcon class="nav__icon" :name="item.icon" :size="16" />
             <span class="nav__label">{{ item.label }}</span>
-          </button>
+          </NButton>
         </nav>
-        <div class="sidebar__footer">
-          <NButton quaternary size="tiny" block @click="app.toggleFocusMode()">专注模式</NButton>
-        </div>
+        <NButton text block class="nav__item nav__focus" @click="app.toggleFocusMode()">
+          <AppIcon class="nav__icon" name="focus" :size="16" />
+          <span class="nav__label">专注模式</span>
+        </NButton>
       </aside>
 
       <main ref="contentRef" class="content">
@@ -158,20 +168,27 @@ watch(
       </main>
     </div>
 
-    <button
-      v-if="app.focusMode"
-      class="focus-exit"
-      type="button"
-      title="退出专注模式 (Esc)"
-      @click="app.toggleFocusMode()"
-    >
-      ◎
-    </button>
+    <!-- 悬浮退出按钮用 NTooltip 承载快捷提示，避免浏览器原生 title 的延迟与样式不一致。 -->
+    <NTooltip v-if="app.focusMode">
+      <template #trigger>
+        <NButton
+          circle
+          quaternary
+          class="focus-exit"
+          aria-label="退出专注模式 (Esc)"
+          @click="app.toggleFocusMode()"
+        >
+          <AppIcon name="focus" :size="15" />
+        </NButton>
+      </template>
+      退出专注模式 (Esc)
+    </NTooltip>
   </div>
 </template>
 
 <style scoped lang="scss">
 @use "../styles/tokens" as t;
+@use "../styles/mixins" as m;
 
 .shell {
   display: flex;
@@ -183,48 +200,75 @@ watch(
 }
 
 .titlebar {
+  position: relative;
+  z-index: 2;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  height: 38px;
-  padding: 0 t.$space-4;
+  height: 44px;
+  padding: 0 t.$space-3;
   border-bottom: 1px solid var(--divider);
+  // 先给一个实色兜底，再叠毛玻璃：Webview 不支持 color-mix 时也不会露出背景。
   background: var(--bg-surface);
+  background: color-mix(in srgb, var(--bg-surface) 82%, transparent);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
   user-select: none;
+
+  // macOS 红绿灯占据左上角约 72px，避免品牌标识和按钮被压住。
+  &--lights {
+    padding-left: 80px;
+  }
 
   &__brand {
     display: flex;
     align-items: center;
     gap: t.$space-2;
+    min-width: 0;
   }
   &__mark {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
     width: 20px;
     height: 20px;
     border-radius: 5px;
     background: var(--accent);
     color: #fff;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.25),
+      0 1px 2px rgba(0, 0, 0, 0.12);
     font-family: t.$font-serif;
     font-size: 12px;
   }
   &__name {
-    font-size: 13px;
-    letter-spacing: 0.14em;
+    @include m.ellipsis;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
   }
   &__center {
     justify-self: center;
+    min-width: 0;
   }
   &__project {
+    @include m.ellipsis;
+    display: block;
+    max-width: 42vw;
     font-size: 12px;
-    color: var(--text-faint);
+    font-weight: 500;
+    color: var(--text-soft);
   }
   &__actions {
     justify-self: end;
     display: flex;
-    gap: t.$space-1;
+    gap: 2px;
   }
+}
+
+.tool-button {
+  color: var(--text-soft);
 }
 
 .body {
@@ -238,20 +282,17 @@ watch(
   flex-direction: column;
   width: 220px;
   flex-shrink: 0;
-  padding: t.$space-3 t.$space-2;
+  padding: t.$space-2;
   border-right: 1px solid var(--divider);
   background: var(--bg-sunken);
+  user-select: none;
 
   &__section {
-    margin: t.$space-2 t.$space-3 t.$space-1;
+    margin: t.$space-3 t.$space-3 t.$space-1;
     font-size: 11px;
-    letter-spacing: 0.08em;
+    font-weight: 600;
+    letter-spacing: 0.04em;
     color: var(--text-faint);
-  }
-
-  &__footer {
-    margin-top: auto;
-    padding: t.$space-2;
   }
 }
 
@@ -260,11 +301,13 @@ watch(
   flex-direction: column;
   gap: 2px;
 
-  &__item {
+  // 双写类名是为了压过 NButton 注入的 padding/字号样式，保留侧栏列表项的原生排版。
+  &__item.nav__item {
     display: flex;
     align-items: center;
-    gap: t.$space-3;
+    gap: 10px;
     width: 100%;
+    min-height: 30px;
     padding: t.$space-2 t.$space-3;
     border: none;
     border-radius: t.$radius-sm;
@@ -274,29 +317,46 @@ watch(
     text-align: left;
     text-decoration: none;
     cursor: pointer;
-    transition: background t.$duration t.$ease, color t.$duration t.$ease;
+    white-space: normal;
+    transition: background 140ms t.$ease, color 140ms t.$ease;
 
     &:hover {
-      background: rgba(128, 128, 128, 0.1);
+      background: var(--bg-hover);
       color: var(--text-primary);
     }
 
-    &--active {
-      background: var(--bg-surface);
+    // source-list 选中态：淡色填充 + 强调色文字，比整块白底加粗更接近 macOS。
+    &--active,
+    &.nav__item--active {
+      background: var(--accent-soft);
       color: var(--accent);
-      font-weight: 600;
+      font-weight: 500;
     }
 
+    // NButton 把 slot 内容包进 .n-button__content，图标与文字要在这一层做 flex。
+    :deep(.n-button__content) {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 10px;
+      width: 100%;
+    }
   }
 
   &__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     width: 18px;
-    text-align: center;
-    font-size: 14px;
+    opacity: 0.9;
   }
 
   &__back {
-    margin-bottom: t.$space-2;
+    margin-bottom: t.$space-1;
+  }
+
+  &__focus {
+    margin-top: auto;
   }
 }
 
@@ -304,27 +364,31 @@ watch(
   flex: 1;
   min-width: 0;
   overflow: auto;
+  @include m.thin-scrollbar;
 }
 
-.focus-exit {
+.focus-exit.focus-exit {
   position: absolute;
   top: t.$space-3;
   right: t.$space-3;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 30px;
   height: 30px;
+  padding: 0;
   border: 1px solid var(--divider);
   border-radius: 50%;
   background: var(--bg-surface);
+  background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
   color: var(--text-soft);
-  font-size: 14px;
-  cursor: pointer;
-  opacity: 0.35;
-  transition: opacity t.$duration t.$ease;
+  opacity: 0.5;
+  transition: opacity t.$duration t.$ease, color t.$duration t.$ease;
 
   &:hover {
+    color: var(--text-primary);
     opacity: 1;
   }
 }

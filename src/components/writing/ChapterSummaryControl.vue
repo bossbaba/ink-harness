@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
+import { NButton } from "naive-ui";
 import ChapterSummaryDialog from "@/components/writing/ChapterSummaryDialog.vue";
 import { useWritingSummaryPanel } from "@/composables/useWritingSummaryPanel";
 import type { Chapter, Project } from "@/types";
@@ -50,9 +50,9 @@ const {
 </script>
 
 <template>
-  <MacButton size="regular" :disabled="disabled" @click="open">
+  <NButton size="small" :disabled="disabled" @click="open">
     {{ isStale ? "摘要待更新" : "章节摘要" }}
-  </MacButton>
+  </NButton>
 
   <ChapterSummaryDialog
     v-model:show="show"

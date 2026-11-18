@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NInput, NInputNumber, NModal, NSwitch } from "naive-ui";
+import { NButton, NInput, NInputNumber, NModal, NSwitch } from "naive-ui";
 import { ref, watch } from "vue";
 import type { SummaryMeta } from "@/services/summaryService";
 
@@ -81,21 +80,21 @@ const dirty = () => draft.value !== props.summary;
       <p v-if="error" class="summary__error">{{ error }}</p>
 
       <div class="summary__actions">
-        <MacButton
-          size="regular"
-          variant="prominent"
+        <NButton
+          size="small"
+          type="primary"
           :disabled="generating || saving"
           @click="emit('regenerate')"
         >
           {{ generating ? "生成中…" : "重新生成" }}
-        </MacButton>
-        <MacButton
-          size="regular"
+        </NButton>
+        <NButton
+          size="small"
           :disabled="generating || saving || !dirty()"
           @click="emit('save', draft)"
         >
           {{ saving ? "保存中…" : "保存修改" }}
-        </MacButton>
+        </NButton>
       </div>
 
       <div class="summary__settings">

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NRadioButton, NRadioGroup } from "naive-ui";
+import { NButton } from "naive-ui";
 import { ref } from "vue";
+import SegmentedControl from "@/components/common/SegmentedControl.vue";
+import type { SegmentOption } from "@/components/common/segmentedControl";
 import { PUBLISH_TEMPLATE_HINT, PUBLISH_TEMPLATE_LABEL, type PublishTemplate } from "@/types";
 
 /** 排版预览：同一份正文按三种模板渲染，作者先看清版式再决定导出格式。 */
@@ -20,27 +21,34 @@ const emit = defineEmits<{
 
 const source = ref<"html" | "markdown">("html");
 const templates: PublishTemplate[] = ["web", "ebook", "print"];
+const templateOptions: SegmentOption[] = templates.map((item) => ({
+  label: PUBLISH_TEMPLATE_LABEL[item],
+  value: item,
+}));
+const sourceOptions: SegmentOption[] = [
+  { label: "版式", value: "html" },
+  { label: "Markdown", value: "markdown" },
+];
 </script>
 
 <template>
   <section class="preview">
     <div class="preview__bar">
-      <NRadioGroup
-        :value="template"
+      <SegmentedControl
         size="small"
-        @update:value="(value: PublishTemplate) => emit('update:template', value)"
-      >
-        <NRadioButton v-for="item in templates" :key="item" :value="item">
-          {{ PUBLISH_TEMPLATE_LABEL[item] }}
-        </NRadioButton>
-      </NRadioGroup>
+        :options="templateOptions"
+        :model-value="template"
+        @update:model-value="(value: string) => emit('update:template', value as PublishTemplate)"
+      />
       <span class="preview__hint">{{ PUBLISH_TEMPLATE_HINT[template] }}</span>
       <span class="preview__spacer" />
-      <NRadioGroup v-model:value="source" size="small">
-        <NRadioButton value="html">版式</NRadioButton>
-        <NRadioButton value="markdown">Markdown</NRadioButton>
-      </NRadioGroup>
-      <MacButton size="small" :disabled="!markdown" @click="emit('copy')">复制 Markdown</MacButton>
+      <SegmentedControl
+        size="small"
+        :options="sourceOptions"
+        :model-value="source"
+        @update:model-value="(value: string) => (source = value as 'html' | 'markdown')"
+      />
+      <NButton size="small" :disabled="!markdown" @click="emit('copy')">复制 Markdown</NButton>
     </div>
 
     <p class="preview__status">

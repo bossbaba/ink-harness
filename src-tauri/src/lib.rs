@@ -1,7 +1,10 @@
 mod commands;
+mod error;
 mod infrastructure;
 mod models;
 mod services;
+
+pub use error::{AppError, ErrorCode};
 
 use tauri::Manager;
 
@@ -14,8 +17,9 @@ fn ping() -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_sql::Builder::default().build())
+    // 刻意不注册 tauri-plugin-sql：数据库只经本 crate 的 service 层访问，
+    // 渲染进程拿不到「任意 SQL」能力（capabilities 里也不能授予 sql:*）。
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
@@ -35,7 +39,6 @@ pub fn run() {
             commands::setting::get_app_setting,
             commands::setting::set_app_setting,
             commands::keychain::keychain_set,
-            commands::keychain::keychain_get,
             commands::keychain::keychain_delete,
             commands::project::database_info,
             commands::project::list_projects,
@@ -75,13 +78,22 @@ pub fn run() {
             commands::usage::usage_stats,
             commands::stats::workspace_stats,
         ])
-        .build(tauri::generate_context!())
-        .expect("启动 INK-HARNESS 失败")
-        .run(|app_handle, event| {
-            if matches!(event, tauri::RunEvent::Exit) {
-                shutdown_local_model(app_handle);
-            }
-        });
+        .build(tauri::generate_context!());
+
+    // 启动失败不要 panic 暴露 Rust 堆栈，改成明确的错误输出与非零退出码。
+    let app = match app {
+        Ok(app) => app,
+        Err(err) => {
+            eprintln!("启动 INK-HARNESS 失败：{err}");
+            std::process::exit(1);
+        }
+    };
+
+    app.run(|app_handle, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            shutdown_local_model(app_handle);
+        }
+    });
 }
 
 /// App 退出前按设置决定要不要停掉「本进程拉起」的本地模型。

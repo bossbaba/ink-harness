@@ -1,5 +1,4 @@
 import { ref } from "vue";
-import { tauriApi } from "@/api/tauri";
 import { contextCharCount } from "@/services/aiContext";
 import {
   buildCopilotMessages,
@@ -7,6 +6,7 @@ import {
   buildReferenceBlock,
 } from "@/services/copilotService";
 import { modelRouter } from "@/services/modelRouter";
+import { outlineService } from "@/services/outlineService";
 import { loadRelatedNotes } from "@/services/ragService";
 import { getContextBudget } from "@/services/summaryService";
 import type { CopilotMessage, CopilotReference, Project } from "@/types";
@@ -52,7 +52,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
 
   async function loadContext(): Promise<string> {
     if (contextCache !== null) return contextCache;
-    contextCache = await tauriApi.buildProjectContext(options.projectId);
+    contextCache = await outlineService.buildContext(options.projectId);
     return contextCache;
   }
 

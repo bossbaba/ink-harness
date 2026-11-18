@@ -17,9 +17,10 @@
   --error: #{t.$error};
   --divider: #{t.$divider};
   --border: #dedbd2;
-  --macvue-accent: #{t.$accent};
-  --macvue-accent-hover: #{t.$accent-hover};
-  --macvue-accent-pressed: #{t.$accent-pressed};
+  --bg-hover: #{t.$bg-hover};
+  --accent-soft: #{t.$accent-soft};
+  --error-soft: #{t.$error-soft};
+  --success-soft: #{t.$success-soft};
 }
 
 :root[data-appearance="dark"] {
@@ -37,7 +38,8 @@
   --error: #ef5350;
   --divider: rgba(236, 233, 226, 0.12);
   --border: #3a3734;
-  --macvue-accent: #2ed42e;
-  --macvue-accent-hover: #4bdb4b;
-  --macvue-accent-pressed: #1fb81f;
+  --bg-hover: rgba(236, 233, 226, 0.08);
+  --accent-soft: rgba(46, 212, 46, 0.14);
+  --error-soft: rgba(239, 83, 80, 0.14);
+  --success-soft: rgba(38, 166, 154, 0.14);
 }

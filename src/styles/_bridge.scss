@@ -1,7 +1,0 @@
-@use "tokens" as t;
-
-// 主题桥接层：MacVue 的强调色由 _theme.scss 的语义变量按明暗模式覆盖；
-// 此处只补齐字体族，使其与项目统一。尺寸度量不动。
-:root {
-  --macvue-font-family: #{t.$font-sans};
-}

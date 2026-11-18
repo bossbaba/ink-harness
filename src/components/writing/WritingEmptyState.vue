@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
+import { NButton } from "naive-ui";
 
 /**
  * 写作台编辑区的空状态：一句说明 + 一句提示 + 可选的行动入口。
@@ -23,9 +23,9 @@ const emit = defineEmits<(event: "action") => void>();
   <div class="empty">
     <p>{{ title }}</p>
     <p v-if="hint" class="empty__hint">{{ hint }}</p>
-    <MacButton v-if="actionLabel" size="regular" @click="emit('action')">
+    <NButton v-if="actionLabel" size="small" @click="emit('action')">
       {{ actionLabel }}
-    </MacButton>
+    </NButton>
   </div>
 </template>
 

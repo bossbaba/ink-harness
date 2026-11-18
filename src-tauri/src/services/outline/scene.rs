@@ -2,6 +2,7 @@
 
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::error::AppError;
 use crate::infrastructure::db::DbState;
 use crate::infrastructure::id::gen_id;
 use crate::models::{MoveScene, NewScene, Scene};
@@ -27,44 +28,44 @@ pub(super) fn row_to_scene(row: &rusqlite::Row<'_>) -> rusqlite::Result<Scene> {
     })
 }
 
-fn next_scene_order(conn: &Connection, chapter_id: &str) -> Result<i64, String> {
+fn next_scene_order(conn: &Connection, chapter_id: &str) -> Result<i64, AppError> {
     conn.query_row(
         "select coalesce(max(sort_order), -1) + 1 from scene where chapter_id = ?1",
         params![chapter_id],
         |row| row.get(0),
     )
-    .map_err(|e| e.to_string())
+    .map_err(AppError::from)
 }
 
-fn query_scenes_of_chapter(conn: &Connection, chapter_id: &str) -> Result<Vec<Scene>, String> {
+fn query_scenes_of_chapter(conn: &Connection, chapter_id: &str) -> Result<Vec<Scene>, AppError> {
     let mut stmt = conn
         .prepare(&format!(
             "select {SCENE_COLUMNS} from scene where chapter_id = ?1 order by sort_order, rowid"
         ))
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     let rows = stmt
         .query_map(params![chapter_id], row_to_scene)
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())
+        .map_err(AppError::from)
 }
 
-fn renumber_scenes(conn: &Connection, scenes: &[Scene]) -> Result<(), String> {
+fn renumber_scenes(conn: &Connection, scenes: &[Scene]) -> Result<(), AppError> {
     for (index, scene) in scenes.iter().enumerate() {
         conn.execute(
             "update scene set sort_order = ?2 where id = ?1",
             params![scene.id, index as i64],
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     }
     Ok(())
 }
 
-pub fn create_scene(state: &DbState, input: NewScene) -> Result<Scene, String> {
+pub fn create_scene(state: &DbState, input: NewScene) -> Result<Scene, AppError> {
     let title = input.title.trim();
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+    let conn = state.biz();
     if chapter_project(&conn, &input.chapter_id)?.is_none() {
-        return Err("章节不存在".into());
+        return Err(AppError::not_found("章节不存在"));
     }
     let sort_order = next_scene_order(&conn, &input.chapter_id)?;
     let id = gen_id("sc");
@@ -89,21 +90,21 @@ pub fn create_scene(state: &DbState, input: NewScene) -> Result<Scene, String> {
             input.summary
         ],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(AppError::from)?;
     conn.query_row(
         &format!("select {SCENE_COLUMNS} from scene where id = ?1"),
         params![id],
         row_to_scene,
     )
-    .map_err(|e| e.to_string())
+    .map_err(AppError::from)
 }
 
-pub fn update_scene(state: &DbState, scene: &Scene) -> Result<(), String> {
+pub fn update_scene(state: &DbState, scene: &Scene) -> Result<(), AppError> {
     let title = scene.title.trim();
     if title.is_empty() {
-        return Err("场景标题不能为空".into());
+        return Err(AppError::validation("场景标题不能为空"));
     }
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+    let conn = state.biz();
     let changed = conn
         .execute(
             r#"update scene set title=?2, pov=?3, location=?4, time_mark=?5, summary=?6
@@ -117,23 +118,23 @@ pub fn update_scene(state: &DbState, scene: &Scene) -> Result<(), String> {
                 scene.summary
             ],
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     if changed == 0 {
-        return Err("场景不存在".into());
+        return Err(AppError::not_found("场景不存在"));
     }
     Ok(())
 }
 
-pub fn delete_scene(state: &DbState, id: &str) -> Result<(), String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn delete_scene(state: &DbState, id: &str) -> Result<(), AppError> {
+    let conn = state.biz();
     conn.execute("delete from scene where id = ?1", params![id])
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     Ok(())
 }
 
 /// 场景拖拽：支持同章内换位与跨章移动，源/目标章节都重新编号。
-pub fn move_scene(state: &DbState, input: &MoveScene) -> Result<(), String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn move_scene(state: &DbState, input: &MoveScene) -> Result<(), AppError> {
+    let conn = state.biz();
     let source: Option<(String,)> = conn
         .query_row(
             "select chapter_id from scene where id = ?1",
@@ -141,19 +142,19 @@ pub fn move_scene(state: &DbState, input: &MoveScene) -> Result<(), String> {
             |row| Ok((row.get(0)?,)),
         )
         .optional()
-        .map_err(|e| e.to_string())?;
-    let source_chapter = source.ok_or_else(|| "场景不存在".to_string())?.0;
+        .map_err(AppError::from)?;
+    let source_chapter = source.ok_or_else(|| AppError::not_found("场景不存在"))?.0;
     if chapter_project(&conn, &input.target_chapter_id)?.is_none() {
-        return Err("目标章节不存在".into());
+        return Err(AppError::not_found("目标章节不存在"));
     }
 
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(AppError::from)?;
     if source_chapter != input.target_chapter_id {
         tx.execute(
             "update scene set chapter_id = ?2 where id = ?1",
             params![input.scene_id, input.target_chapter_id],
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     }
 
     // 移动完成后目标章节列表已包含该场景，再按目标下标重新插入。
@@ -161,7 +162,7 @@ pub fn move_scene(state: &DbState, input: &MoveScene) -> Result<(), String> {
     let moving_index = target_list
         .iter()
         .position(|scene| scene.id == input.scene_id)
-        .ok_or_else(|| "场景不存在".to_string())?;
+        .ok_or_else(|| AppError::not_found("场景不存在"))?;
     let moving = target_list.remove(moving_index);
     let insert_at = input.target_index.min(target_list.len());
     target_list.insert(insert_at, moving);
@@ -171,6 +172,6 @@ pub fn move_scene(state: &DbState, input: &MoveScene) -> Result<(), String> {
         let source_list = query_scenes_of_chapter(&tx, &source_chapter)?;
         renumber_scenes(&tx, &source_list)?;
     }
-    tx.commit().map_err(|e| e.to_string())?;
+    tx.commit().map_err(AppError::from)?;
     Ok(())
 }

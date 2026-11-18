@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NInput, NPopover, NSpin } from "naive-ui";
+import { NButton, NInput, NPopover, NSpin } from "naive-ui";
 import { computed, ref } from "vue";
+import AppIcon from "@/components/common/AppIcon.vue";
 import { outlineService } from "@/services/outlineService";
 import { storyElementService } from "@/services/storyElementService";
 import { type CopilotReference, STORY_KIND_LABEL, type StoryElement } from "@/types";
@@ -122,7 +122,7 @@ const isEmpty = computed(
     @update:show="handleShow"
   >
     <template #trigger>
-      <MacButton size="small">＠ 引用</MacButton>
+      <NButton size="small">＠ 引用</NButton>
     </template>
 
     <div class="picker">
@@ -138,38 +138,44 @@ const isEmpty = computed(
       <div v-else class="picker__list">
         <template v-if="elementRows.length">
           <div class="picker__group">设定</div>
-          <button
+          <NButton
             v-for="row in elementRows"
             :key="`element-${row.reference.id}`"
-            type="button"
+            text
+            block
             class="picker__row"
             :class="{ 'picker__row--checked': row.checked }"
             @click="emit('pick', row.reference)"
           >
-            <span class="picker__check">{{ row.checked ? "✓" : "" }}</span>
+            <span class="picker__check">
+              <AppIcon v-if="row.checked" name="check" :size="13" />
+            </span>
             <span class="picker__body">
               <span class="picker__title">{{ row.title }}</span>
               <span class="picker__subtitle">{{ row.subtitle }}</span>
             </span>
-          </button>
+          </NButton>
         </template>
 
         <template v-if="chapterRows.length">
           <div class="picker__group">章节</div>
-          <button
+          <NButton
             v-for="row in chapterRows"
             :key="`chapter-${row.reference.id}`"
-            type="button"
+            text
+            block
             class="picker__row"
             :class="{ 'picker__row--checked': row.checked }"
             @click="emit('pick', row.reference)"
           >
-            <span class="picker__check">{{ row.checked ? "✓" : "" }}</span>
+            <span class="picker__check">
+              <AppIcon v-if="row.checked" name="check" :size="13" />
+            </span>
             <span class="picker__body">
               <span class="picker__title">{{ row.title }}</span>
               <span class="picker__subtitle">{{ row.subtitle }}</span>
             </span>
-          </button>
+          </NButton>
         </template>
       </div>
     </div>
@@ -234,6 +240,36 @@ const isEmpty = computed(
 
     &--checked {
       background: var(--bg-sunken);
+    }
+  }
+
+  // NButton text 变体自带 padding 与居中样式，双写类名把列表行布局覆盖回来。
+  &__row.picker__row {
+    display: flex;
+    align-items: flex-start;
+    gap: t.$space-2;
+    width: 100%;
+    padding: t.$space-2;
+    border: none;
+    border-radius: t.$radius-md;
+    background: transparent;
+    font-size: inherit;
+    text-align: left;
+    white-space: normal;
+
+    &:hover,
+    &.picker__row--checked {
+      background: var(--bg-sunken);
+    }
+
+    // 勾选框与正文在 .n-button__content 这一层横向排列。
+    :deep(.n-button__content) {
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-start;
+      gap: t.$space-2;
+      width: 100%;
+      white-space: normal;
     }
   }
 

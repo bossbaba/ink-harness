@@ -7,8 +7,9 @@ const STORAGE_KEY = "ink-harness.appearance";
 
 /** 全局 UI 状态：明暗主题、专注模式、Copilot 面板开合。 */
 export const useAppStore = defineStore("app", () => {
-  const saved = (localStorage.getItem(STORAGE_KEY) as Appearance | null) ?? "light";
-  const appearance = ref<Appearance>(saved);
+  // localStorage 可能被手工改写或残留旧版本值，运行时校验后再用，避免非法主题导致白屏。
+  const raw = localStorage.getItem(STORAGE_KEY);
+  const appearance = ref<Appearance>(raw === "dark" ? "dark" : "light");
   const focusMode = ref(false);
   // 写作台的 AI 对话是页面第三栏（不是浮层），默认展开；不想要时可以收起让正文更宽。
   const copilotOpen = ref(true);

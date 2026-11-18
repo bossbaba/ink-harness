@@ -27,9 +27,11 @@ export function useRagIndex(projectId: () => string, options: RagIndexOptions = 
       return;
     }
     try {
-      status.value = await ragService.status(id);
+      const next = await ragService.status(id);
+      // 请求发出后用户可能已切到别的作品，旧响应不能覆盖新作品的状态。
+      if (projectId() === id) status.value = next;
     } catch {
-      status.value = null;
+      if (projectId() === id) status.value = null;
     }
   }
 

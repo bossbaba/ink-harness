@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NInput, NModal, NSelect, NSpace } from "naive-ui";
+import { NButton, NInput, NModal, NSelect, NSpace } from "naive-ui";
 import { FORESHADOW_STATUS_OPTIONS, type ForeshadowDraft } from "@/types";
 
 // 新增伏笔弹窗：只填标题与「铺设/回收」章节，创建后可在右侧面板继续调整。
@@ -69,15 +68,15 @@ function close(): void {
 
     <template #footer>
       <NSpace justify="end">
-        <MacButton size="regular" :disabled="props.busy" @click="close">取消</MacButton>
-        <MacButton
-          size="regular"
-          variant="prominent"
+        <NButton size="small" :disabled="props.busy" @click="close">取消</NButton>
+        <NButton
+          size="small"
+          type="primary"
           :disabled="props.busy || !draft.title.trim()"
           @click="emit('save')"
         >
           {{ props.busy ? "保存中…" : "创建伏笔" }}
-        </MacButton>
+        </NButton>
       </NSpace>
     </template>
   </NModal>

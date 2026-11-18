@@ -1,6 +1,16 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NCheckbox, NInput, NInputNumber, NModal, NSelect, NSpace, NTag } from "naive-ui";
+import {
+  NButton,
+  NCheckbox,
+  NEmpty,
+  NInput,
+  NInputNumber,
+  NModal,
+  NSelect,
+  NSpace,
+  NTag,
+  NTooltip,
+} from "naive-ui";
 import { computed } from "vue";
 import { DEFAULT_CONTEXT_WINDOW, type ProviderConfig } from "@/types";
 
@@ -108,9 +118,9 @@ function close(): void {
       </div>
 
       <div class="probe">
-        <MacButton size="regular" :disabled="props.probing || props.busy" @click="emit('probe')">
+        <NButton size="small" :disabled="props.probing || props.busy" @click="emit('probe')">
           {{ props.probing ? "探测中…" : "测试连接并拉取模型" }}
-        </MacButton>
+        </NButton>
         <span class="hint">不会保存配置，只验证地址与密钥是否可用。</span>
       </div>
       <p v-if="props.probeError" class="error">{{ props.probeError }}</p>
@@ -120,15 +130,24 @@ function close(): void {
           <h4 class="models__title">模型（已启用 {{ draft.models.length }}）</h4>
           <span class="hint">勾选后填写上下文窗口，任务路由会据此选模型</span>
         </header>
-        <p v-if="modelRows.length === 0" class="models__empty">
-          还没有模型列表，填写地址后点击「测试连接并拉取模型」。
-        </p>
+        <NEmpty
+          v-if="modelRows.length === 0"
+          class="models__empty"
+          size="tiny"
+          :show-icon="false"
+          description="还没有模型列表，填写地址后点击「测试连接并拉取模型」。"
+        />
         <div v-for="id in modelRows" :key="id" class="model-row">
           <NCheckbox
             :checked="isModelChecked(id)"
             @update:checked="(checked: boolean) => emit('toggle-model', id, checked)"
           />
-          <span class="model-row__id" :title="id">{{ id }}</span>
+          <NTooltip>
+            <template #trigger>
+              <span class="model-row__id">{{ id }}</span>
+            </template>
+            {{ id }}
+          </NTooltip>
           <NInputNumber
             class="model-row__window"
             size="tiny"
@@ -146,15 +165,15 @@ function close(): void {
 
     <template #footer>
       <NSpace justify="end">
-        <MacButton size="regular" :disabled="props.busy" @click="close">取消</MacButton>
-        <MacButton
-          size="regular"
-          variant="prominent"
+        <NButton size="small" :disabled="props.busy" @click="close">取消</NButton>
+        <NButton
+          size="small"
+          type="primary"
           :disabled="props.busy || !draft.name.trim()"
           @click="emit('save')"
         >
           {{ props.busy ? "保存中…" : "保存" }}
-        </MacButton>
+        </NButton>
       </NSpace>
     </template>
   </NModal>

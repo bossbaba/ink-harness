@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { MacButton } from "@macvue/core";
-import { NButton, NInput, NPopconfirm, NSelect, NTag } from "naive-ui";
+import { NButton, NEmpty, NInput, NPopconfirm, NSelect, NTag } from "naive-ui";
 import { ref } from "vue";
 import type { Draft } from "@/composables/useStoryBible";
 import {
@@ -114,9 +113,18 @@ function addRelation(): void {
             filterable
           />
           <NSelect v-model:value="relationType" :options="RELATION_TYPE_OPTIONS" size="small" />
-          <NButton size="small" :disabled="!relationTarget" @click="addRelation">添加</NButton>
+          <!-- 与同一列表里的「删除」保持同尺寸，行内操作统一 tiny。 -->
+          <NButton size="tiny" quaternary :disabled="!relationTarget" @click="addRelation">
+            添加
+          </NButton>
         </div>
-        <p v-if="draft.relations.length === 0" class="relations__empty">暂无关联。</p>
+        <NEmpty
+          v-if="draft.relations.length === 0"
+          class="relations__empty"
+          size="tiny"
+          :show-icon="false"
+          description="暂无关联。"
+        />
         <div
           v-for="(relation, index) in draft.relations"
           :key="`${relation.targetId}-${index}`"
@@ -133,17 +141,23 @@ function addRelation(): void {
       </div>
 
       <div class="detail-actions">
-        <MacButton variant="prominent" :disabled="props.busy" @click="emit('save')">
+        <NButton type="primary" :disabled="props.busy" @click="emit('save')">
           {{ props.busy ? "保存中…" : "保存修改" }}
-        </MacButton>
+        </NButton>
       </div>
     </template>
-    <div v-else class="panel__empty">
-      <p>从左侧选择一条设定，或点击「新建设定」开始。</p>
-      <MacButton variant="prominent" :disabled="!props.projectId" @click="emit('new')">
-        新建设定
-      </MacButton>
-    </div>
+    <NEmpty
+      v-else
+      class="panel__empty"
+      size="small"
+      description="从左侧选择一条设定，或点击「新建设定」开始。"
+    >
+      <template #extra>
+        <NButton type="primary" :disabled="!props.projectId" @click="emit('new')">
+          新建设定
+        </NButton>
+      </template>
+    </NEmpty>
   </section>
 </template>
 

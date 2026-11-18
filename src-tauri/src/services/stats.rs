@@ -1,44 +1,19 @@
 //! 全局统计：跨作品汇总作品/章节/字数/设定等，给一级路由的只读看板用。
 //! 全部走同一条连接、几次 count/group by 查询，避免按作品逐个拉再在前端算。
+use crate::error::AppError;
 use crate::infrastructure::db::DbState;
-use serde::Serialize;
+use crate::models::{CountItem, WorkspaceStats};
 
-/// 某个分组维度的一行：key 是状态或 kind，count 是数量。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CountItem {
-    pub key: String,
-    pub count: i64,
-}
-
-/// 全局统计总览：作品、章节、字数、设定与阶段分布。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspaceStats {
-    pub projects: i64,
-    pub chapters: i64,
-    pub total_words: i64,
-    pub story_elements: i64,
-    pub scenes: i64,
-    pub foreshadows: i64,
-    /// 作品按 status（idea/outline/...）分布，只返回有数据的档位。
-    pub projects_by_status: Vec<CountItem>,
-    /// 章节按 status（planned/drafting/done）分布。
-    pub chapters_by_status: Vec<CountItem>,
-    /// 设定条目按 kind（character/place/...）分布。
-    pub elements_by_kind: Vec<CountItem>,
-}
-
-fn scalar(conn: &rusqlite::Connection, sql: &str) -> Result<i64, String> {
+fn scalar(conn: &rusqlite::Connection, sql: &str) -> Result<i64, AppError> {
     conn.query_row(sql, [], |row| row.get::<_, i64>(0))
-        .map_err(|e| e.to_string())
+        .map_err(AppError::from)
 }
 
 fn grouped(
     conn: &rusqlite::Connection,
     sql: &str,
-) -> Result<Vec<CountItem>, String> {
-    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+) -> Result<Vec<CountItem>, AppError> {
+    let mut stmt = conn.prepare(sql).map_err(AppError::from)?;
     let rows = stmt
         .query_map([], |row| {
             Ok(CountItem {
@@ -46,17 +21,17 @@ fn grouped(
                 count: row.get::<_, i64>(1)?,
             })
         })
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
     let mut out = Vec::new();
     for row in rows {
-        out.push(row.map_err(|e| e.to_string())?);
+        out.push(row.map_err(AppError::from)?);
     }
     Ok(out)
 }
 
 /// 一次汇总；所有表都可能为空，count/sum 在空表上返回 0，这里用 coalesce 兜住 sum 的 NULL。
-pub fn workspace_stats(state: &DbState) -> Result<WorkspaceStats, String> {
-    let conn = state.biz.lock().map_err(|e| e.to_string())?;
+pub fn workspace_stats(state: &DbState) -> Result<WorkspaceStats, AppError> {
+    let conn = state.biz();
     Ok(WorkspaceStats {
         projects: scalar(&conn, "select count(*) from project")?,
         chapters: scalar(&conn, "select count(*) from chapter")?,
@@ -95,7 +70,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let state = crate::infrastructure::db::open(&dir).unwrap();
         {
-            let conn = state.biz.lock().unwrap();
+            let conn = state.biz();
             conn.execute_batch(
                 "insert into project (id,title,status,created_at,updated_at) values ('p1','甲','drafting','','');
                  insert into project (id,title,status,created_at,updated_at) values ('p2','乙','idea','','');
