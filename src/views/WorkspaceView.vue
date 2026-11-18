@@ -299,7 +299,10 @@ onReactivated(() => void loadProjects());
   }
   &__actions {
     display: flex;
-    gap: t.$space-3;
+    // 六个入口挤在一行会把按钮压窄，文字和箭头各占一行；改为按钮整体换行，
+    // 行距收紧一点，两行也能看清每个入口，不出现半截按钮。
+    flex-wrap: wrap;
+    gap: t.$space-2;
     margin-top: t.$space-3;
   }
   &__open {
@@ -309,6 +312,9 @@ onReactivated(() => void loadProjects());
     color: var(--accent);
     font-size: 11px;
     cursor: pointer;
+    // 单个按钮的文字与箭头始终同一行，也不被 flex 压缩宽度。
+    white-space: nowrap;
+    flex-shrink: 0;
 
     &:hover {
       text-decoration: underline;
