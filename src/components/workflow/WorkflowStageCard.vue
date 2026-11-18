@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { MacButton } from "@macvue/core";
-import { NInput, NSelect, NTag } from "naive-ui";
+import { NButton, NInput, NSelect, NTag } from "naive-ui";
 import { ref, watch } from "vue";
 import type { WorkflowStage, WorkflowStageState } from "@/types";
 import { WORKFLOW_DECISION_LABEL, WORKFLOW_STATUS_LABEL } from "@/types";
@@ -93,10 +93,10 @@ function copyArtifact(): void {
       <div class="stage__result-head">
         <span>候选产物（{{ state.artifact.length }} 字）</span>
         <div class="stage__result-actions">
-          <button type="button" @click="expanded = !expanded">
+          <NButton size="tiny" quaternary @click="expanded = !expanded">
             {{ expanded ? "收起" : "展开" }}
-          </button>
-          <button type="button" @click="copyArtifact">复制</button>
+          </NButton>
+          <NButton size="tiny" quaternary @click="copyArtifact">复制</NButton>
         </div>
       </div>
       <pre v-if="expanded" class="stage__artifact">{{ state.artifact }}</pre>
@@ -152,6 +152,8 @@ function copyArtifact(): void {
   display: flex;
   flex-direction: column;
   gap: t.$space-3;
+  // 撑满网格单元高度；操作区用 margin-top:auto 沉底，让同行卡片的按钮齐平。
+  height: 100%;
   min-width: 0;
   padding: t.$space-4;
   border: 1px solid var(--divider, #{t.$divider});
@@ -235,16 +237,7 @@ function copyArtifact(): void {
 
   &__result-actions {
     display: flex;
-    gap: t.$space-3;
-
-    button {
-      padding: 0;
-      border: 0;
-      background: none;
-      color: var(--accent, #{t.$accent});
-      font-size: 11px;
-      cursor: pointer;
-    }
+    gap: t.$space-1;
   }
 
   &__artifact {
@@ -264,10 +257,13 @@ function copyArtifact(): void {
     display: flex;
     flex-direction: column;
     gap: t.$space-3;
+    // 与下面的操作行一样沉底，审批区与「运行本阶段」在不同卡片里位置一致。
+    margin-top: auto;
   }
 
   &__actions {
     flex-wrap: wrap;
+    margin-top: auto;
   }
 }
 </style>

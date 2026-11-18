@@ -172,7 +172,8 @@ onReactivated(() => void load());
   &__list {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: start;
+    // 同行卡片等高对齐：阶段内容多少不一，stretch 让两列底部齐平，不再参差不齐。
+    align-items: stretch;
     gap: t.$space-4;
   }
 
