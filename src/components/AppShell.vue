@@ -41,6 +41,7 @@ const projectNavItems = [
   { key: "write", label: "写作台", icon: "✎", name: "project-writing" },
   { key: "review", label: "编辑审稿", icon: "◎", name: "project-review" },
   { key: "publish", label: "出版中心", icon: "⇧", name: "project-publish" },
+  { key: "workflow", label: "创作工作流", icon: "⇄", name: "project-workflow" },
 ];
 
 /** 全局菜单高亮：只做路径精确相等，不做前缀匹配。 */

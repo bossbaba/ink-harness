@@ -70,6 +70,11 @@ function openPublish(projectId: string): void {
   void router.push({ name: "project-publish", params: { projectId } });
 }
 
+function openWorkflow(projectId: string): void {
+  // 创作工作流是作品内页面，入口同样带上 projectId 跳转。
+  void router.push({ name: "project-workflow", params: { projectId } });
+}
+
 function openModels(): void {
   // 模型管理是全局页，与当前作品无关，直接按路由名跳转。
   void router.push({ name: "models" });
@@ -148,6 +153,9 @@ onReactivated(() => void loadProjects());
             </button>
             <button class="project-card__open" type="button" @click="openPublish(p.id)">
               出版中心 →
+            </button>
+            <button class="project-card__open" type="button" @click="openWorkflow(p.id)">
+              创作工作流 →
             </button>
           </div>
         </article>

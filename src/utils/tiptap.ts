@@ -25,6 +25,25 @@ export function parseDocument(raw: string): JSONContent {
 export const EMPTY_DOCUMENT_TEXT = "（空白正文）";
 
 /**
+ * 把一段纯文本（工作流生成的初稿/润色稿）包成 TipTap 文档：按空行切段，段内换行交给软换行。
+ * 只生成段落节点，不猜标题/列表——AI 输出的是连续正文，套错结构反而破坏排版。
+ */
+export function plainTextToDocument(text: string): JSONContent {
+  const blocks = text
+    .split(/\n\s*\n/u)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  if (blocks.length === 0) return EMPTY_DOC;
+  return {
+    type: "doc",
+    content: blocks.map((block) => ({
+      type: "paragraph",
+      content: [{ type: "text", text: block }],
+    })),
+  };
+}
+
+/**
  * 提取纯文本，用于版本预览这类只需要「看清写了什么」的地方，
  * 不引入完整的 HTML 渲染链路。
  */

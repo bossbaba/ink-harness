@@ -7,6 +7,7 @@ import ProjectOutlineView from "@/views/ProjectOutlineView.vue";
 import ProjectPublishView from "@/views/ProjectPublishView.vue";
 import ProjectReviewView from "@/views/ProjectReviewView.vue";
 import ProjectShellView from "@/views/ProjectShellView.vue";
+import ProjectWorkflowView from "@/views/ProjectWorkflowView.vue";
 import ProjectWritingView from "@/views/ProjectWritingView.vue";
 import WorkspaceView from "@/views/WorkspaceView.vue";
 
@@ -81,6 +82,13 @@ const router = createRouter({
           path: "publish",
           name: "project-publish",
           component: ProjectPublishView,
+          props: true,
+        },
+        {
+          // 创作工作流：策划→写作→编辑→审稿→出版，作品 ID 在父路径上，人工审批才落地。
+          path: "workflow",
+          name: "project-workflow",
+          component: ProjectWorkflowView,
           props: true,
         },
       ],
