@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod chat;
 pub mod draft;
 pub mod outline;
@@ -9,7 +10,10 @@ pub mod stats;
 pub mod story_element;
 pub mod usage;
 
-pub use chat::{ChatChunk, ChatMessage, ChatParams, TokenUsage};
+pub use agent::{
+    AgentMessage, AgentSession, AgentStepRecord, NewAgentMessage, NewAgentSession, NewAgentStep,
+};
+pub use chat::{ChatChunk, ChatMessage, ChatParams, TokenUsage, ToolCallChunk};
 pub use draft::{ChapterContent, DraftVersion, DraftVersionBrief, SaveContentInput};
 pub use outline::{
     Chapter, Foreshadow, MoveChapter, MoveScene, NewChapter, NewForeshadow, NewScene,

@@ -117,12 +117,14 @@ const {
   clear: clearCopilot,
   addReference: addCopilotReference,
   removeReference: removeCopilotReference,
+  agentPanel,
 } = useWritingCopilot({
   projectId: props.projectId,
   project: () => project.value,
   chapterTitle,
   chapterSummary,
-  // 用内存里的正文（而不是库里的），这样刚敲下的句子也能立刻参与讨论。
+  chapterId: () => loadedChapterId.value,
+  insertAtCursor: (text) => editorRef.value?.insertAtCursor(text),
   chapterText: () => {
     const text = documentToPlainText(content.value);
     return text === EMPTY_DOCUMENT_TEXT ? "" : text;
@@ -351,6 +353,7 @@ async function handleRestore(versionId: string): Promise<void> {
         :rag-error="ragError"
         :retrieved-count="copilotRetrieved"
         :assist="assistCard"
+        :agent="agentPanel"
         @reindex="reindexRag"
         @send="(text: string) => sendCopilot(text)"
         @stop="stopCopilot"

@@ -4,6 +4,7 @@
 //! （锁等待、几千行扫描）就会卡住窗口输入与动画。service 层刻意不依赖 Tauri，
 //! 所以 `AppHandle` 只出现在这一层。
 
+pub mod agent;
 pub mod draft;
 pub mod keychain;
 pub mod model;

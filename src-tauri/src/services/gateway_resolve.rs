@@ -85,6 +85,7 @@ mod tests {
                     display_name: m.to_string(),
                     context_window: 8192,
                     cost_per_1k_tokens: None,
+                    supports_tools: false,
                 })
                 .collect(),
         }

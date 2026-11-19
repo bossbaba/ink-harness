@@ -1,0 +1,148 @@
+# INK-HARNESS Agent 能力落地方案
+
+> 对照《Agent运用要素.md》的差距盘点与分阶段实施计划。
+> 版本：v1.0 ｜ 日期：2026-11-19 ｜ 状态：已实施（P0~P3 全部完成）
+>
+> 实施记录：P0 工具调用契约、P1 工具系统/执行器/审批、P2 Agent Loop、P3 会话记忆/Trace/看板。
+> 验证：`pnpm check:all` 全绿（typecheck/lint/规范/38 单测/build）；`cargo test` 全绿（120 lib + 集成测试含 IPC 契约）。
+
+---
+
+## 1. 现状与差距
+
+### 1.1 一句话结论
+
+当前项目是**人在环路（human-in-the-loop）的 AI 辅助写作工作台**，不是完整意义的 Agent 应用。
+README 自我定位为「作者主导、Agent 辅助」，工作流的推进权在作者手中——`pending` 必须等人工审批，`approved` 才解锁下一阶段（`src/types/workflow.ts:4-9`）。
+文档列举的 12 项要素中，缺的正是让 Agent 成为 Agent 的三件核心：**Agent Loop 主循环、Tools 工具系统、Action Executor 动作执行器**；而 LLM 接入、上下文工程、状态管理等外围反而已相当完整。
+
+### 1.2 要素对照表
+
+| 要素                 | 状态      | 关键证据                                                                                                |
+| -------------------- | --------- | ------------------------------------------------------------------------------------------------------- |
+| LLM 接入             | ✅ 已具备 | `src-tauri/src/services/gateway.rs` 多 Provider 流式代理；`src/services/modelRouter.ts:76-208` 任务路由 |
+| State 状态管理       | ✅ 已具备 | `src/services/workflowService.ts:17-82` 阶段状态持久化，State 与 Context 已分离                         |
+| Context Engineering  | ✅ 已具备 | `src/services/copilotService.ts:92-150` 提示词组装 + 字符预算 + 裁剪                                    |
+| Planner/Controller   | ⚠️ 部分   | 仅「任务→模型」路由（`modelRouter.ts:44-57`）+ 人工审批，无自主规划                                     |
+| Memory               | ⚠️ 部分   | 有 Story Bible / RAG / 章节摘要，但对话历史不持久化（组件内 `messages` ref，全仓无会话表）              |
+| Session/Runtime      | ⚠️ 部分   | 有 Tauri 运行时 + `project_id` 命名空间，无 Agent 会话/线程概念                                         |
+| Guardrails           | ⚠️ 部分   | 隐私分级、钥匙串、文件白名单强；无沙箱、无输出安全过滤                                                  |
+| Observability        | ⚠️ 部分   | 有用量看板，但 `agent_run.input_summary/output` 写死空串（`usage.rs:20-21`），无 trace/评估             |
+| **Agent Loop**       | ❌ 缺失   | 全仓无「思考→行动→观察」循环；`runChat()` 一次性请求即结束                                              |
+| **Tools 工具系统**   | ❌ 缺失   | `src/services/modelRouter.ts:31` 的 `tools: false`；`ChatParams`(Rust) 无 tools 字段；无 MCP            |
+| **Action Executor**  | ❌ 缺失   | 仅 `looseJson.ts` 容错解析 + `reviewApply.ts` 人工应用，无动作 schema 与执行分发                        |
+| Sandbox / Evaluation | ❌ 缺失   | 无代码执行路径故沙箱当前非必需；无成功率/成本评估集                                                     |
+
+### 1.3 有利条件（不是从零造轮子）
+
+- 前端 `src/types/model.ts:56-74` 的 `ChatParams` **已预留** `tools?: ToolDefinition[]`，`ChatMessage` 已支持 `role: "tool"` 与 `toolCallId`。契约骨架已在，只需接通。
+- 数据库 `src-tauri/src/infrastructure/db.rs` 有现成的顺序迁移机制（`migrate()` + `SCHEMA_VERSION` + `backfill_columns()`），加表加列路径清晰。
+- 审批心智模型（`pending → approved/rejected`，`workflowService.decideStage`）与「建议→人工应用」（`reviewApply.applyReviewEdits`）都已存在，可直接复用为工具授权闸门。
+- 50+ 个 Tauri command 已覆盖读设定/读章节/检索 RAG/写草稿等全部原子能力，是天然的工具集。
+
+---
+
+## 2. 三项架构决策（实施前提）
+
+### 决策 1：Agent Loop 放前端 service 层
+
+Loop 控制器实现在 `src/services/agentLoop.ts`，工具执行再走现有 Tauri command。
+
+**理由**：业务原子能力已在 Rust command 层，审批 UI 已在前端。若把 Loop 下沉到 Rust，需用 Rust 重写业务编排、扩展流式协议，成本翻倍。
+**代价**：循环状态在渲染进程、关窗口即丢——由 P3 的会话落库解决。
+
+### 决策 2：工具调用双轨制
+
+- **标准轨**：网关解析 OpenAI 兼容的 `tool_calls`（SSE `delta.tool_calls` / Ollama 原生 `message.tool_calls`）。
+- **降级轨**：本地小模型对 function calling 支持不稳，system 提示里准备「输出 `{"tool":"...","args":{...}}`」指令，用现成 `src/utils/looseJson.ts` 解析。
+- 由 `ModelCapabilities.tools` 决定走哪条轨（当前恒 false，需补采集，见 P0）。
+
+### 决策 3：工具分两级，写操作只产候选
+
+- `read` 级：自动执行（读设定/读章节/RAG 检索）。
+- `write` 级：产出修改先进入「待应用建议」队列，作者点确认后才调用 `applyReviewEdits` / `writingService` 落库。
+- 直接复用 `pending/approved` 心智模型，Guardrails 不另起炉灶。
+
+---
+
+## 3. 分阶段实施计划
+
+### P0 · 打通工具调用契约（1~1.5 天，纯契约，不动 UI）
+
+**目标**：让模型返回的 tool_calls 能从上游一路透传到前端。
+
+| 改动点       | 文件                                                  | 内容                                                                                                                                                        |
+| ------------ | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 后端请求体   | `src-tauri/src/models/chat.rs`                        | `ChatParams` 增加 `tools: Vec<serde_json::Value>`（用 Value 透传，容忍不同 Provider 的 schema 差异）                                                        |
+| 工具片段结构 | 同上                                                  | 新增 `ToolCallChunk { index, id, name, arguments }`，`arguments` 为增量 JSON 文本                                                                           |
+| 流式块       | 同上                                                  | `ChatChunk` 增加 `tool_calls: Vec<ToolCallChunk>`，补 `tool_call()` 构造函数                                                                                |
+| 模型导出     | `src-tauri/src/models/mod.rs`                         | `pub use chat::...` 增加 `ToolCallChunk`                                                                                                                    |
+| SSE 解析     | `gateway_sse.rs`                                      | `SseEvent` 增加 `ToolCall`；`extract_tool_calls()` 解析 OpenAI SSE；`JsonlParser` 解析 Ollama 原生 `message.tool_calls`（arguments 为对象时序列化成字符串） |
+| 网关编排     | `gateway.rs`                                          | 请求体带 `tools`；把 `SseEvent::ToolCall` 包成 `ChatChunk::tool_call` 回吐；**privacy 校验仍在最前**                                                        |
+| 能力采集     | `models/provider.rs`、`types/model.ts`、`toModelInfo` | `ProviderModel` 增加 `supports_tools`，替换 `tools: false` 硬编码                                                                                           |
+| 模型管理 UI  | `ProviderEditDialog.vue`                              | 每个模型行加「支持工具调用」勾选框（沿用现有 NCheckbox / NInputNumber 栅格）                                                                                |
+
+**验收**：Rust 单测覆盖两种方言的 tool_call 增量解析（含 arguments 跨块拼接）；`ChatParams` 往返序列化不丢字段；`cargo test` 全绿。
+
+### P1 · 工具注册表 + 执行器 + 审批闸门（2~3 天）
+
+| 改动点     | 文件                                  | 内容                                                                                                                                                                     |
+| ---------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 工具注册表 | 新增 `src/services/agentTools.ts`     | `ToolDef { name, description, parameters(JSON Schema), risk:"read"\|"write", run(args) }`；首批 6 个：读作品信息、列设定、读章节正文、RAG 检索、生成审稿建议、写章节候选 |
+| 执行器     | 新增 `src/services/actionExecutor.ts` | 解析模型输出 → schema 校验参数 → 按 `risk` 分流：read 直接执行、write 进 `pendingActions` 队列                                                                           |
+| 审批复用   | `reviewApply.ts`                      | 暴露 `applyReviewEdits` 作为写操作的落库函数                                                                                                                             |
+| UI         | Copilot 面板                          | 增加「待授权操作」卡片：NButton 通过/驳回，调用 `decideStage` 同款心智                                                                                                   |
+
+**验收**：一个工具从模型输出 → 参数校验 → 执行 → 结果回填消息，全链路可手动跑通；非法参数不执行且给出可见错误。
+
+### P2 · Agent Loop 主循环（3~4 天，核心）
+
+新增 `src/services/agentLoop.ts`（service 层，不塞进 composable，遵守单文件 500 行约束）：
+
+```text
+runAgentLoop(goal, tools, { maxIterations: 6, onStep }):
+  messages = buildCopilotMessages(...) + 工具系统提示
+  for i in 1..maxIterations:
+    resp  = await runChat(...)                  // 复用现有统一入口
+    calls = extractToolCalls(resp)              // 标准 tool_calls 或 looseJson 降级
+    if calls 为空: return 最终回答
+    // 防空转：连续两轮相同 toolName+args 直接终止并提示
+    observations = await executor.runAll(calls) // 含 read 自动执行 / write 审批闸门
+    messages.push(assistant(resp), ...observations as tool messages)
+  return 达到上限的兜底回答
+```
+
+要点：
+
+- **终止条件**：无工具调用 / 达 `maxIterations` / 作者点停止（复用 `requestSeq` 丢弃迟到分片）。
+- **可观测**：`onStep(iteration, thought, calls, observations)` 回调，UI 逐步展示「思考→行动→观察」。
+- **接入方式**：Copilot 页加实验性开关，默认关闭，不影响现有写作流程。
+
+**验收**：典型任务（如「根据设定检查第三章并给修改建议」）在 2~4 轮内自主完成；空转/超限时优雅退出；流式 UI 每步可见。
+
+### P3 · 会话记忆 + Trace + 评估（3~4 天）
+
+| 改动点     | 文件                                                                           | 内容                                                                                                                                                                                                       |
+| ---------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 新表       | `db.rs` 的 `migrate()`，`SCHEMA_VERSION` 3→4                                   | `agent_session`(id, project_id, title, created_at)、`agent_message`(session_id, role, content, tool_calls, created_at)、`agent_step`(session_id, iteration, tool_name, args, observation, tokens, latency) |
+| 会话服务   | 新增 `src-tauri/src/commands/agent.rs` + `src/services/agentSessionService.ts` | 会话 CRUD、消息落库/读取，替代 `useWritingCopilot.ts:40` 的组件内 `messages`                                                                                                                               |
+| Trace 补全 | `usage.rs`                                                                     | `agent_run.input_summary/output` 写真实截断值（现为写死空串 `usage.rs:20-21`）                                                                                                                             |
+| 评估看板   | `GlobalStatsView.vue`                                                          | 增加「Agent 运行」页：轨迹回放、步数/成功率/成本聚合、空转告警                                                                                                                                             |
+
+**验收**：关闭重开应用后可继续历史会话；每次 Loop 的每步可在看板回放；审计日志有真实输入输出。
+
+---
+
+## 4. 风险与取舍
+
+- **本地模型不稳**：Ollama 小模型的 tool calling 可能时好时坏，JSON 降级轨必须同步实现，否则离线场景不可用。
+- **安全边界**：`gateway.rs:34-45` 已做隐私拦截，但工具执行器在前端，需确保每个 `run()` 内部调用的 command 同样受 privacy 约束——尤其 RAG 检索类，不得绕过 Rust 侧校验直连远端。
+- **单文件行数**：`agentLoop.ts`、`agentTools.ts`、`actionExecutor.ts` 独立成文件，单个 ≤ 500 行；`gateway.rs` 解析逻辑继续放 `gateway_sse.rs`，避免主文件膨胀。
+- **注释规范**：新增字段/分支按项目规则写简体中文注释，重点说明「为什么双轨制」「为什么写操作只进候选队列」。
+- **沙箱取舍**：当前无代码执行类工具，Sandbox 不构成缺口；若未来引入代码执行工具，必须同步补沙箱。
+
+---
+
+## 5. 实施顺序建议
+
+从 **P0** 开始——改动面最小、可独立验证，且是后续三期的地基。四期全部完成后，项目才从「AI 辅助写作工作台」升级为具备自主规划与执行能力的写作 Agent。

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-/// Provider 下被启用的模型。能力字段先只存路由必需的上下文窗口与成本，
-/// tools/json/vision 等能力等真正接入时再扩展，避免现在填一堆假值。
+/// Provider 下被启用的模型。上下文窗口用于路由，supports_tools 决定该模型
+/// 能否走工具调用（Agent Loop 依赖此能力）；不能的模型会走 JSON 降级轨。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderModel {
@@ -12,6 +12,10 @@ pub struct ProviderModel {
     pub context_window: i64,
     #[serde(default)]
     pub cost_per_1k_tokens: Option<f64>,
+    /// 是否支持 function/tool calling。默认 false：老配置与新探测的模型都需作者显式勾选，
+    /// 避免把不支持的模型误判为可用、发出工具请求后拿到无关输出。
+    #[serde(default)]
+    pub supports_tools: bool,
 }
 
 fn default_context_window() -> i64 {

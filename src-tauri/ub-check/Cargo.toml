@@ -1,0 +1,15 @@
+# 独立的 UB 检测载体：只引入不依赖 FFI 的纯逻辑模块。
+# 这样 Miri（解释执行）与 ASan（编译插桩）都能在没有 tauri/WebKit/SQLite 的
+# 环境里运行；测试代码通过 #[path] 与主 crate 共享，不重复维护。
+[package]
+name = "ub-check"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# 自带 workspace 根，避免被主 crate 的依赖树纳入，也不用生成耦合的 Cargo.lock。
+[workspace]

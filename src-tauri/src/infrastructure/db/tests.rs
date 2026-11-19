@@ -51,6 +51,25 @@ fn migrate_records_schema_version_and_is_idempotent() {
     assert_eq!(again, SCHEMA_VERSION);
 }
 
+/// v4 迁移要建出 Agent 会话/消息/步骤三张表，供会话记忆与轨迹回放使用。
+#[test]
+fn migrate_creates_agent_tables() {
+    let conn = Connection::open_in_memory().unwrap();
+    migrate(&conn).unwrap();
+    for table in ["agent_session", "agent_message", "agent_step"] {
+        let exists: bool = conn
+            .query_row(
+                "select exists(select 1 from sqlite_master where type = 'table' and name = ?1)",
+                [table],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(exists, "表 {table} 应在迁移后存在");
+    }
+    // 重复迁移不应报错，表已存在时保持幂等。
+    migrate(&conn).unwrap();
+}
+
 /// 版本迁移要先去掉历史重复版本号，否则唯一索引会建不起来（老库直接打不开）。
 #[test]
 fn migrate_dedupes_draft_versions_before_unique_index() {

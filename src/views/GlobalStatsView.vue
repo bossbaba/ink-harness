@@ -3,6 +3,7 @@ import { NEmpty, NTag } from "naive-ui";
 import { computed, onMounted } from "vue";
 import PageHeader from "@/components/common/PageHeader.vue";
 import StatCard from "@/components/common/StatCard.vue";
+import AgentTracePanel from "@/components/models/AgentTracePanel.vue";
 import CostDashboardPanel from "@/components/models/CostDashboardPanel.vue";
 import { useGlobalStats } from "@/composables/useGlobalStats";
 import {
@@ -17,8 +18,19 @@ import { onReactivated } from "@/utils/lifecycle";
  * 全局统计（一级路由 /stats）：汇总所有作品的作品数、字数、设定规模与 token 成本。
  * 只读页，不做任何写入；成本看板复用模型管理页的组件，避免两套口径。
  */
-const { loading, stats, usage, providers, budget, cost, error, load, updateBudget } =
-  useGlobalStats();
+const {
+  loading,
+  stats,
+  usage,
+  providers,
+  budget,
+  cost,
+  error,
+  agentSessions,
+  agentSteps,
+  load,
+  updateBudget,
+} = useGlobalStats();
 
 const totalWorks = computed(() => stats.value?.projects ?? 0);
 
@@ -126,6 +138,10 @@ onReactivated(() => void load());
         @refresh="load"
         @update:budget="(value: number) => void updateBudget(value)"
       />
+    </section>
+
+    <section class="stats__card">
+      <AgentTracePanel :sessions="agentSessions" :steps="agentSteps" :loading="loading" />
     </section>
   </div>
 </template>

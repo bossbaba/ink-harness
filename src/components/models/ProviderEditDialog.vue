@@ -30,6 +30,7 @@ const emit = defineEmits<{
   (e: "save"): void;
   (e: "toggle-model", id: string, checked: boolean): void;
   (e: "context-window", id: string, value: number | null): void;
+  (e: "supports-tools", id: string, checked: boolean): void;
 }>();
 
 const show = defineModel<boolean>("show", { required: true });
@@ -58,6 +59,11 @@ function contextWindowOf(id: string): number {
   return (
     draft.value.models.find((model) => model.id === id)?.contextWindow ?? DEFAULT_CONTEXT_WINDOW
   );
+}
+
+/** 该模型是否勾选了工具调用能力；未勾选的模型在 Agent Loop 里走 JSON 降级轨。 */
+function supportsToolsOf(id: string): boolean {
+  return draft.value.models.find((model) => model.id === id)?.supportsTools === true;
 }
 
 function close(): void {
@@ -159,6 +165,16 @@ function close(): void {
           >
             <template #suffix>tokens</template>
           </NInputNumber>
+          <NTooltip>
+            <template #trigger>
+              <NCheckbox
+                :checked="supportsToolsOf(id)"
+                :disabled="!isModelChecked(id)"
+                @update:checked="(checked: boolean) => emit('supports-tools', id, checked)"
+              />
+            </template>
+            支持工具调用（function calling）；未勾选时 Agent 走 JSON 降级轨
+          </NTooltip>
         </div>
       </section>
     </div>
@@ -268,7 +284,7 @@ function close(): void {
 
 .model-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 150px;
+  grid-template-columns: auto minmax(0, 1fr) 150px auto;
   align-items: center;
   gap: t.$space-2;
   min-width: 0;

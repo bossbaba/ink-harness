@@ -4,9 +4,39 @@ use crate::infrastructure::{db::DbState, id::gen_id};
 use crate::models::{ChatParams, ModelUsage, TaskUsage, TokenUsage, UsageStats};
 use rusqlite::params;
 
+/// 输入/输出摘要的落库长度：审计只需看清「问了什么、答了什么」，
+/// 全文留在会话表里，这里截断避免一行日志塞进整本书。
+const SUMMARY_LIMIT: usize = 500;
+
+/// 按字符截断（不是字节），避免截在 UTF-8 多字节中间导致乱码。
+fn clip(text: &str, limit: usize) -> &str {
+    let trimmed = text.trim();
+    let end = trimmed.char_indices().nth(limit).map(|(i, _)| i).unwrap_or(trimmed.len());
+    &trimmed[..end]
+}
+
+/// 从消息列表里取最后一条用户消息作为输入摘要；找不到就取最后一条。
+fn input_summary(params: &ChatParams) -> String {
+    let last_user = params
+        .messages
+        .iter()
+        .rev()
+        .find(|m| m.role == "user")
+        .or_else(|| params.messages.last());
+    last_user
+        .map(|m| clip(&m.content, SUMMARY_LIMIT).to_string())
+        .unwrap_or_default()
+}
+
 /// 写一条调用记录。没有作品 ID 时不写：agent_run.project_id 是外键，
 /// 全局设置这类请求也不该混进某部作品的用量看板。
-pub fn record(state: &DbState, params: &ChatParams, usage: &TokenUsage) -> Result<(), AppError> {
+/// input_summary / output 写截断后的真实内容，供审计与成本回放。
+pub fn record(
+    state: &DbState,
+    params: &ChatParams,
+    usage: &TokenUsage,
+    output: &str,
+) -> Result<(), AppError> {
     let Some(project_id) = params.project_id.as_deref().filter(|id| !id.is_empty()) else {
         return Ok(());
     };
@@ -18,12 +48,14 @@ pub fn record(state: &DbState, params: &ChatParams, usage: &TokenUsage) -> Resul
     let conn = state.biz();
     conn.execute(
         "insert into agent_run (id, project_id, task_kind, model, input_summary, output, tokens, prompt_tokens, completion_tokens, created_at)
-         values (?1, ?2, ?3, ?4, '', '', ?5, ?6, ?7, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+         values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
         params![
             gen_id("run"),
             project_id,
             task_kind,
             params.model,
+            input_summary(params),
+            clip(output, SUMMARY_LIMIT),
             usage.total_tokens as i64,
             usage.prompt_tokens as i64,
             usage.completion_tokens as i64,
@@ -117,12 +149,16 @@ mod tests {
             messages: vec![ChatMessage {
                 role: "user".to_string(),
                 content: "hi".to_string(),
+                tool_call_id: None,
+                name: None,
+                tool_calls: None,
             }],
             temperature: None,
             max_tokens: None,
             privacy_local_only: false,
             task_kind: task.map(|s| s.to_string()),
             project_id: project.map(|s| s.to_string()),
+            tools: Vec::new(),
         }
     }
 
@@ -145,10 +181,29 @@ mod tests {
     }
 
     #[test]
+    fn record_writes_real_input_and_output() {
+        let (state, dir) = temp_state("io");
+        let mut p = params("m", Some("copilot"), Some("p1"));
+        p.messages[0].content = "帮我检查第三章".to_string();
+        record(&state, &p, &usage(10, 5), "建议改三处").unwrap();
+        let conn = state.biz();
+        let (input, output): (String, String) = conn
+            .query_row(
+                "select input_summary, output from agent_run limit 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(input, "帮我检查第三章");
+        assert_eq!(output, "建议改三处");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn record_accumulates_tokens_and_calls() {
         let (state, dir) = temp_state("accumulate");
-        record(&state, &params("m", Some("continue"), Some("p1")), &usage(10, 5)).unwrap();
-        record(&state, &params("m", Some("continue"), Some("p1")), &usage(20, 7)).unwrap();
+        record(&state, &params("m", Some("continue"), Some("p1")), &usage(10, 5), "测试输出").unwrap();
+        record(&state, &params("m", Some("continue"), Some("p1")), &usage(20, 7), "测试输出").unwrap();
         let result = stats(&state).unwrap();
         assert_eq!(result.calls, 2);
         assert_eq!(result.total_tokens, 42);
@@ -163,9 +218,9 @@ mod tests {
     #[test]
     fn record_groups_by_task_kind() {
         let (state, dir) = temp_state("group");
-        record(&state, &params("m", Some("continue"), Some("p1")), &usage(10, 0)).unwrap();
-        record(&state, &params("m", Some("polish"), Some("p1")), &usage(5, 0)).unwrap();
-        record(&state, &params("m", None, Some("p1")), &usage(3, 0)).unwrap();
+        record(&state, &params("m", Some("continue"), Some("p1")), &usage(10, 0), "测试输出").unwrap();
+        record(&state, &params("m", Some("polish"), Some("p1")), &usage(5, 0), "测试输出").unwrap();
+        record(&state, &params("m", None, Some("p1")), &usage(3, 0), "测试输出").unwrap();
         let result = stats(&state).unwrap();
         assert_eq!(result.by_task.len(), 3);
         assert_eq!(result.by_task.iter().find(|i| i.task_kind == "unknown").unwrap().tokens, 3);
@@ -176,8 +231,8 @@ mod tests {
     fn record_without_project_is_skipped() {
         // 没有作品 ID 的请求（如全局设置）不该混进用量看板。
         let (state, dir) = temp_state("no-project");
-        record(&state, &params("m", None, None), &usage(10, 5)).unwrap();
-        record(&state, &params("m", None, Some("")), &usage(10, 5)).unwrap();
+        record(&state, &params("m", None, None), &usage(10, 5), "测试输出").unwrap();
+        record(&state, &params("m", None, Some("")), &usage(10, 5), "测试输出").unwrap();
         let result = stats(&state).unwrap();
         assert_eq!(result.calls, 0);
         let _ = std::fs::remove_dir_all(&dir);

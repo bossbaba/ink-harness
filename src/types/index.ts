@@ -1,3 +1,4 @@
+export * from "./agent";
 export * from "./assist";
 export * from "./copilot";
 export * from "./draft";

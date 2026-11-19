@@ -71,6 +71,10 @@ where
     if let Some(m) = params.max_tokens.filter(|m| *m > 0) {
         body["max_tokens"] = serde_json::json!(m);
     }
+    // 工具定义非空时才带 tools：空数组发给 Ollama 原生接口可能被当成一次无效工具请求。
+    if !params.tools.is_empty() {
+        body["tools"] = serde_json::json!(params.tools);
+    }
 
     // 只在「还没收到任何流式数据」时重试：一旦开始出字再重试，
     // 会把前后两次生成的半截内容拼在一起，比直接报错更糟。
@@ -140,6 +144,11 @@ where
                         return Err(AppError::internal("对话已被取消"));
                     }
                 }
+                SseEvent::ToolCall(call) => {
+                    if !on_chunk(ChatChunk::tool_call(call)) {
+                        return Err(AppError::internal("对话已被取消"));
+                    }
+                }
                 SseEvent::Usage(found) => usage = Some(found),
             }
         }
@@ -177,12 +186,16 @@ mod tests {
             messages: vec![ChatMessage {
                 role: "user".to_string(),
                 content: "用一句话回答：1+1等于几？".to_string(),
+                tool_call_id: None,
+                name: None,
+                tool_calls: None,
             }],
             temperature: None,
             max_tokens: None,
             privacy_local_only: false,
             task_kind: None,
             project_id: None,
+            tools: Vec::new(),
         };
         let usage = stream_chat(&state, &params, |chunk| {
             content.push_str(&chunk.delta);

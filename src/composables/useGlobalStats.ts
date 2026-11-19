@@ -1,4 +1,5 @@
 import { computed, ref } from "vue";
+import { agentSessionService } from "@/services/agentSessionService";
 import { providerService } from "@/services/providerService";
 import { statsService } from "@/services/statsService";
 import {
@@ -7,7 +8,13 @@ import {
   getUsageStats,
   setTokenBudget,
 } from "@/services/usageService";
-import type { ProviderConfig, UsageStats, WorkspaceStats } from "@/types";
+import type {
+  AgentSession,
+  AgentStepRecord,
+  ProviderConfig,
+  UsageStats,
+  WorkspaceStats,
+} from "@/types";
 
 /**
  * 全局统计页状态：作品/章节/字数汇总 + token 用量 + Provider 列表（给成本估算用）。
@@ -20,6 +27,9 @@ export function useGlobalStats() {
   const providers = ref<ProviderConfig[]>([]);
   const budget = ref(0);
   const error = ref("");
+  /** Agent 会话与轨迹：全局视角传空 projectId 拉全部。 */
+  const agentSessions = ref<AgentSession[]>([]);
+  const agentSteps = ref<AgentStepRecord[]>([]);
 
   // 费用是 usage + providers 的纯派生值，放在 composable 里算好，
   // 展示组件只收款项，不自行调用 service（遵循「组件只收 props / emit」的分层约定）。
@@ -32,7 +42,7 @@ export function useGlobalStats() {
     // 看板显示 0 与「真的没有数据」无法区分，所以把失败项收集起来统一提示。
     const failures: string[] = [];
     try {
-      const [workspace, usageStats, list, tokenBudget] = await Promise.all([
+      const [workspace, usageStats, list, tokenBudget, sessions, steps] = await Promise.all([
         statsService.workspace().catch((err: unknown) => {
           failures.push(`作品统计（${String(err)}）`);
           return null;
@@ -49,11 +59,21 @@ export function useGlobalStats() {
           failures.push(`预算设置（${String(err)}）`);
           return 0;
         }),
+        agentSessionService.list("").catch((err: unknown) => {
+          failures.push(`Agent 会话（${String(err)}）`);
+          return [] as AgentSession[];
+        }),
+        agentSessionService.listSteps("").catch((err: unknown) => {
+          failures.push(`Agent 轨迹（${String(err)}）`);
+          return [] as AgentStepRecord[];
+        }),
       ]);
       stats.value = workspace;
       usage.value = usageStats;
       providers.value = list;
       budget.value = tokenBudget;
+      agentSessions.value = sessions;
+      agentSteps.value = steps;
       if (failures.length > 0) {
         error.value = `部分数据读取失败，页面数字可能不完整：${failures.join("、")}`;
       }
@@ -76,5 +96,17 @@ export function useGlobalStats() {
     }
   }
 
-  return { loading, stats, usage, providers, budget, cost, error, load, updateBudget };
+  return {
+    loading,
+    stats,
+    usage,
+    providers,
+    budget,
+    cost,
+    error,
+    agentSessions,
+    agentSteps,
+    load,
+    updateBudget,
+  };
 }

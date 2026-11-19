@@ -1,5 +1,8 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  AgentMessageRecord,
+  AgentSession,
+  AgentStepRecord,
   Chapter,
   ChapterContent,
   ChatChunk,
@@ -12,6 +15,9 @@ import type {
   Foreshadow,
   MoveChapterInput,
   MoveSceneInput,
+  NewAgentMessage,
+  NewAgentSession,
+  NewAgentStep,
   NewChapter,
   NewForeshadow,
   NewProject,
@@ -140,6 +146,17 @@ export const tauriApi = {
 
   // 全局统计：跨作品汇总作品/章节/字数/设定，只读。
   workspaceStats: () => call<WorkspaceStats>("workspace_stats"),
+
+  // Agent 会话与轨迹：会话记忆与运行回放。
+  createAgentSession: (input: NewAgentSession) =>
+    call<AgentSession>("create_agent_session", { input }),
+  listAgentSessions: (projectId: string) =>
+    call<AgentSession[]>("list_agent_sessions", { projectId }),
+  appendAgentMessage: (input: NewAgentMessage) => call<void>("append_agent_message", { input }),
+  listAgentMessages: (sessionId: string) =>
+    call<AgentMessageRecord[]>("list_agent_messages", { sessionId }),
+  appendAgentStep: (input: NewAgentStep) => call<void>("append_agent_step", { input }),
+  listAgentSteps: (projectId: string) => call<AgentStepRecord[]>("list_agent_steps", { projectId }),
 
   // RAG 检索：索引按作品维护，检索按问题取最近片段。
   ragStatus: (projectId: string) => call<RagStatus>("rag_status", { projectId }),

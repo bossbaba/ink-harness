@@ -83,7 +83,8 @@ pub fn open(app_data_dir: &PathBuf) -> Result<DbState, AppError> {
 /// 当前 schema 版本。每次改结构 +1，并在 [`migrate`] 里追加一段幂等步骤。
 ///
 /// 3：修复「user_version 已到 2、`chapter.content_revision` 却没补上」的库。
-const SCHEMA_VERSION: i64 = 3;
+/// 4：Agent 会话与运行轨迹——会话/消息/步骤三张表，支撑 Copilot 跨会话记忆与轨迹回放。
+const SCHEMA_VERSION: i64 = 4;
 
 /// 顺序迁移：从 `pragma user_version` 记录的位置往后执行。
 ///
@@ -175,7 +176,58 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
             .map_err(AppError::from)?;
     }
 
+    if current < 4 {
+        // Agent 会话： Copilot 消息从组件内存移到库里，关闭应用后能续聊；
+        // 步骤表记录每轮「思考→工具→观察」，供统计页回放与空转评估。
+        create_agent_tables(conn)?;
+        conn.pragma_update(None, "user_version", 4)
+            .map_err(AppError::from)?;
+    }
+
     Ok(())
+}
+
+/// 建 Agent 会话相关表。单独抽出来是因为 init_schema 与新版本迁移都要调用，
+/// 用 `if not exists` 保证任意残缺的旧库都能安全补齐。
+fn create_agent_tables(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(
+        r#"
+        create table if not exists agent_session (
+            id          text primary key,
+            project_id  text not null references project(id) on delete cascade,
+            title       text not null default '',
+            created_at  text not null,
+            updated_at  text not null
+        );
+
+        create table if not exists agent_message (
+            id          text primary key,
+            session_id  text not null references agent_session(id) on delete cascade,
+            role        text not null,
+            content     text not null default '',
+            tool_calls  text not null default '',
+            created_at  text not null
+        );
+
+        create index if not exists idx_agent_message_session
+            on agent_message(session_id, created_at);
+
+        create table if not exists agent_step (
+            id           text primary key,
+            session_id   text not null references agent_session(id) on delete cascade,
+            iteration    integer not null,
+            tool_calls   text not null default '',
+            observations text not null default '',
+            tokens       integer not null default 0,
+            latency_ms   integer not null default 0,
+            created_at   text not null
+        );
+
+        create index if not exists idx_agent_step_session
+            on agent_step(session_id, iteration);
+        "#,
+    )
+    .map_err(AppError::from)
 }
 
 /// 幂等补齐「后加的列与派生索引」。

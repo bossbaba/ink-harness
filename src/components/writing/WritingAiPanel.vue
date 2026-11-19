@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { NButton, NInput, NTag } from "naive-ui";
 import { computed, nextTick, ref, watch } from "vue";
+import AgentControls from "@/components/writing/AgentControls.vue";
 import CopilotReferencePicker from "@/components/writing/CopilotReferencePicker.vue";
 import WritingAssistCard from "@/components/writing/WritingAssistCard.vue";
 import {
   type AssistCardState,
+  type AgentPanelState,
   COPILOT_QUICK_PROMPTS,
   COPILOT_REF_KIND_LABEL,
   type CopilotMessage,
@@ -42,6 +44,7 @@ const props = defineProps<{
   retrievedCount: number;
   /** 当前这次写作辅助（续写/改写等）的结果卡片；visible 为假时不渲染。 */
   assist: AssistCardState;
+  agent: AgentPanelState;
 }>();
 
 const emit = defineEmits<{
@@ -220,6 +223,9 @@ function isLive(message: CopilotMessage): boolean {
         @insert="emit('assist-insert')"
         @replace="emit('assist-replace')"
       />
+
+      <!-- Agent 控制区：模式开关 + 写操作授权。 -->
+      <AgentControls :agent="agent" />
     </div>
 
     <p v-if="error" class="chat__error">{{ error }}</p>

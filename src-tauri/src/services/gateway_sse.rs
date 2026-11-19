@@ -4,11 +4,13 @@
 //! 两种方言都归一成 [`SseEvent`]，让 `gateway::stream_chat` 不必按方言分支。
 //! 从 gateway.rs 拆出以控制单文件规模，解析规则与单测一并迁移，便于独立回归。
 
-use crate::models::TokenUsage;
+use crate::models::{TokenUsage, ToolCallChunk};
 
-/// 一次解析得到的事件：正文增量、token 用量、流结束。
+/// 一次解析得到的事件：正文增量、工具调用片段、token 用量、流结束。
 pub enum SseEvent {
     Delta(String),
+    /// 模型决定调用工具时给出的片段；一条响应可能有多片，由前端按 index 拼成完整调用。
+    ToolCall(ToolCallChunk),
     /// 上游在流末尾附带的 token 用量，OpenAI 风格 usage 与 Ollama 风格计数字段都认。
     Usage(TokenUsage),
     Done,
@@ -39,13 +41,18 @@ impl SseParser {
                 let data = data.trim();
                 if data == "[DONE]" {
                     events.push(SseEvent::Done);
-                } else if let Some(token_usage) = extract_usage(data) {
+                    continue;
+                }
+                // 三类事件互不排斥：工具调用帧通常 content 为空，但用量可能和工具帧同一帧到达。
+                if let Some(token_usage) = extract_usage(data) {
                     events.push(SseEvent::Usage(token_usage));
-                } else if let Some(delta) = extract_delta(data) {
+                }
+                if let Some(delta) = extract_delta(data) {
                     if !delta.is_empty() {
                         events.push(SseEvent::Delta(delta));
                     }
                 }
+                events.extend(extract_tool_calls(data).into_iter().map(SseEvent::ToolCall));
             }
         }
         events
@@ -107,6 +114,14 @@ impl JsonlParser {
                     events.push(SseEvent::Delta(content.to_string()));
                 }
             }
+            // Ollama 原生把工具调用放在 message.tool_calls，arguments 已经是对象而非字符串。
+            if let Some(message) = value.get("message") {
+                events.extend(
+                    extract_native_tool_calls(message)
+                        .into_iter()
+                        .map(SseEvent::ToolCall),
+                );
+            }
             if let Some(usage) = extract_usage(line) {
                 events.push(SseEvent::Usage(usage));
             }
@@ -124,6 +139,98 @@ fn extract_delta(data: &str) -> Option<String> {
         .get("content")?
         .as_str()
         .map(|s| s.to_string())
+}
+
+/// 从 OpenAI 兼容的 SSE 帧里抠出 `choices[0].delta.tool_calls`。
+///
+/// 每帧可能带多个工具（不同 index），arguments 是增量字符串；id/name 只在首帧出现。
+/// 解析失败一律当作没有工具调用，避免一帧脏数据打断整条正文流。
+fn extract_tool_calls(data: &str) -> Vec<ToolCallChunk> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else {
+        return Vec::new();
+    };
+    let Some(calls) = value
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("delta"))
+        .and_then(|d| d.get("tool_calls"))
+        .and_then(|t| t.as_array())
+    else {
+        return Vec::new();
+    };
+    calls
+        .iter()
+        .filter_map(|call| {
+            let index = call.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
+            let function = call.get("function")?;
+            Some(ToolCallChunk {
+                index,
+                id: call
+                    .get("id")
+                    .and_then(|i| i.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                name: function
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                arguments: function
+                    .get("arguments")
+                    .and_then(|a| a.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+            })
+        })
+        .collect()
+}
+
+/// 从 Ollama 原生 `message.tool_calls` 抠出工具调用。
+///
+/// 原生接口的 arguments 已经是对象（不是增量字符串），这里序列化成 JSON 文本，
+/// 让前端复用与 OpenAI 相同的拼接/解析逻辑；id 缺失时用「工具名+序号」兜底。
+fn extract_native_tool_calls(message: &serde_json::Value) -> Vec<ToolCallChunk> {
+    let Some(calls) = message
+        .get("tool_calls")
+        .and_then(|t| t.as_array())
+    else {
+        return Vec::new();
+    };
+    calls
+        .iter()
+        .enumerate()
+        .filter_map(|(index, call)| {
+            let function = call.get("function")?;
+            let name = function
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let arguments = function
+                .get("arguments")
+                .map(|a| {
+                    // 字符串直接用，对象/数组则序列化；拿不到就给空对象，前端解析不会失败。
+                    if let Some(s) = a.as_str() {
+                        s.to_string()
+                    } else {
+                        a.to_string()
+                    }
+                })
+                .unwrap_or_else(|| "{}".to_string());
+            let id = call
+                .get("id")
+                .and_then(|i| i.as_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("{name}-{index}"));
+            Some(ToolCallChunk {
+                index,
+                id,
+                name,
+                arguments,
+            })
+        })
+        .collect()
 }
 
 /// 兼容两种上游：OpenAI 的 `usage:{prompt_tokens,...}` 与 Ollama 原生风格的计数字段。
@@ -261,5 +368,63 @@ mod tests {
         let events = parser.push("好\"}}\n");
         assert_eq!(events.len(), 1);
         assert!(matches!(&events[0], SseEvent::Delta(text) if text == "你好"));
+    }
+
+    #[test]
+    fn sse_parser_emits_tool_call_across_fragments() {
+        let mut parser = SseParser::new();
+        // 首帧带 id/name 与半截 arguments，次帧只补 arguments 尾部。
+        let events = parser.push(
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"read_chapter\",\"arguments\":\"{\\\"id\\\":\"}}]}}]}\n\n",
+        );
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            SseEvent::ToolCall(call) => {
+                assert_eq!(call.index, 0);
+                assert_eq!(call.id, "call_1");
+                assert_eq!(call.name, "read_chapter");
+                assert_eq!(call.arguments, "{\"id\":");
+            }
+            _ => panic!("expected tool call"),
+        }
+        let events = parser.push(
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"c1\\\"}\"}}]}}]}\n\n",
+        );
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            SseEvent::ToolCall(call) => {
+                assert_eq!(call.id, "");
+                assert_eq!(call.arguments, "\"c1\"}");
+            }
+            _ => panic!("expected tool call"),
+        }
+    }
+
+    #[test]
+    fn sse_parser_emits_multiple_tool_calls_in_one_frame() {
+        let mut parser = SseParser::new();
+        let events = parser.push(
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"a\",\"function\":{\"name\":\"get_project\",\"arguments\":\"{}\"}},{\"index\":1,\"id\":\"b\",\"function\":{\"name\":\"list_elements\",\"arguments\":\"{}\"}}]}}]}\n\n",
+        );
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], SseEvent::ToolCall(c) if c.name == "get_project" && c.index == 0));
+        assert!(matches!(&events[1], SseEvent::ToolCall(c) if c.name == "list_elements" && c.index == 1));
+    }
+
+    #[test]
+    fn jsonl_parser_emits_native_tool_call() {
+        let mut parser = JsonlParser::new();
+        let events = parser.push(
+            "{\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"read_chapter\",\"arguments\":{\"id\":\"c1\"}}}]},\"done\":true}\n",
+        );
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            SseEvent::ToolCall(call) => {
+                assert_eq!(call.name, "read_chapter");
+                assert_eq!(call.id, "read_chapter-0");
+                assert_eq!(call.arguments, "{\"id\":\"c1\"}");
+            }
+            _ => panic!("expected native tool call"),
+        }
     }
 }

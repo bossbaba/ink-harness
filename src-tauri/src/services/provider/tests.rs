@@ -21,6 +21,7 @@ fn sample_model() -> ProviderModel {
         display_name: "DeepSeek Chat".into(),
         context_window: 64000,
         cost_per_1k_tokens: None,
+        supports_tools: false,
     }
 }
 

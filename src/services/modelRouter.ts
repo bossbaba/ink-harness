@@ -14,11 +14,12 @@ import type {
   ProviderModel,
   RouteStrategy,
   TaskKind,
+  ToolDefinition,
 } from "@/types";
 
 /**
  * 把 Provider 下配置的模型映射成路由用的 ModelInfo。
- * tools/json/vision 暂未在模型管理里采集，先按 false 处理，接入对应能力时再补。
+ * tools 来自模型管理页的显式勾选，未勾选的模型在 Agent Loop 里走 JSON 降级轨。
  */
 export function toModelInfo(provider: ProviderConfig, model: ProviderModel): ModelInfo {
   return {
@@ -28,7 +29,7 @@ export function toModelInfo(provider: ProviderConfig, model: ProviderModel): Mod
     displayName: model.displayName || model.id,
     capabilities: {
       contextWindow: model.contextWindow,
-      tools: false,
+      tools: model.supportsTools === true,
       json: false,
       vision: false,
       streaming: true,
@@ -171,12 +172,16 @@ class ModelRouterImpl {
     return scored[0]?.model ?? candidates[0] ?? null;
   }
 
-  /** 发起流式对话。返回 Promise，逐块通过 onChunk 回调。 */
+  /**
+   * 发起流式对话。返回 Promise，逐块通过 onChunk 回调。
+   * tools 非空时随请求透传给上游；是否真的启用取决于 select 选到的模型 capabilities.tools。
+   */
   chat(
     ctx: RouteContext,
     messages: ChatMessage[],
     onChunk: (chunk: ChatChunk) => void,
     onError?: (error: string) => void,
+    tools?: ToolDefinition[],
   ): ChatStreamHandle {
     const model = this.select(ctx);
     if (!model) {
@@ -197,6 +202,8 @@ class ModelRouterImpl {
         privacyLocalOnly: ctx.privacy === "local-only",
         taskKind: ctx.task,
         projectId: ctx.projectId,
+        // 只有声明支持工具调用的模型才下发 tools，避免不支持的模型收到参数后行为异常。
+        tools: model.capabilities.tools ? tools : undefined,
       },
       onChunk,
       onError,

@@ -16,7 +16,8 @@ function emptyProvider(): ProviderConfig {
 }
 
 function toProviderModel(id: string): ProviderModel {
-  return { id, displayName: id, contextWindow: DEFAULT_CONTEXT_WINDOW };
+  // 新探测的模型默认不勾选工具能力：是否支持需作者确认，误勾会让 Agent 发出无效工具请求。
+  return { id, displayName: id, contextWindow: DEFAULT_CONTEXT_WINDOW, supportsTools: false };
 }
 
 /**
@@ -149,6 +150,12 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
   function setContextWindow(id: string, value: number | null): void {
     const model = draft.value.models.find((item) => item.id === id);
     if (model && value) model.contextWindow = value;
+  }
+
+  /** 勾选/取消模型的工具调用能力，随 Provider 一起保存。 */
+  function setSupportsTools(id: string, checked: boolean): void {
+    const model = draft.value.models.find((item) => item.id === id);
+    if (model) model.supportsTools = checked;
   }
 
   async function save(): Promise<void> {
@@ -316,6 +323,7 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
     toggleModel,
     isModelChecked,
     setContextWindow,
+    setSupportsTools,
     save,
     toggleEnabled,
     remove,

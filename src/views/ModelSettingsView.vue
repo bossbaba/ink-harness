@@ -43,6 +43,7 @@ const {
   probeDraft,
   toggleModel,
   setContextWindow,
+  setSupportsTools,
   save,
   toggleEnabled,
   remove,
@@ -276,6 +277,7 @@ const routeOptions: SegmentOption[] = [
       @save="save"
       @toggle-model="toggleModel"
       @context-window="setContextWindow"
+      @supports-tools="setSupportsTools"
     />
   </div>
 </template>

@@ -18,6 +18,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check:conventions": "node scripts/check-conventions.mjs",
+    "check:ub": "bash scripts/check-ub.sh",
+    "check:ub:miri": "bash scripts/check-ub.sh miri",
+    "check:ub:asan": "bash scripts/check-ub.sh asan",
     "check:all": "pnpm typecheck && pnpm lint && pnpm check:conventions && pnpm test && pnpm build"
   },
   "dependencies": {

@@ -83,6 +83,12 @@ pub fn run() {
             commands::publish::write_export_file,
             commands::usage::usage_stats,
             commands::stats::workspace_stats,
+            commands::agent::create_agent_session,
+            commands::agent::list_agent_sessions,
+            commands::agent::append_agent_message,
+            commands::agent::list_agent_messages,
+            commands::agent::append_agent_step,
+            commands::agent::list_agent_steps,
         ])
         .build(tauri::generate_context!());
 

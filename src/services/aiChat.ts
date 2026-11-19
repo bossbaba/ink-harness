@@ -1,5 +1,12 @@
 import { modelRouter } from "@/services/modelRouter";
-import type { ChatMessage, PrivacyScope, TaskKind } from "@/types";
+import type {
+  ChatMessage,
+  CollectedToolCall,
+  PrivacyScope,
+  TaskKind,
+  ToolCallChunk,
+  ToolDefinition,
+} from "@/types";
 
 /**
  * 流式对话的统一入口。
@@ -7,7 +14,7 @@ import type { ChatMessage, PrivacyScope, TaskKind } from "@/types";
  * 之前每个业务服务（摘要/工作流/出版简报/审稿/AI 辅助/对话）都自己写一遍
  * 「refresh → select → chat → await done → 判空」，样板重复，且错误口径不一致：
  * 有的把真实原因（网络、鉴权、配额）吞掉，只剩一句「模型没有返回内容」。
- * 现在统一收在这里，调用方只关心「拿到全文」和「失败原因」。
+ * 现在统一收在这里，调用方只关心「拿到全文」「工具调用」和「失败原因」。
  */
 
 /** 没有可用模型时的统一文案；六处服务原本各写一句，措辞还不一样。 */
@@ -20,13 +27,61 @@ export interface ChatRoute {
   task: TaskKind;
   privacy: PrivacyScope;
   projectId?: string;
+  /** 本次可用的工具定义；非空且模型支持时随请求下发。 */
+  tools?: ToolDefinition[];
 }
 
 export interface ChatRunResult {
   /** 累计收到的全文（已拼接增量）。 */
   raw: string;
+  /** 拼接并解析完成的工具调用；没有工具时为空数组。 */
+  toolCalls: CollectedToolCall[];
   /** 失败原因；为空表示流正常结束。 */
   failure: string;
+}
+
+/**
+ * 把流式到达的工具分片按 index 拼成完整调用。
+ *
+ * OpenAI 的 arguments 是逐帧追加的 JSON 片段，id/name 只在首帧出现；
+ * 这里取各分片里非空的 id/name（首帧值），arguments 按到达顺序拼接。
+ * 解析失败不抛异常，而是把原文与原因放进结果，由执行器拒绝执行该工具。
+ */
+export function collectToolCalls(chunks: ToolCallChunk[]): CollectedToolCall[] {
+  const byIndex = new Map<number, { id: string; name: string; arguments: string }>();
+  for (const chunk of chunks) {
+    const entry = byIndex.get(chunk.index) ?? { id: "", name: "", arguments: "" };
+    if (chunk.id) entry.id = chunk.id;
+    if (chunk.name) entry.name = chunk.name;
+    entry.arguments += chunk.arguments;
+    byIndex.set(chunk.index, entry);
+  }
+  return Array.from(byIndex.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([, entry]) => {
+      let parsed: Record<string, unknown> = {};
+      let parseError = "";
+      const text = entry.arguments.trim();
+      if (text) {
+        try {
+          const value: unknown = JSON.parse(text);
+          if (value && typeof value === "object" && !Array.isArray(value)) {
+            parsed = value as Record<string, unknown>;
+          } else {
+            parseError = "工具参数不是 JSON 对象";
+          }
+        } catch (err) {
+          parseError = `工具参数解析失败：${String(err)}`;
+        }
+      }
+      return {
+        id: entry.id,
+        name: entry.name,
+        arguments: parsed,
+        rawArguments: entry.arguments,
+        parseError,
+      };
+    });
 }
 
 /**
@@ -45,23 +100,27 @@ export async function runChat(
 ): Promise<ChatRunResult> {
   await modelRouter.refresh();
   if (!modelRouter.select(route)) {
-    return { raw: "", failure: NO_MODEL_MESSAGE };
+    return { raw: "", toolCalls: [], failure: NO_MODEL_MESSAGE };
   }
 
   let raw = "";
   let failure = "";
+  const fragments: ToolCallChunk[] = [];
   const handle = modelRouter.chat(
     route,
     messages,
     (chunk) => {
-      if (!chunk.delta) return;
-      raw += chunk.delta;
-      onProgress?.(raw.length);
+      if (chunk.delta) {
+        raw += chunk.delta;
+        onProgress?.(raw.length);
+      }
+      if (chunk.toolCalls?.length) fragments.push(...chunk.toolCalls);
     },
     (message) => {
       failure = message;
     },
+    route.tools,
   );
   await handle.done.catch(() => undefined);
-  return { raw, failure };
+  return { raw, toolCalls: collectToolCalls(fragments), failure };
 }
