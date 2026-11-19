@@ -1,5 +1,5 @@
 import { runChat } from "@/services/aiChat";
-import { fitContext } from "@/services/aiContext";
+import { fitContext } from "@/services/contextText";
 import { buildSummaryMessages } from "@/services/prompts/summary";
 
 // 兼容既有调用方（组件仍从本模块引用）。

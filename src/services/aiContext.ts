@@ -1,66 +1,19 @@
-import type { Project } from "@/types";
 import { DEFAULT_CONTEXT_BUDGET } from "./summaryService";
 
 /**
  * AI 请求的上下文口径：写作辅助与 Copilot 对话共用同一套截断规则，
  * 避免两个入口注入的背景长度不一致、调出来的文风忽紧忽松。
+ *
+ * 具体裁剪函数放在 ./contextText（纯函数、无依赖），这里只负责预算常量与再导出，
+ * 否则本文件与 summaryService 会形成循环依赖。
  */
 
 /** 没设置预算时的默认值；真实额度由 summaryService 从 app_meta 读取后传入。 */
 export const CONTEXT_LIMIT = DEFAULT_CONTEXT_BUDGET;
 
-/** 作品上下文保留开头（作品信息、设定库、大纲都在前面）。 */
-export function head(text: string, limit: number): string {
-  return text.length <= limit ? text : `${text.slice(0, limit)}\n…（上下文过长，已截断）`;
-}
-
-/**
- * 按章节预算裁剪作品上下文，保证「大纲骨架 + 伏笔」一定随 AI 请求带着走。
- *
- * build_context 的输出是 作品信息 → 设定库 → 大纲(章节+场景) → 伏笔，伏笔排在末尾；
- * 直接 head() 只留开头，长作品一旦超预算就把伏笔整段切掉，而伏笔恰恰是续写必须遵守的约束。
- * 这里先抽出伏笔段和章节标题行，剩下的预算才分给正文细节，超长时仍以两者为先。
- */
-export function fitContext(text: string, limit: number): string {
-  if (!text.trim() || limit <= 0) return "";
-  if (text.length <= limit) return text;
-
-  const marker = "## 伏笔";
-  const at = text.lastIndexOf(marker);
-  const foreshadow = at >= 0 ? text.slice(at).trim() : "";
-  // 章节标题是「大纲」的骨架：即便场景细节全被裁掉，作者也知道每章要写什么。
-  const chapters = text
-    .split("\n")
-    .filter((line) => line.startsWith("#### "))
-    .join("\n");
-  const essentials = [chapters, foreshadow].filter(Boolean).join("\n");
-  // 多留 40 字给 head() 自己追加的截断提示，避免结果反而超过预算。
-  const room = limit - essentials.length - 40;
-  if (room <= 0) return head(essentials, limit);
-
-  // 前半段去掉伏笔再裁，避免 essentials 里的伏笔出现两遍。
-  const body = at >= 0 ? text.slice(0, at) : text;
-  return `${head(body, room).trim()}\n\n${essentials}\n…（上下文过长，已优先保留章节与伏笔）`;
-}
-
-/** 前文保留结尾，续写靠的正是紧邻选区的那几句。 */
-export function tail(text: string, limit: number): string {
-  return text.length <= limit ? text : `…（前文过长，只保留结尾）\n${text.slice(-limit)}`;
-}
+export { fitContext, head, projectFacts, tail } from "./contextText";
 
 /** 面板上展示「已注入多少字上下文」，让作者知道模型看到了什么。 */
 export function contextCharCount(context: string, limit = CONTEXT_LIMIT): number {
   return Math.min(context.length, limit);
-}
-
-/** 作品的四项基本事实；空字段直接跳过，不要给模型一堆「类型：」的空行。 */
-export function projectFacts(project: Project): string {
-  return [
-    project.genre ? `类型：${project.genre}` : "",
-    project.premise ? `一句话梗概：${project.premise}` : "",
-    project.style ? `叙事风格：${project.style}` : "",
-    project.audience ? `目标读者：${project.audience}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
 }
