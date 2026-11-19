@@ -86,8 +86,17 @@ export function useChapterSummary(options: ChapterSummaryOptions) {
     try {
       const text = options.text().trim();
       if (!text) throw new Error("本章还没有正文，先写一点再来生成摘要。");
+      // 摘要要写清「埋下/回收了什么伏笔」，必须先把作品上下文取来一起送进去。
+      const context = await outlineService.buildContext(project.id);
       const value = await requestChapterSummary(
-        { project, chapter, text, privacy: project.privacy, projectId: project.id },
+        {
+          project,
+          chapter,
+          text,
+          privacy: project.privacy,
+          projectId: project.id,
+          context,
+        },
         (count) => {
           received.value = count;
         },

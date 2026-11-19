@@ -1,4 +1,5 @@
 import { runChat } from "@/services/aiChat";
+import { fitContext } from "@/services/aiContext";
 import { buildSummaryMessages } from "@/services/prompts/summary";
 
 // 兼容既有调用方（组件仍从本模块引用）。
@@ -70,6 +71,8 @@ export interface SummaryRequest {
   text: string;
   privacy: PrivacyScope;
   projectId: string;
+  /** 作品上下文（设定/大纲/伏笔），由调用方取好传进来。 */
+  context?: string;
 }
 
 export async function requestChapterSummary(
@@ -78,7 +81,12 @@ export async function requestChapterSummary(
 ): Promise<string> {
   const { raw, failure } = await runChat(
     { task: "summary", privacy: input.privacy, projectId: input.projectId },
-    buildSummaryMessages(input.project, input.chapter, input.text),
+    buildSummaryMessages(
+      input.project,
+      input.chapter,
+      input.text,
+      fitContext(input.context ?? "", DEFAULT_CONTEXT_BUDGET),
+    ),
     onChunk,
   );
   // 真实失败原因优先抛出：网络/鉴权/配额问题不能只显示「没有给出摘要」。

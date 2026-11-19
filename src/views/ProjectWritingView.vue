@@ -13,6 +13,7 @@ import { useWritingCopilot } from "@/composables/useWritingCopilot";
 import { useWritingDesk } from "@/composables/useWritingDesk";
 import { useAppStore } from "@/stores/app";
 import type { AssistApplyMode, AssistSelection, CopilotReference } from "@/types";
+import { onReactivated } from "@/utils/lifecycle";
 import { documentToPlainText, EMPTY_DOCUMENT_TEXT } from "@/utils/tiptap";
 
 /**
@@ -83,6 +84,7 @@ const {
   output: assistOutput,
   card: assistCard,
   run: runAssist,
+  refreshContext: refreshAssistContext,
   retry: retryAssist,
   stop: stopAssist,
   close: closeAssist,
@@ -102,6 +104,7 @@ const {
   references: copilotReferences,
   retrievedCount: copilotRetrieved,
   send: sendCopilot,
+  refreshContext: refreshCopilotContext,
   stop: stopCopilot,
   clear: clearCopilot,
   addReference: addCopilotReference,
@@ -126,6 +129,12 @@ const {
   label: ragLabel,
   reindex: reindexRag,
 } = useRagIndex(() => props.projectId, { refreshOn: () => app.copilotOpen });
+
+// 去大纲页补了章节/伏笔再回来，必须重取作品上下文，否则 AI 还会按旧大纲写作。
+onReactivated(() => {
+  void refreshAssistContext();
+  void refreshCopilotContext();
+});
 
 // 收起面板时作废进行中的辅助请求，避免关掉后还在后台收字。
 watch(

@@ -1,4 +1,5 @@
 import { EMPTY_REPLY_MESSAGE, runChat } from "@/services/aiChat";
+import { fitContext } from "@/services/aiContext";
 import { settingsService } from "@/services/settingsService";
 import type {
   Chapter,
@@ -110,7 +111,7 @@ export function buildStageMessages(input: {
 }): ChatMessage[] {
   const { stage, project, chapter, chapterText, context, previous } = input;
   const facts = projectFacts(project);
-  const background = context.trim() ? clip(context) : "（设定与大纲暂未提供）";
+  const background = fitContext(context, ARTIFACT_LIMIT) || "（设定与大纲暂未提供）";
 
   if (stage === "ideation") {
     return [

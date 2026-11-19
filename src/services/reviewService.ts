@@ -16,7 +16,7 @@ import {
   type ReviewScope,
   type ReviewSeverity,
 } from "@/types";
-import { head, projectFacts } from "./aiContext";
+import { fitContext, projectFacts } from "./aiContext";
 
 /** 本章正文送进模型的上限：审稿要看全文，但再长就得截断，否则回答质量反而下降。 */
 const CHAPTER_TEXT_LIMIT = 12000;
@@ -103,7 +103,7 @@ export function buildReviewMessages(input: ReviewPromptInput): ChatMessage[] {
 
   const overview = [
     `【作品信息】\n${projectFacts(project) || "（未填写）"}`,
-    `【设定与大纲】\n${head(input.context, CONTEXT_LIMIT) || "（还没有设定与大纲）"}`,
+    `【设定与大纲】\n${fitContext(input.context, CONTEXT_LIMIT) || "（还没有设定与大纲）"}`,
   ];
 
   const body =

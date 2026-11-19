@@ -8,7 +8,7 @@ import {
   type StoryElement,
 } from "@/types";
 import { documentToPlainText, EMPTY_DOCUMENT_TEXT } from "@/utils/tiptap";
-import { CONTEXT_LIMIT, head, projectFacts, tail } from "./aiContext";
+import { CONTEXT_LIMIT, fitContext, projectFacts, tail } from "./aiContext";
 import { storyElementService } from "./storyElementService";
 import { writingService } from "./writingService";
 
@@ -97,7 +97,7 @@ export function buildCopilotSystem(input: CopilotSystemInput): string {
     projectFacts(project),
     "",
     "【作品上下文】",
-    head(input.context, input.contextLimit ?? CONTEXT_LIMIT) ||
+    fitContext(input.context, input.contextLimit ?? CONTEXT_LIMIT) ||
       "（还没有设定与大纲，回答时请以作者的说法为准，不要编造设定。）",
     "",
     "【当前章节】",

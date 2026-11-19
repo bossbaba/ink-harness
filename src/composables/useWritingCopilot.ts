@@ -50,10 +50,15 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
   // 每次发送自增：停止或新问题到来后，旧请求迟到的分片直接丢弃。
   let requestSeq = 0;
 
-  async function loadContext(): Promise<string> {
-    if (contextCache !== null) return contextCache;
+  async function loadContext(force = false): Promise<string> {
+    if (!force && contextCache !== null) return contextCache;
     contextCache = await outlineService.buildContext(options.projectId);
     return contextCache;
+  }
+
+  /** 大纲/伏笔在别的页面改过后强制重取，避免 KeepAlive 下 AI 一直用旧上下文。 */
+  async function refreshContext(): Promise<void> {
+    await loadContext(true);
   }
 
   function addReference(reference: CopilotReference): void {
@@ -174,6 +179,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
     references,
     retrievedCount,
     send,
+    refreshContext,
     stop,
     clear,
     addReference,

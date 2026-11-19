@@ -17,6 +17,8 @@ export function buildSummaryMessages(
   project: Project,
   chapter: Chapter,
   text: string,
+  /** 作品上下文（设定/大纲/伏笔），让摘要能写清「埋下或回收了什么伏笔」。 */
+  context = "",
 ): ChatMessage[] {
   const system = [
     "你是中文小说的资深编辑，正在为长篇写作维护「章节记忆」。",
@@ -29,6 +31,7 @@ export function buildSummaryMessages(
     `【作品】${project.title}`,
     project.premise ? `【梗概】${project.premise}` : "",
     `【章节】第${chapter.act}幕 · ${chapter.title}`,
+    context.trim() ? `【设定与大纲（含伏笔）】\n${context}` : "",
     `【正文】\n${clipChapterText(text)}`,
     "",
     "请输出这一段摘要。",

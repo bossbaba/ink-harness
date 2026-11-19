@@ -1,5 +1,5 @@
 import type { AssistSelection, AssistTask, ChatMessage, Project, TaskKind } from "@/types";
-import { CONTEXT_LIMIT, head, projectFacts, tail } from "./aiContext";
+import { CONTEXT_LIMIT, fitContext, projectFacts, tail } from "./aiContext";
 
 /** 选区之前只带最近这一段：更早的内容对「接得上语气」帮助有限，反而占额度。 */
 const BEFORE_LIMIT = 1200;
@@ -55,7 +55,7 @@ export function buildAssistMessages(input: AssistMessageInput): ChatMessage[] {
     facts,
     "",
     "【作品上下文】",
-    head(input.context, input.contextLimit ?? CONTEXT_LIMIT) ||
+    fitContext(input.context, input.contextLimit ?? CONTEXT_LIMIT) ||
       "（还没有设定与大纲，请贴合作者正文的风格自由发挥。）",
     "",
     "【当前章节】",
