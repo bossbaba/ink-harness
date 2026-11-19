@@ -304,3 +304,25 @@ fn project_context_includes_bible_outline_and_foreshadow() {
     assert!(context.contains("场景 1 · 破庙相遇"));
     assert!(context.contains("- [已铺设] 断剑：铺设「雨夜」→ 回收「未指定」"));
 }
+
+#[test]
+fn project_context_includes_character_notes() {
+    let (state, project_id) = temp_state("context-notes");
+    story_element::create(
+        &state,
+        NewStoryElement {
+            project_id: project_id.clone(),
+            kind: "character".into(),
+            name: "张三".into(),
+            summary: "".into(),
+            detail: serde_json::json!({ "notes": "冷静的工程学家，沉默寡言" }),
+        },
+    )
+    .unwrap();
+
+    let context = outline_context::build_context(&state, &project_id).unwrap();
+    assert!(
+        context.contains("补充备注：冷静的工程学家，沉默寡言"),
+        "补充备注必须进入 AI 上下文，否则模型只能看到角色名"
+    );
+}

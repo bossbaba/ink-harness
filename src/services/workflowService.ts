@@ -20,6 +20,16 @@ const STATE_VERSION = 1;
 /** 单个候选产物进入提示词前的上限：防止把整本书塞进一次请求。 */
 const ARTIFACT_LIMIT = 8000;
 
+/**
+ * 设定库约束：所有阶段都必须沿用已登记的人物/地点，不能自创关键角色。
+ * 之前只有写作/审稿把设定库带进提示词，策划/编辑/出版都没带，模型会另起炉灶，
+ * 生成与设定库无关的角色名（例如设定里是张三/李四，正文却写成林深/零号）。
+ */
+const SETTING_RULE = [
+  "【人物与设定】严格沿用【设定与大纲】或【作品背景】中设定库已登记的姓名、别名与关系，",
+  "不得自创新的关键角色，也不得给已有角色改名；只有设定库确实为空时才按类型惯例补全。",
+].join("");
+
 function emptyStage(): WorkflowStageState {
   return {
     status: "idle",
@@ -110,9 +120,13 @@ export function buildStageMessages(input: {
           "你是中文小说的资深策划编辑。请依据作品现有信息输出一份可执行的立项方案。",
           "只输出 JSON 对象，不要代码块和解释。字段：titles(3个候选书名)、premise(40字内一句话)、synopsis(200~300字简介)、audience(50字内)、style(30字内)、outline(三幕，每幕chapters数组，章含title与40字内summary)。",
           "outline 固定三幕：3/4/2 章；信息不足时按类型惯例补全，不要反问。",
+          SETTING_RULE,
         ].join("\n"),
       },
-      { role: "user", content: `${facts}\n\n请输出方案 JSON。` },
+      {
+        role: "user",
+        content: `${facts}\n\n【设定与大纲】\n${background}\n\n请输出方案 JSON。`,
+      },
     ];
   }
 
@@ -124,6 +138,7 @@ export function buildStageMessages(input: {
           "你是中文小说写手，正在按大纲写章节初稿。",
           "只输出正文，不要标题、解释或 Markdown。用空行分段，600~1000 字，沿用给定风格与人称。",
           "严格依据大纲梗概发生的事，不新增关键设定，写完整的一场戏而非梗概复述。",
+          SETTING_RULE,
         ].join("\n"),
       },
       {
@@ -148,12 +163,14 @@ export function buildStageMessages(input: {
           "你是中文小说责编，正在润色一章正文。",
           "只输出润色后的完整正文，不要解释、不要审阅意见、不要 Markdown。",
           "保留原有情节、人物与篇幅，只改用词、句式、节奏与重复表达，不要扩写成新剧情。",
+          SETTING_RULE,
         ].join("\n"),
       },
       {
         role: "user",
         content: [
           facts,
+          `【作品背景】\n${background}`,
           `【章节】第${chapter?.act ?? 1}幕 · ${chapter?.title ?? "未指定章节"}`,
           `【正文】\n${clip(chapterText)}`,
           "",
@@ -171,6 +188,7 @@ export function buildStageMessages(input: {
           "你是中文小说的资深编辑，正在做全书三层审稿。",
           "只输出 JSON 数组，每项字段：layer(structure|consistency|language)、severity(high|medium|low)、title、quote、detail、suggestion、replacement(可直接替换的文本，没有填空串)。",
           "只挑真问题，4~12 条，按严重度排序；没有问题就输出空数组 []。",
+          SETTING_RULE,
         ].join("\n"),
       },
       {
@@ -193,9 +211,13 @@ export function buildStageMessages(input: {
         "你是中文小说的发行策划，正在准备上架物料。",
         "只输出 JSON 对象：blurb(150字内有钩子的简介)、tags(5个标签)、coverBrief(100字内封面需求)、queryLetter(200字内投稿信)。",
         "只依据提供信息，缺失就写未提供，不编造数据。",
+        SETTING_RULE,
       ].join("\n"),
     },
-    { role: "user", content: `${facts}\n\n请输出物料 JSON。` },
+    {
+      role: "user",
+      content: `${facts}\n\n【设定与大纲】\n${background}\n\n请输出物料 JSON。`,
+    },
   ];
 }
 

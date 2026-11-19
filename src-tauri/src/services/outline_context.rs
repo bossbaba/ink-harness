@@ -29,6 +29,8 @@ struct ElementBrief {
     name: String,
     summary: String,
     aliases: Vec<String>,
+    /// 设定库表单里的「补充备注」：性格、外观、背景等角色细节都写在这里，必须进 AI 上下文。
+    notes: Option<String>,
     time_start: Option<String>,
     time_end: Option<String>,
     /// (目标条目 id, 关系类型)
@@ -147,6 +149,7 @@ fn query_elements(conn: &Connection, project_id: &str) -> Result<Vec<ElementBrie
                 name: row.get(2)?,
                 summary: row.get(3)?,
                 aliases,
+                notes: detail_str(&detail, "notes"),
                 time_start: detail_str(&detail, "timeStart"),
                 time_end: detail_str(&detail, "timeEnd"),
                 relations,
@@ -283,6 +286,9 @@ fn write_elements(out: &mut String, elements: &[ElementBrief]) {
                 format!("：{}", element.summary.trim())
             };
             let _ = writeln!(out, "- **{}{}**{}", element.name, alias, summary);
+            if let Some(notes) = element.notes.as_deref() {
+                let _ = writeln!(out, "  - 补充备注：{notes}");
+            }
             if element.time_start.is_some() || element.time_end.is_some() {
                 let _ = writeln!(
                     out,
