@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { NEmpty, NTag } from "naive-ui";
 import { computed, onMounted } from "vue";
+import PageHeader from "@/components/common/PageHeader.vue";
+import StatCard from "@/components/common/StatCard.vue";
 import CostDashboardPanel from "@/components/models/CostDashboardPanel.vue";
 import { useGlobalStats } from "@/composables/useGlobalStats";
 import {
@@ -48,10 +50,12 @@ onReactivated(() => void load());
 
 <template>
   <div class="stats">
-    <header class="stats__header">
-      <h1 class="stats__title serif">创作统计</h1>
-      <p class="stats__sub">汇总本机全部作品，数据只用于了解进度，不上传。</p>
-    </header>
+    <PageHeader
+      class="stats__header"
+      eyebrow="全局视角"
+      title="创作统计"
+      subtitle="汇总本机全部作品，数据只用于了解进度，不上传。"
+    />
 
     <p v-if="error" class="stats__error">{{ error }}</p>
 
@@ -60,28 +64,11 @@ onReactivated(() => void load());
       <p v-if="loading && !stats" class="stats__loading">正在统计…</p>
       <template v-else-if="stats">
         <div class="stats__metrics">
-          <div class="metric">
-            <span class="metric__label">作品数</span>
-            <strong class="metric__value">{{ stats.projects }}</strong>
-          </div>
-          <div class="metric">
-            <span class="metric__label">章节数</span>
-            <strong class="metric__value">{{ stats.chapters }}</strong>
-          </div>
-          <div class="metric">
-            <span class="metric__label">总字数</span>
-            <strong class="metric__value">{{ stats.totalWords.toLocaleString() }}</strong>
-          </div>
-          <div class="metric">
-            <span class="metric__label">设定条目</span>
-            <strong class="metric__value">{{ stats.storyElements }}</strong>
-          </div>
-          <div class="metric">
-            <span class="metric__label">场景 / 伏笔</span>
-            <strong class="metric__value metric__value--small">
-              {{ stats.scenes }} / {{ stats.foreshadows }}
-            </strong>
-          </div>
+          <StatCard label="作品数" :value="stats.projects" emphasis />
+          <StatCard label="章节数" :value="stats.chapters" />
+          <StatCard label="总字数" :value="stats.totalWords.toLocaleString()" />
+          <StatCard label="设定条目" :value="stats.storyElements" />
+          <StatCard label="场景 / 伏笔" :value="`${stats.scenes} / ${stats.foreshadows}`" />
         </div>
 
         <NEmpty
@@ -150,12 +137,6 @@ onReactivated(() => void load());
     margin-bottom: t.$space-5;
   }
 
-  &__title {
-    margin: 0 0 t.$space-2;
-    font-size: 1.5rem;
-  }
-
-  &__sub,
   &__loading,
   &__error {
     margin: 0;
@@ -220,29 +201,6 @@ onReactivated(() => void load());
     text-align: center;
     font-size: 12px;
     color: var(--text-faint, #{t.$ink-faint});
-  }
-}
-
-.metric {
-  padding: t.$space-3;
-  border-radius: t.$radius-md;
-  background: var(--bg-sunken, #{t.$paper-sunken});
-
-  &__label {
-    display: block;
-    margin-bottom: t.$space-2;
-    font-size: 11px;
-    color: var(--text-faint, #{t.$ink-faint});
-  }
-
-  &__value {
-    font-size: 20px;
-    font-weight: 600;
-    color: var(--text-primary, #{t.$ink});
-
-    &--small {
-      font-size: 15px;
-    }
   }
 }
 </style>

@@ -222,25 +222,25 @@ watch(
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  height: 44px;
-  padding: 0 t.$space-3;
+  height: 52px;
+  padding: 0 t.$space-4;
   border-bottom: 1px solid var(--divider);
   // 先给一个实色兜底，再叠毛玻璃：Webview 不支持 color-mix 时也不会露出背景。
   background: var(--bg-surface);
-  background: color-mix(in srgb, var(--bg-surface) 82%, transparent);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background: color-mix(in srgb, var(--bg-surface) 86%, transparent);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
   user-select: none;
 
   // macOS 红绿灯占据左上角约 72px，避免品牌标识和按钮被压住。
   &--lights {
-    padding-left: 80px;
+    padding-left: 84px;
   }
 
   &__brand {
     display: flex;
     align-items: center;
-    gap: t.$space-2;
+    gap: t.$space-3;
     min-width: 0;
   }
   &__mark {
@@ -248,22 +248,23 @@ watch(
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    width: 20px;
-    height: 20px;
-    border-radius: 5px;
-    background: var(--accent);
-    color: #fff;
+    width: 26px;
+    height: 26px;
+    border-radius: t.$radius-md;
+    // 渐变 + 内高光让「墨」印更立体，比纯色块更有质感。
+    background: linear-gradient(135deg, var(--accent-hover), var(--accent-pressed));
+    color: var(--on-accent);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.25),
-      0 1px 2px rgba(0, 0, 0, 0.12);
+      inset 0 1px 0 rgba(255, 255, 255, 0.28),
+      0 2px 8px var(--accent-soft);
     font-family: t.$font-serif;
-    font-size: 12px;
+    font-size: 13px;
   }
   &__name {
     @include m.ellipsis;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.12em;
   }
   &__center {
     justify-self: center;
@@ -273,14 +274,15 @@ watch(
     @include m.ellipsis;
     display: block;
     max-width: 42vw;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 500;
     color: var(--text-soft);
   }
   &__actions {
     justify-self: end;
     display: flex;
-    gap: 2px;
+    align-items: center;
+    gap: t.$space-1;
   }
 }
 
@@ -288,15 +290,28 @@ watch(
   color: var(--text-soft);
 }
 
-// 顶栏当前模型标签：可点击跳转模型管理，光标与悬浮反馈要明确。
+// 顶栏当前模型标签：用主色淡底 + 圆点表示「正在生效」，可点击跳转模型管理。
 .model-badge {
-  max-width: 200px;
+  max-width: 220px;
   cursor: pointer;
-  color: var(--text-soft);
-  background: var(--bg-sunken);
+  color: var(--accent);
+  background: var(--accent-soft);
+  transition: box-shadow t.$duration t.$ease;
+
+  // 小圆点把「当前生效」和旁边的静态按钮区分开。
+  &::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    vertical-align: middle;
+  }
 
   &:hover {
-    color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
   }
 }
 
@@ -311,16 +326,16 @@ watch(
   flex-direction: column;
   width: 220px;
   flex-shrink: 0;
-  padding: t.$space-2;
+  padding: t.$space-3 t.$space-2;
   border-right: 1px solid var(--divider);
   background: var(--bg-sunken);
   user-select: none;
 
   &__section {
-    margin: t.$space-3 t.$space-3 t.$space-1;
-    font-size: 11px;
+    margin: t.$space-4 t.$space-3 t.$space-2;
+    font-size: 10px;
     font-weight: 600;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.12em;
     color: var(--text-faint);
   }
 }
@@ -336,10 +351,10 @@ watch(
     align-items: center;
     gap: 10px;
     width: 100%;
-    min-height: 30px;
+    min-height: 36px;
     padding: t.$space-2 t.$space-3;
     border: none;
-    border-radius: t.$radius-sm;
+    border-radius: t.$radius-md;
     background: transparent;
     color: var(--text-soft);
     font-size: 13px;
@@ -347,19 +362,33 @@ watch(
     text-decoration: none;
     cursor: pointer;
     white-space: normal;
-    transition: background 140ms t.$ease, color 140ms t.$ease;
+    // 选中态的左侧指示条相对本项定位。
+    position: relative;
+    transition: background 160ms t.$ease, color 160ms t.$ease;
 
     &:hover {
       background: var(--bg-hover);
       color: var(--text-primary);
     }
 
-    // source-list 选中态：淡色填充 + 强调色文字，比整块白底加粗更接近 macOS。
+    // 选中态：淡色填充 + 强调色文字 + 左侧竖条，明确「当前在哪一页」。
     &--active,
     &.nav__item--active {
       background: var(--accent-soft);
       color: var(--accent);
-      font-weight: 500;
+      font-weight: 600;
+
+      &::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 0;
+        width: 3px;
+        height: 16px;
+        border-radius: 0 2px 2px 0;
+        background: var(--accent);
+        transform: translateY(-50%);
+      }
     }
 
     // NButton 把 slot 内容包进 .n-button__content，图标与文字要在这一层做 flex。
@@ -384,8 +413,11 @@ watch(
     margin-bottom: t.$space-1;
   }
 
-  &__focus {
+  // 专注模式与上方导航用分隔线隔开，双写类名压过 NButton 的边框样式。
+  &__focus.nav__item {
     margin-top: auto;
+    border-top: 1px solid var(--divider);
+    border-radius: 0;
   }
 }
 
@@ -393,6 +425,10 @@ watch(
   flex: 1;
   min-width: 0;
   overflow: auto;
+  // 顶部极淡的主色环境光：给长页面一个纵深起点，也让内容区与标题栏自然衔接。
+  background:
+    radial-gradient(120% 360px at 50% -120px, var(--accent-soft), transparent 72%),
+    var(--bg-app);
   @include m.thin-scrollbar;
 }
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NButton, NSelect, NSpace, NSwitch, NTag } from "naive-ui";
 import { computed } from "vue";
+import PageHeader from "@/components/common/PageHeader.vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import type { SegmentOption } from "@/components/common/segmentedControl";
 import ProviderCard from "@/components/models/ProviderCard.vue";
@@ -101,21 +102,20 @@ const routeOptions: SegmentOption[] = [
 
 <template>
   <div class="model-settings">
-    <header class="model-settings__header">
-      <div>
-        <h1 class="model-settings__title serif">模型管理</h1>
-        <p class="model-settings__subtitle">
-          配置本地与云端模型。API Key 存系统钥匙串，请求由本地 Rust
-          代理发出，作品设为「仅本地」时不会走云端。
-        </p>
-      </div>
-      <NSpace>
-        <NButton size="small" :disabled="loading" @click="refreshOllama"> 重新检测 Ollama </NButton>
-        <NButton size="small" type="primary" :disabled="loading" @click="openCreate">
-          新增 Provider
-        </NButton>
-      </NSpace>
-    </header>
+    <PageHeader
+      eyebrow="系统设置"
+      title="模型管理"
+      subtitle="配置本地与云端模型。API Key 存系统钥匙串，请求由本地 Rust 代理发出，作品设为「仅本地」时不会走云端。"
+    >
+      <template #actions>
+        <NSpace>
+          <NButton size="small" :disabled="loading" @click="refreshOllama">重新检测 Ollama</NButton>
+          <NButton size="small" type="primary" :disabled="loading" @click="openCreate">
+            新增 Provider
+          </NButton>
+        </NSpace>
+      </template>
+    </PageHeader>
 
     <p v-if="error" class="model-settings__error">{{ error }}</p>
 
@@ -284,28 +284,11 @@ const routeOptions: SegmentOption[] = [
   padding: t.$space-6;
   container-type: inline-size;
 
-  &__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: t.$space-4;
-  }
-
-  &__title {
-    margin: 0;
-    font-size: 1.5rem;
-    font-weight: 600;
-  }
-
-  &__subtitle,
+  // 页面级错误提示：标题区已抽成 PageHeader，这里只保留异常文案样式。
   &__error {
-    margin: t.$space-2 0 0;
+    margin: t.$space-3 0 0;
     font-size: 12px;
     line-height: 1.7;
-    color: var(--text-soft, #{t.$ink-soft});
-  }
-
-  &__error {
     color: var(--error, #{t.$error});
   }
 }

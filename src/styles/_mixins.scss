@@ -7,12 +7,26 @@
   justify-content: center;
 }
 
-// 卡片表面：纸色 + 细描边 + 柔和阴影
+// 卡片表面：纸色 + 细描边 + 两层柔和阴影。
+// 调用方传 var(--bg-surface/elevated)，Sass 色仅作编译期兜底。
 @mixin card-surface($bg: t.$paper-raised) {
   background: $bg;
-  border: 1px solid t.$divider;
+  border: 1px solid var(--divider, #{t.$divider});
   border-radius: t.$radius-lg;
   box-shadow: t.$shadow-card;
+  transition:
+    box-shadow t.$duration t.$ease,
+    border-color t.$duration t.$ease,
+    transform t.$duration t.$ease;
+}
+
+// 可点击卡片的悬浮反馈：轻微抬起 + 加深阴影，避免生硬变色。
+@mixin hover-lift {
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: t.$shadow-elevated;
+    border-color: var(--border, #{t.$divider});
+  }
 }
 
 // 毛玻璃表面（macOS 风格）

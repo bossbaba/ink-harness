@@ -26,11 +26,15 @@ body,
 
 body {
   overflow: hidden;
+  // 主题切换时让背景与文字平滑过渡，避免整屏突变。
+  transition:
+    background-color t.$duration t.$ease,
+    color t.$duration t.$ease;
   @include m.thin-scrollbar;
 }
 
 ::selection {
-  background: rgba(t.$accent, 0.22);
+  background: var(--accent-soft, rgba(t.$accent, 0.22));
 }
 
 button,

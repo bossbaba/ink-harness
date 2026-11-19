@@ -6,6 +6,8 @@
   --bg-app: #{t.$paper};
   --bg-surface: #{t.$paper-raised};
   --bg-sunken: #{t.$paper-sunken};
+  --bg-elevated: #{t.$bg-elevated};
+  --on-accent: #{t.$on-accent};
   --text-primary: #{t.$ink};
   --text-soft: #{t.$ink-soft};
   --text-faint: #{t.$ink-faint};
@@ -27,19 +29,21 @@
   --bg-app: #1c1b1a;
   --bg-surface: #262422;
   --bg-sunken: #141312;
+  --bg-elevated: #2f2c29;
+  --on-accent: #0c2018;
   --text-primary: #ece9e2;
   --text-soft: #b8b3a9;
   --text-faint: #7e7970;
-  --accent: #2ed42e;
-  --accent-hover: #4bdb4b;
-  --accent-pressed: #1fb81f;
+  --accent: #3ddc91;
+  --accent-hover: #5ce6a6;
+  --accent-pressed: #2bc67f;
   --success: #26a69a;
   --warning: #f0b429;
   --error: #ef5350;
   --divider: rgba(236, 233, 226, 0.12);
   --border: #3a3734;
   --bg-hover: rgba(236, 233, 226, 0.08);
-  --accent-soft: rgba(46, 212, 46, 0.14);
+  --accent-soft: rgba(61, 220, 145, 0.14);
   --error-soft: rgba(239, 83, 80, 0.14);
   --success-soft: rgba(38, 166, 154, 0.14);
 }
