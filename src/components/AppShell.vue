@@ -90,7 +90,17 @@ watch(
 </script>
 
 <template>
-  <div class="shell" :class="{ 'shell--focus': app.focusMode }">
+  <!--
+    专注模式没有标题栏，作品页的面包屑会顶到窗口左上角、压在 macOS 红绿灯上。
+    这里把「红绿灯安全区」作为 CSS 变量下发给页面，由需要贴顶的头部自行让位。
+  -->
+  <div
+    class="shell"
+    :class="{
+      'shell--focus': app.focusMode,
+      'shell--focus-lights': app.focusMode && hasTrafficLights,
+    }"
+  >
     <header
       v-if="!app.focusMode"
       class="titlebar"
@@ -214,6 +224,12 @@ watch(
   height: 100%;
   background: var(--bg-app);
   color: var(--text-primary);
+
+  // 专注模式 + macOS：红绿灯画在窗口左上角，页面头部要把这块让出来。
+  // 变量直接给「最终左内边距」，普通模式由页面自己的 token 兜底，不做叠加。
+  &--focus-lights {
+    --page-header-inset: 84px;
+  }
 }
 
 .titlebar {

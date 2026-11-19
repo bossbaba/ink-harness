@@ -40,7 +40,8 @@ watch(projectId, loadProject, { immediate: true });
 
 <template>
   <div class="project-shell">
-    <header class="project-shell__header">
+    <!-- 专注模式没有标题栏，这一行兼作窗口拖拽区；面包屑链接未标记，仍可正常点击。 -->
+    <header class="project-shell__header" data-tauri-drag-region>
       <nav class="project-shell__crumb" aria-label="面包屑">
         <RouterLink to="/" class="project-shell__crumb-link">
           <AppIcon name="chevron-left" :size="12" />
@@ -85,6 +86,9 @@ watch(projectId, loadProject, { immediate: true });
     flex: none;
     align-items: center;
     padding: t.$space-3 t.$space-6;
+    // 专注模式下没有标题栏，macOS 红绿灯会直接压在面包屑上；
+    // --page-header-inset 由 AppShell 仅在「专注 + macOS」时下发，普通模式回落到 32px。
+    padding-left: var(--page-header-inset, #{t.$space-6});
     border-bottom: 1px solid var(--divider, #{t.$divider});
   }
 
