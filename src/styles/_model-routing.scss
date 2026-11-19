@@ -1,0 +1,73 @@
+@use "tokens" as t;
+
+// 模型管理页「任务路由」面板的样式。默认模型行与下面的策略行同构，
+// 第一个不带分隔线，策略行才用分隔线分节。
+// 独立成片段是为了让视图文件保持在 500 行以内，样式本身仍是就近作用于该面板。
+.routing {
+  &__default {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: t.$space-3;
+    margin-top: t.$space-3;
+  }
+
+  &__default-select {
+    width: 240px;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  &__warn {
+    margin: t.$space-2 0 0;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--warning, #{t.$warning});
+  }
+
+  &__strategy {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: t.$space-3;
+    margin-top: t.$space-3;
+    padding-top: t.$space-3;
+    border-top: 1px solid var(--divider, #{t.$divider});
+  }
+
+  &__strategy-label {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  &__strategy-hint {
+    margin: 2px 0 0;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--text-faint, #{t.$ink-faint});
+  }
+
+  &__list {
+    display: flex;
+    flex-direction: column;
+    gap: t.$space-2;
+    margin-top: t.$space-3;
+  }
+
+  &__item {
+    display: flex;
+    gap: t.$space-2;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--text-soft, #{t.$ink-soft});
+
+    strong {
+      flex-shrink: 0;
+      color: var(--text-primary, #{t.$ink});
+    }
+  }
+}

@@ -4,6 +4,7 @@ import { computed, onMounted, onUnmounted, watch } from "vue";
 import { RouterView } from "vue-router";
 import AppShell from "@/components/AppShell.vue";
 import NoticeStack from "@/components/common/NoticeStack.vue";
+import { modelRouter } from "@/services/modelRouter";
 import { useAppStore } from "@/stores/app";
 import { applyPalette, naiveOverrides, palettes } from "@/theme/palette";
 
@@ -27,6 +28,9 @@ onMounted(() => {
   app.initAppearance();
   applyPalette(palettes[app.appearance]);
   window.addEventListener("keydown", onKeydown);
+  // 应用启动就加载一次路由缓存，顶栏「当前模型」无需先进入模型管理页才有值。
+  // 读取失败不阻塞启动，进入模型管理页时会再加载一次。
+  void modelRouter.refresh().catch(() => undefined);
 });
 onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 </script>

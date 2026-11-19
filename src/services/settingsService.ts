@@ -9,6 +9,9 @@ export const SETTING_RAG_MODEL = "rag_embedding_model";
 /** 全局任务路由策略：quality / cost / privacy，未设置时按质量优先。 */
 export const SETTING_ROUTE_STRATEGY = "route_strategy";
 
+/** 默认生成模型，值形如 `providerId:modelId`；设置后所有 AI 动作优先用它。 */
+export const SETTING_DEFAULT_MODEL = "default_model";
+
 /** 月度 token 预算，字符串存整数；0 表示没设预算。 */
 export const SETTING_TOKEN_BUDGET = "token_budget";
 

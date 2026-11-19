@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NButton, NSpace, NSwitch, NTag } from "naive-ui";
+import { NButton, NSelect, NSpace, NSwitch, NTag } from "naive-ui";
 import { computed } from "vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import type { SegmentOption } from "@/components/common/segmentedControl";
@@ -17,6 +17,7 @@ const {
   ollamaError,
   stopOllamaOnExit,
   routeStrategy,
+  defaultModel,
   savingSetting,
   loading,
   busy,
@@ -35,6 +36,7 @@ const {
   startOllama,
   setStopOllamaOnExit,
   setRouteStrategy,
+  setDefaultModel,
   openCreate,
   openEdit,
   probeDraft,
@@ -66,6 +68,28 @@ const ROUTES = [
 ];
 
 const ollamaRunning = computed(() => ollama.value?.running ?? false);
+
+/**
+ * 默认模型候选：已启用 Provider 下勾选的模型，值和后端一致用 `providerId:modelId`。
+ * 与 RagSettingsPanel 的选项口径保持一致。
+ */
+const defaultModelOptions = computed(() =>
+  providers.value
+    .filter((provider) => provider.enabled)
+    .flatMap((provider) =>
+      provider.models.map((model) => ({
+        label: `${provider.name} · ${model.displayName || model.id}`,
+        value: `${provider.id}:${model.id}`,
+      })),
+    ),
+);
+
+/** 选中的默认模型若已被删除或 Provider 停用，要提示重选，否则会静默回落到策略选模型。 */
+const defaultModelUnavailable = computed(
+  () =>
+    defaultModel.value !== "" &&
+    !defaultModelOptions.value.some((item) => item.value === defaultModel.value),
+);
 
 /** 全局策略只有三档，改为分段控件后与系统设置里的外观/路由切换保持一致。 */
 const routeOptions: SegmentOption[] = [
@@ -176,7 +200,33 @@ const routeOptions: SegmentOption[] = [
     <section class="panel routing">
       <h2 class="panel__title">任务路由</h2>
       <p class="panel__hint">
-        路由在两个偏好之间取模型：任务本身要什么，以及你在下面选的策略。隐私设为「仅本地」时无论哪种策略都只用本地模型。
+        可以先指定一个「默认模型」固定所有 AI
+        动作；不指定时，路由再按任务需求与下面的策略自动挑模型。
+        作品隐私设为「仅本地」时，无论哪种设置都只用本地模型。
+      </p>
+      <div class="routing__default">
+        <div>
+          <p class="routing__strategy-label">默认模型</p>
+          <p class="routing__strategy-hint">
+            选定后，构思、写作、审稿、摘要、出版等所有 AI
+            动作都固定使用这个模型，界面顶栏也会显示当前所用模型。
+            清除后恢复按策略自动选择。
+          </p>
+        </div>
+        <NSelect
+          class="routing__default-select"
+          size="small"
+          :value="defaultModel || null"
+          :options="defaultModelOptions"
+          :disabled="savingSetting"
+          clearable
+          placeholder="自动选择（按策略）"
+          @update:value="(value: string | null) => setDefaultModel(value ?? '')"
+        />
+      </div>
+      <p v-if="defaultModelUnavailable" class="routing__warn">
+        已选的默认模型 {{ defaultModel }} 当前不可用（可能已删除或 Provider
+        被停用），已暂时回落到自动选择，请重新指定。
       </p>
       <div class="routing__strategy">
         <div>
@@ -225,6 +275,7 @@ const routeOptions: SegmentOption[] = [
 <style scoped lang="scss">
 @use "../styles/tokens" as t;
 @use "../styles/mixins" as m;
+@use "../styles/model-routing";
 
 .model-settings {
   max-width: 1200px;
@@ -378,52 +429,7 @@ const routeOptions: SegmentOption[] = [
   min-width: 0;
 }
 
-.routing {
-  &__strategy {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: t.$space-3;
-    margin-top: t.$space-3;
-    padding-top: t.$space-3;
-    border-top: 1px solid var(--divider, #{t.$divider});
-  }
-
-  &__strategy-label {
-    margin: 0;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  &__strategy-hint {
-    margin: 2px 0 0;
-    font-size: 11px;
-    line-height: 1.6;
-    color: var(--text-faint, #{t.$ink-faint});
-  }
-
-  &__list {
-    display: flex;
-    flex-direction: column;
-    gap: t.$space-2;
-    margin-top: t.$space-3;
-  }
-
-  &__item {
-    display: flex;
-    gap: t.$space-2;
-    font-size: 11px;
-    line-height: 1.6;
-    color: var(--text-soft, #{t.$ink-soft});
-
-    strong {
-      flex-shrink: 0;
-      color: var(--text-primary, #{t.$ink});
-    }
-  }
-}
+// 路由面板样式抽到 ../styles/_model-routing.scss，避免本文件超过 500 行。
 
 @container (max-width: 620px) {
   .model-settings__header {

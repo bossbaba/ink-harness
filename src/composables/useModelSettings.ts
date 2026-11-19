@@ -28,6 +28,7 @@ export function useModelSettings() {
       catalog.refreshOllama(),
       settings.loadStopOnExit(),
       settings.loadRouteStrategy(),
+      settings.loadDefaultModel(),
     ]);
   });
 

@@ -1,6 +1,7 @@
 import { type Ref, ref } from "vue";
 import { modelRouter } from "@/services/modelRouter";
 import {
+  SETTING_DEFAULT_MODEL,
   SETTING_ROUTE_STRATEGY,
   SETTING_STOP_OLLAMA_ON_EXIT,
   settingsService,
@@ -18,6 +19,8 @@ export function useAppSettings(shared: { error: Ref<string> }) {
   const stopOllamaOnExit = ref(true);
   /** 全局任务路由策略，影响所有 AI 动作选模型的偏好。 */
   const routeStrategy = ref<RouteStrategy>("quality");
+  /** 默认生成模型标识 `providerId:modelId`，空串表示按策略自动选。 */
+  const defaultModel = ref("");
   const savingSetting = ref(false);
 
   async function loadStopOnExit(): Promise<void> {
@@ -68,13 +71,36 @@ export function useAppSettings(shared: { error: Ref<string> }) {
     }
   }
 
+  async function loadDefaultModel(): Promise<void> {
+    defaultModel.value = await settingsService.getString(SETTING_DEFAULT_MODEL);
+  }
+
+  /** 切换默认模型：先改界面再落库，失败回滚，避免出现显示与生效不一致。 */
+  async function setDefaultModel(value: string): Promise<void> {
+    const previous = defaultModel.value;
+    defaultModel.value = value;
+    savingSetting.value = true;
+    shared.error.value = "";
+    try {
+      await modelRouter.setDefaultModel(value);
+    } catch (err) {
+      defaultModel.value = previous;
+      shared.error.value = `保存默认模型失败：${String(err)}`;
+    } finally {
+      savingSetting.value = false;
+    }
+  }
+
   return {
     stopOllamaOnExit,
     routeStrategy,
+    defaultModel,
     savingSetting,
     loadStopOnExit,
     setStopOllamaOnExit,
     loadRouteStrategy,
     setRouteStrategy,
+    loadDefaultModel,
+    setDefaultModel,
   };
 }

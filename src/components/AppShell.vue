@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { NButton, NTooltip } from "naive-ui";
+import { NButton, NTag, NTooltip } from "naive-ui";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { GLOBAL_NAV as navItems, PROJECT_NAV as projectNavItems } from "@/app/router/nav";
 import AppIcon from "@/components/common/AppIcon.vue";
+import { useCurrentModel } from "@/composables/useCurrentModel";
 import { useAppStore } from "@/stores/app";
 import { useProjectStore } from "@/stores/project";
 
@@ -18,6 +19,8 @@ import { useProjectStore } from "@/stores/project";
 const app = useAppStore();
 const route = useRoute();
 const router = useRouter();
+// 顶栏的「当前模型」直接读路由选择结果，用户换默认模型/启停 Provider 后自动更新。
+const { currentModelLabel, currentModelDetail } = useCurrentModel();
 
 // 主题按钮显示的是「切换后」的图标：当前浅色则给出月亮，暗示点下去进入深色；反之给太阳。
 const appearanceIcon = computed(() => (app.appearance === "light" ? "moon" : "sun"));
@@ -102,6 +105,20 @@ watch(
         <span class="titlebar__project">{{ activeLabel }}</span>
       </div>
       <div class="titlebar__actions">
+        <NTooltip>
+          <template #trigger>
+            <NTag
+              class="model-badge"
+              size="small"
+              :bordered="false"
+              round
+              @click="router.push('/models')"
+            >
+              {{ currentModelLabel }}
+            </NTag>
+          </template>
+          {{ currentModelDetail }}（点击前往模型管理）
+        </NTooltip>
         <NTooltip>
           <template #trigger>
             <NButton quaternary size="small" class="tool-button" @click="app.toggleAppearance()">
@@ -269,6 +286,18 @@ watch(
 
 .tool-button {
   color: var(--text-soft);
+}
+
+// 顶栏当前模型标签：可点击跳转模型管理，光标与悬浮反馈要明确。
+.model-badge {
+  max-width: 200px;
+  cursor: pointer;
+  color: var(--text-soft);
+  background: var(--bg-sunken);
+
+  &:hover {
+    color: var(--accent);
+  }
 }
 
 .body {

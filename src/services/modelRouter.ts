@@ -1,5 +1,10 @@
+import { shallowRef } from "vue";
 import { tauriApi } from "@/api/tauri";
-import { SETTING_ROUTE_STRATEGY, settingsService } from "@/services/settingsService";
+import {
+  SETTING_DEFAULT_MODEL,
+  SETTING_ROUTE_STRATEGY,
+  settingsService,
+} from "@/services/settingsService";
 import type {
   ChatChunk,
   ChatMessage,
@@ -71,26 +76,61 @@ export interface ChatStreamHandle {
 class ModelRouterImpl {
   private providers: Awaited<ReturnType<typeof tauriApi.listProviders>> = [];
   private strategy: RouteStrategy = "quality";
+  /** 作者指定的默认模型标识 `providerId:modelId`；空串表示未设置，退回策略打分。 */
+  private defaultModelRef = "";
+
+  /**
+   * 当前生效的生成模型，供顶栏等界面展示「正在用哪个模型」。
+   * 用 shallowRef 让配置/Provider 变化后界面自动更新，不必各页面各自刷新。
+   */
+  readonly currentModel = shallowRef<ModelInfo | null>(null);
 
   async refresh(): Promise<void> {
-    const [providers, strategy] = await Promise.all([
+    const [providers, strategy, defaultModel] = await Promise.all([
       tauriApi.listProviders(),
       settingsService.getString(SETTING_ROUTE_STRATEGY),
+      settingsService.getString(SETTING_DEFAULT_MODEL),
     ]);
     this.providers = providers;
     if (strategy === "quality" || strategy === "cost" || strategy === "privacy") {
       this.strategy = strategy;
     }
+    this.defaultModelRef = defaultModel;
+    this.updateCurrentModel();
   }
 
   getStrategy(): RouteStrategy {
     return this.strategy;
   }
 
+  /** 当前默认模型标识，空串表示未设置（用于设置页回显下拉框）。 */
+  getDefaultModel(): string {
+    return this.defaultModelRef;
+  }
+
   /** 改策略先落库再改内存，保证后续请求（含缓存页面）都用到新值。 */
   async setStrategy(value: RouteStrategy): Promise<void> {
     await settingsService.setString(SETTING_ROUTE_STRATEGY, value);
     this.strategy = value;
+    this.updateCurrentModel();
+  }
+
+  /**
+   * 设置默认生成模型。先落库再改内存，界面上的「当前模型」随之更新。
+   * 传空串表示清除默认、退回按策略自动选。
+   */
+  async setDefaultModel(value: string): Promise<void> {
+    await settingsService.setString(SETTING_DEFAULT_MODEL, value);
+    this.defaultModelRef = value;
+    this.updateCurrentModel();
+  }
+
+  /**
+   * 用一次中性上下文（copilot / any）算出「当前模型」供展示。
+   * 统一复用 select()，保证顶栏显示的和 AI 实际选到的是同一套逻辑。
+   */
+  private updateCurrentModel(): void {
+    this.currentModel.value = this.select({ task: "copilot", privacy: "any" });
   }
 
   /** 按任务与策略选模型；隐私 local-only 时只考虑本地 source。 */
@@ -104,6 +144,15 @@ class ModelRouterImpl {
       .flatMap((p) => p.models.map((model) => toModelInfo(p, model)));
 
     if (candidates.length === 0) return null;
+
+    // 作者指定了默认模型时优先用它，不再按策略打分；但要满足本次隐私与上下文约束。
+    // 若该模型已被删除/停用或不符合约束，则自然回落到下面的策略打分，避免请求失败。
+    if (this.defaultModelRef) {
+      const preset = candidates.find((m) => `${m.provider}:${m.id}` === this.defaultModelRef);
+      if (preset && (!ctx.minContext || preset.capabilities.contextWindow >= ctx.minContext)) {
+        return preset;
+      }
+    }
 
     const scored = candidates
       .filter((m) => !ctx.minContext || m.capabilities.contextWindow >= ctx.minContext)
