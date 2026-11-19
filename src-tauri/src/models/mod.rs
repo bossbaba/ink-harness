@@ -13,7 +13,7 @@ pub mod usage;
 pub use agent::{
     AgentMessage, AgentSession, AgentStepRecord, NewAgentMessage, NewAgentSession, NewAgentStep,
 };
-pub use chat::{ChatChunk, ChatMessage, ChatParams, TokenUsage, ToolCallChunk};
+pub use chat::{ChatChunk, ChatParams, TokenUsage, ToolCallChunk};
 pub use draft::{ChapterContent, DraftVersion, DraftVersionBrief, SaveContentInput};
 pub use outline::{
     Chapter, Foreshadow, MoveChapter, MoveScene, NewChapter, NewForeshadow, NewScene,
