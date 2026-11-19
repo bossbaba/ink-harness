@@ -2,6 +2,7 @@
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
+import AppIcon from "@/components/common/AppIcon.vue";
 import { projectService } from "@/services/projectService";
 import { useProjectStore } from "@/stores/project";
 
@@ -40,11 +41,14 @@ watch(projectId, loadProject, { immediate: true });
 <template>
   <div class="project-shell">
     <header class="project-shell__header">
-      <div class="project-shell__crumb">
-        <RouterLink to="/">工作台</RouterLink>
-        <span>/</span>
-        <span>{{ project?.title ?? "作品" }}</span>
-      </div>
+      <nav class="project-shell__crumb" aria-label="面包屑">
+        <RouterLink to="/" class="project-shell__crumb-link">
+          <AppIcon name="chevron-left" :size="12" />
+          <span>工作台</span>
+        </RouterLink>
+        <AppIcon class="project-shell__crumb-sep" name="chevron-right" :size="10" />
+        <span class="project-shell__crumb-current">{{ project?.title ?? "作品" }}</span>
+      </nav>
     </header>
 
     <div class="project-shell__body">
@@ -64,6 +68,7 @@ watch(projectId, loadProject, { immediate: true });
 </template>
 
 <style scoped lang="scss">
+@use "../styles/mixins" as m;
 @use "../styles/tokens" as t;
 
 // 外壳撑满内容区高度：写作台这类「编辑区自己滚动」的页面需要确定的 100% 高度，
@@ -91,21 +96,46 @@ watch(projectId, loadProject, { immediate: true });
     min-height: 0;
   }
 
+  // 面包屑：父级用可点的轻量胶囊，当前作品加粗并跟随主题前景色。
+  // 11px 的灰字在长页面顶部几乎看不清，这里统一到 12px 并留出悬浮反馈。
   &__crumb {
     display: flex;
     align-items: center;
-    gap: t.$space-2;
-    font-size: 11px;
-    color: var(--text-faint, #{t.$ink-faint});
+    gap: 2px;
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1;
+  }
 
-    a {
-      color: inherit;
-      text-decoration: none;
+  &__crumb-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 7px 4px 5px;
+    border-radius: t.$radius-sm;
+    color: var(--text-soft, #{t.$ink-soft});
+    text-decoration: none;
+    transition:
+      background 140ms t.$ease,
+      color 140ms t.$ease;
 
-      &:hover {
-        color: var(--accent, #{t.$accent});
-      }
+    &:hover {
+      background: var(--bg-hover, #{t.$bg-hover});
+      color: var(--text-primary, #{t.$ink});
     }
+  }
+
+  &__crumb-sep {
+    margin: 0 1px;
+    color: var(--text-faint, #{t.$ink-faint});
+    opacity: 0.6;
+  }
+
+  &__crumb-current {
+    @include m.ellipsis;
+    padding: 4px 4px;
+    font-weight: 600;
+    color: var(--text-primary, #{t.$ink});
   }
 
   &__error {
