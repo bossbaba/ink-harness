@@ -10,7 +10,7 @@ use serde_json::json;
 
 use crate::error::AppError;
 use crate::infrastructure::{db::DbState, keychain};
-use crate::models::{split_model_ref, ProviderConfig};
+use crate::models::{ProviderConfig, split_model_ref};
 use crate::services::{provider, provider_kind, setting};
 
 /// 用户在模型管理页选定的检索模型（`providerId:modelId`）。
@@ -41,7 +41,9 @@ pub struct EmbedTarget {
 pub fn resolve_target_for(state: &DbState, local_only: bool) -> Result<EmbedTarget, AppError> {
     let providers = provider::list(state)?;
     if providers.is_empty() {
-        return Err(AppError::validation("还没有配置任何 Provider，请先在模型管理页添加"));
+        return Err(AppError::validation(
+            "还没有配置任何 Provider，请先在模型管理页添加",
+        ));
     }
 
     if let Some(saved) = setting::get(state, RAG_MODEL_KEY)? {
@@ -78,11 +80,9 @@ pub fn resolve_target_for(state: &DbState, local_only: bool) -> Result<EmbedTarg
 fn locate(providers: &[ProviderConfig], reference: &str, local_only: bool) -> Option<EmbedTarget> {
     let (provider_id, model) = split_model_ref(reference);
     let provider_id = provider_id?;
-    let provider = providers
-        .iter()
-        .find(|p| {
-            p.id == provider_id && p.enabled && (!local_only || provider_kind::is_local(&p.source))
-        })?;
+    let provider = providers.iter().find(|p| {
+        p.id == provider_id && p.enabled && (!local_only || provider_kind::is_local(&p.source))
+    })?;
     Some(build(provider, model.to_string(), reference.to_string()))
 }
 

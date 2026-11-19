@@ -9,7 +9,10 @@ use crate::infrastructure::db;
 fn temp_state(tag: &str) -> DbState {
     let dir = std::env::temp_dir().join(format!("ih-provider-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    db::open(&dir).unwrap()
+    let state = db::open(&dir).unwrap();
+    // 默认 Provider 种子由启动装配显式调用（见 lib.rs），测试要模拟同样的启动流程。
+    ensure_default_seeded(&state).unwrap();
+    state
 }
 
 fn sample_model() -> ProviderModel {
@@ -37,10 +40,13 @@ fn deleted_default_provider_is_not_reseeded() {
     let _ = std::fs::remove_dir_all(&dir);
     {
         let state = db::open(&dir).unwrap();
+        ensure_default_seeded(&state).unwrap();
         remove(&state, "ollama-local").unwrap();
         assert!(list(&state).unwrap().is_empty());
     }
     let reopened = db::open(&dir).unwrap();
+    // 重启再次走种子流程：已标记过就不复活用户删掉的 Provider。
+    ensure_default_seeded(&reopened).unwrap();
     assert!(list(&reopened).unwrap().is_empty());
 }
 
@@ -102,30 +108,36 @@ fn save_validates_required_fields() {
         models: vec![],
     };
 
-    assert!(save(
-        &state,
-        &ProviderConfig {
-            name: "  ".into(),
-            ..base.clone()
-        }
-    )
-    .is_err());
-    assert!(save(
-        &state,
-        &ProviderConfig {
-            source: "cloud".into(),
-            ..base.clone()
-        }
-    )
-    .is_err());
-    assert!(save(
-        &state,
-        &ProviderConfig {
-            base_url: "  ".into(),
-            ..base.clone()
-        }
-    )
-    .is_err());
+    assert!(
+        save(
+            &state,
+            &ProviderConfig {
+                name: "  ".into(),
+                ..base.clone()
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        save(
+            &state,
+            &ProviderConfig {
+                source: "cloud".into(),
+                ..base.clone()
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        save(
+            &state,
+            &ProviderConfig {
+                base_url: "  ".into(),
+                ..base.clone()
+            }
+        )
+        .is_err()
+    );
 }
 
 #[test]

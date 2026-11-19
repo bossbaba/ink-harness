@@ -67,7 +67,9 @@ pub async fn start() -> Result<OllamaStatus, AppError> {
         return Ok(status);
     }
     if !status.installed {
-        return Err(AppError::validation("未检测到 Ollama。请先安装桌面版（ollama.com）或命令行工具，再回来点「启动本地模型」。"));
+        return Err(AppError::validation(
+            "未检测到 Ollama。请先安装桌面版（ollama.com）或命令行工具，再回来点「启动本地模型」。",
+        ));
     }
 
     launch()?;
@@ -112,8 +114,9 @@ fn launch() -> Result<(), AppError> {
 /// 记下自己拉起的 PID：App 退出时只停这一个实例，
 /// 用户手动启动或别的工具正在用的服务不会被误杀（见 `stop_spawned`）。
 fn spawn_serve() -> Result<(), AppError> {
-    let binary = resolve_binary()
-        .ok_or_else(|| AppError::not_found("找不到 ollama 可执行文件，请先安装 Ollama（ollama.com）。"))?;
+    let binary = resolve_binary().ok_or_else(|| {
+        AppError::not_found("找不到 ollama 可执行文件，请先安装 Ollama（ollama.com）。")
+    })?;
     let mut child = Command::new(binary)
         .arg("serve")
         .stdout(Stdio::null())
@@ -235,7 +238,7 @@ fn binary_in_path(name: &str) -> Option<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        binary_in_path, is_ollama_process, remember_pid, spawned_pid, stop_spawned, Command,
+        Command, binary_in_path, is_ollama_process, remember_pid, spawned_pid, stop_spawned,
     };
 
     /// 查一个必然不存在的名字，确认 PATH 探测不会误报成「已安装」。

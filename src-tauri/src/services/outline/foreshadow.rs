@@ -1,13 +1,13 @@
 //! 伏笔 CRUD：记录「铺设章节 → 回收章节」，并校验章节必须同属一部作品。
 
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 use crate::error::AppError;
 use crate::infrastructure::db::DbState;
 use crate::infrastructure::id::gen_id;
 use crate::models::{Foreshadow, NewForeshadow};
 
-use super::{chapter_project, project_exists, validate_status, FORESHADOW_STATUSES};
+use super::{FORESHADOW_STATUSES, chapter_project, project_exists, validate_status};
 
 pub(super) const FORESHADOW_COLUMNS: &str =
     "id, project_id, title, setup_chapter_id, payoff_chapter_id, status";

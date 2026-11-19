@@ -1,7 +1,12 @@
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { providerService } from "@/services/providerService";
 import { statsService } from "@/services/statsService";
-import { getTokenBudget, getUsageStats, setTokenBudget } from "@/services/usageService";
+import {
+  estimateCost,
+  getTokenBudget,
+  getUsageStats,
+  setTokenBudget,
+} from "@/services/usageService";
 import type { ProviderConfig, UsageStats, WorkspaceStats } from "@/types";
 
 /**
@@ -15,6 +20,10 @@ export function useGlobalStats() {
   const providers = ref<ProviderConfig[]>([]);
   const budget = ref(0);
   const error = ref("");
+
+  // 费用是 usage + providers 的纯派生值，放在 composable 里算好，
+  // 展示组件只收款项，不自行调用 service（遵循「组件只收 props / emit」的分层约定）。
+  const cost = computed(() => (usage.value ? estimateCost(usage.value, providers.value) : 0));
 
   async function load(): Promise<void> {
     loading.value = true;
@@ -67,5 +76,5 @@ export function useGlobalStats() {
     }
   }
 
-  return { loading, stats, usage, providers, budget, error, load, updateBudget };
+  return { loading, stats, usage, providers, budget, cost, error, load, updateBudget };
 }

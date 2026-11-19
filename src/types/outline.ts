@@ -1,5 +1,8 @@
-/** 幕次：1 建置、2 对抗、3 结局。 */
-export type Act = 1 | 2 | 3;
+/**
+ * 幕次：从 1 开始的正整数。
+ * 传统三幕（建置/对抗/结局）只是默认骨架，作者可以继续新增第四幕、第五幕。
+ */
+export type Act = number;
 
 /** 章节状态机：待写 → 写作中 → 完成。 */
 export type ChapterStatus = "planned" | "drafting" | "done";
@@ -116,11 +119,43 @@ export interface ForeshadowDraft {
   status: ForeshadowStatus;
 }
 
-export const OUTLINE_ACTS: Array<{ value: Act; label: string; hint: string }> = [
-  { value: 1, label: "第一幕", hint: "建置 · 介绍人物与世界" },
-  { value: 2, label: "第二幕", hint: "对抗 · 冲突升级" },
-  { value: 3, label: "第三幕", hint: "结局 · 收束与回扣" },
-];
+/** 默认三幕；新增的幕在此基础上往后排。 */
+export const DEFAULT_ACT_COUNT = 3;
+
+/** 幕次上限：只是防止误输入过大的数字，正常写作远用不到。 */
+export const MAX_ACTS = 99;
+
+/** 前三幕的传统含义；新增的幕没有固定语义，由作者自行安排。 */
+export const ACT_HINTS: Record<number, string> = {
+  1: "建置 · 介绍人物与世界",
+  2: "对抗 · 冲突升级",
+  3: "结局 · 收束与回扣",
+};
+
+/** 1~99 转成中文数字，保证「第四幕」「第十一幕」这类标签读起来自然。 */
+function chineseNumber(value: number): string {
+  const digits = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+  if (value <= 0) return String(value);
+  if (value < 10) return digits[value];
+  if (value < 20) return `十${value % 10 === 0 ? "" : digits[value % 10]}`;
+  if (value < 100) {
+    return `${digits[Math.floor(value / 10)]}十${value % 10 === 0 ? "" : digits[value % 10]}`;
+  }
+  return String(value);
+}
+
+/** 统一幕次文案，避免各处一边写「第4幕」一边写「第四幕」。 */
+export function actLabel(act: Act): string {
+  return `第${chineseNumber(act)}幕`;
+}
+
+/** 章节弹窗/看板用的幕次选项。 */
+export function actOptions(count: number): Array<{ label: string; value: Act }> {
+  return Array.from({ length: Math.max(1, count) }, (_, index) => ({
+    label: actLabel(index + 1),
+    value: index + 1,
+  }));
+}
 
 export const CHAPTER_STATUS_OPTIONS: Array<{ label: string; value: ChapterStatus }> = [
   { label: "待写", value: "planned" },

@@ -1,19 +1,22 @@
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
+import { loadActCount, resolveActCount, saveActCount } from "@/services/outlineActService";
 import { outlineService } from "@/services/outlineService";
 import { projectService } from "@/services/projectService";
 import { useProjectStore } from "@/stores/project";
-import type {
-  Act,
-  Chapter,
-  ChapterDraft,
-  Foreshadow,
-  ForeshadowDraft,
-  Project,
-  Scene,
-  SceneDraft,
+import {
+  type Act,
+  type Chapter,
+  type ChapterDraft,
+  DEFAULT_ACT_COUNT,
+  MAX_ACTS,
+  type Project,
+  type Scene,
+  type SceneDraft,
 } from "@/types";
+import { normalizeError } from "@/utils/errors";
 import { onReactivated } from "@/utils/lifecycle";
+import { useForeshadows } from "./useForeshadows";
 
 function emptyChapterDraft(act: Act = 1): ChapterDraft {
   return { id: "", act, title: "", summary: "", status: "planned" };
@@ -21,10 +24,6 @@ function emptyChapterDraft(act: Act = 1): ChapterDraft {
 
 function emptySceneDraft(chapterId = ""): SceneDraft {
   return { id: "", chapterId, title: "", pov: "", location: "", timeMark: "", summary: "" };
-}
-
-function emptyForeshadowDraft(): ForeshadowDraft {
-  return { title: "", setupChapterId: "", payoffChapterId: "", status: "planned" };
 }
 
 /**
@@ -37,10 +36,11 @@ export function useProjectOutline(projectIdFromRoute: string) {
   const project = storeToRefs(useProjectStore()).current;
   const chapters = ref<Chapter[]>([]);
   const scenes = ref<Scene[]>([]);
-  const foreshadows = ref<Foreshadow[]>([]);
   const activeChapterId = ref("");
   const error = ref("");
   const busy = ref(false);
+  // 看板要渲染的幕数：默认三幕，作者可继续新增（空幕也保留）。
+  const actCount = ref(DEFAULT_ACT_COUNT);
 
   // 三个编辑弹窗各自持有草稿，弹窗组件本身不存业务状态。
   const chapterShow = ref(false);
@@ -49,8 +49,27 @@ export function useProjectOutline(projectIdFromRoute: string) {
   const sceneShow = ref(false);
   const sceneIsNew = ref(true);
   const sceneDraft = ref<SceneDraft>(emptySceneDraft());
-  const foreshadowShow = ref(false);
-  const foreshadowDraft = ref<ForeshadowDraft>(emptyForeshadowDraft());
+
+  // 伏笔管理委托给独立 composable：写操作后 reload 统一刷新大纲快照。
+  const foreshadowsApi = useForeshadows({
+    projectId,
+    chapters,
+    error,
+    busy,
+    reload: () => load(),
+  });
+  const {
+    foreshadows,
+    setForeshadows,
+    foreshadowShow,
+    foreshadowDraft,
+    foreshadowTags,
+    chapterOptions,
+    openCreateForeshadow,
+    saveForeshadow,
+    patchForeshadow,
+    removeForeshadow,
+  } = foreshadowsApi;
 
   const contextShow = ref(false);
   const contextText = ref("");
@@ -71,30 +90,6 @@ export function useProjectOutline(projectIdFromRoute: string) {
     }
     return map;
   });
-
-  /** 章节 id → 伏笔标签，用于在章节/场景卡片上标记铺设与回收。 */
-  const foreshadowTags = computed<Record<string, string[]>>(() => {
-    const map: Record<string, string[]> = {};
-    const push = (chapterId: string | null, label: string) => {
-      if (!chapterId) return;
-      const list = map[chapterId] ?? [];
-      list.push(label);
-      map[chapterId] = list;
-    };
-    for (const item of foreshadows.value) {
-      push(item.setupChapterId, `伏笔·铺设 ${item.title}`);
-      push(item.payoffChapterId, `伏笔·回收 ${item.title}`);
-    }
-    return map;
-  });
-
-  /** 伏笔面板的章节下拉：带上幕次前缀，避免同名章节混淆。 */
-  const chapterOptions = computed(() =>
-    chapters.value.map((chapter) => ({
-      label: `第${chapter.act}幕 · ${chapter.sortOrder + 1}. ${chapter.title}`,
-      value: chapter.id,
-    })),
-  );
 
   const chapterTitleById = computed<Record<string, string>>(() => {
     const map: Record<string, string> = {};
@@ -117,7 +112,10 @@ export function useProjectOutline(projectIdFromRoute: string) {
       const snapshot = await outlineService.snapshot(projectId.value);
       chapters.value = snapshot.chapters;
       scenes.value = snapshot.scenes;
-      foreshadows.value = snapshot.foreshadows;
+      setForeshadows(snapshot.foreshadows);
+      // 空幕数存在 app_meta；章节里出现的更大幕次也要算进来，避免读到旧数据时少渲染一幕。
+      const stored = await loadActCount(projectId.value);
+      actCount.value = resolveActCount(stored, snapshot.chapters);
       if (!snapshot.chapters.some((chapter) => chapter.id === activeChapterId.value)) {
         activeChapterId.value = "";
       }
@@ -148,6 +146,36 @@ export function useProjectOutline(projectIdFromRoute: string) {
     chapterDraft.value = emptyChapterDraft(act);
     chapterShow.value = true;
     error.value = "";
+  }
+
+  /**
+   * 新增一幕：空幕没有章节承载，必须先把幕数落库；
+   * 落库后直接打开这一幕的建章弹窗，作者不用再点一次「新增章节」。
+   */
+  async function addAct(): Promise<void> {
+    if (actCount.value >= MAX_ACTS) {
+      error.value = `最多支持 ${MAX_ACTS} 幕`;
+      return;
+    }
+    actCount.value += 1;
+    try {
+      if (projectId.value) await saveActCount(projectId.value, actCount.value);
+    } catch (err) {
+      error.value = `保存幕数失败：${String(err)}`;
+    }
+    openCreateChapter(actCount.value);
+  }
+
+  /** 只允许移除「末尾且没有任何章节」的幕，避免误删正在写的章节。 */
+  async function removeAct(act: Act): Promise<void> {
+    if (act !== actCount.value) return;
+    if (chapters.value.some((chapter) => chapter.act === act)) return;
+    actCount.value = Math.max(1, actCount.value - 1);
+    try {
+      if (projectId.value) await saveActCount(projectId.value, actCount.value);
+    } catch (err) {
+      error.value = `保存幕数失败：${String(err)}`;
+    }
   }
 
   function openEditChapter(chapter: Chapter): void {
@@ -196,7 +224,14 @@ export function useProjectOutline(projectIdFromRoute: string) {
       await load();
       await markOutlineStage();
     } catch (err) {
-      error.value = String(err);
+      const info = normalizeError(err);
+      if (info.code === "conflict") {
+        // 缓存里的章节已被别处改过：重取最新版，弹窗保持打开，让作者确认后再存。
+        await load();
+        error.value = `${info.message}（已刷新为最新内容，请确认后再保存）`;
+      } else {
+        error.value = info.message;
+      }
     } finally {
       busy.value = false;
     }
@@ -290,68 +325,6 @@ export function useProjectOutline(projectIdFromRoute: string) {
     }
   }
 
-  function openCreateForeshadow(): void {
-    foreshadowDraft.value = emptyForeshadowDraft();
-    foreshadowShow.value = true;
-    error.value = "";
-  }
-
-  async function saveForeshadow(): Promise<void> {
-    const draft = foreshadowDraft.value;
-    if (!draft.title.trim()) {
-      error.value = "请输入伏笔标题";
-      return;
-    }
-    if (!projectId.value) return;
-    busy.value = true;
-    error.value = "";
-    try {
-      await outlineService.createForeshadow({
-        projectId: projectId.value,
-        title: draft.title,
-        setupChapterId: draft.setupChapterId || null,
-        payoffChapterId: draft.payoffChapterId || null,
-        status: draft.status,
-      });
-      foreshadowShow.value = false;
-      await load();
-    } catch (err) {
-      error.value = String(err);
-    } finally {
-      busy.value = false;
-    }
-  }
-
-  /** 伏笔面板的就地编辑：只提交发生变化的字段。 */
-  async function patchForeshadow(
-    foreshadow: Foreshadow,
-    patch: Partial<Pick<Foreshadow, "setupChapterId" | "payoffChapterId" | "status">>,
-  ): Promise<void> {
-    busy.value = true;
-    error.value = "";
-    try {
-      await outlineService.updateForeshadow({ ...foreshadow, ...patch });
-      await load();
-    } catch (err) {
-      error.value = String(err);
-    } finally {
-      busy.value = false;
-    }
-  }
-
-  async function removeForeshadow(foreshadow: Foreshadow): Promise<void> {
-    busy.value = true;
-    error.value = "";
-    try {
-      await outlineService.removeForeshadow(foreshadow.id);
-      await load();
-    } catch (err) {
-      error.value = String(err);
-    } finally {
-      busy.value = false;
-    }
-  }
-
   async function moveChapter(chapterId: string, act: Act, index: number): Promise<void> {
     if (!projectId.value) return;
     busy.value = true;
@@ -436,6 +409,7 @@ export function useProjectOutline(projectIdFromRoute: string) {
     activeChapterId,
     error,
     busy,
+    actCount,
     chapterShow,
     chapterIsNew,
     chapterDraft,
@@ -453,6 +427,8 @@ export function useProjectOutline(projectIdFromRoute: string) {
     chapterTitleById,
     stats,
     selectChapter,
+    addAct,
+    removeAct,
     openCreateChapter,
     openEditChapter,
     saveChapter,

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { NEmpty, NSpin } from "naive-ui";
+import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import type { SegmentOption } from "@/components/common/segmentedControl";
@@ -8,7 +9,7 @@ import ExportPanel from "@/components/publish/ExportPanel.vue";
 import PlatformPanel from "@/components/publish/PlatformPanel.vue";
 import PublishPreview from "@/components/publish/PublishPreview.vue";
 import { useProjectPublish } from "@/composables/useProjectPublish";
-import { projectService } from "@/services/projectService";
+import { useProjectStore } from "@/stores/project";
 import type { PublicationBrief, PublishTemplate } from "@/types";
 import { onReactivated } from "@/utils/lifecycle";
 
@@ -49,7 +50,11 @@ const {
 } = useProjectPublish(props.projectId);
 
 const tab = ref<Tab>("preview");
-const pageTitle = ref("出版中心");
+// 标题跟全局作品 store 走：别处改了书名，这里不必等页面刷新。
+const project = storeToRefs(useProjectStore()).current;
+const pageTitle = computed(() =>
+  project.value ? `《${project.value.title}》· 出版中心` : "出版中心",
+);
 const tabs: SegmentOption[] = [
   { label: "排版预览", value: "preview" },
   { label: "导出", value: "export" },
@@ -67,16 +72,7 @@ const hint = computed(() =>
         : "勾选要投的平台，把排期和注意事项记在一起。",
 );
 
-onMounted(async () => {
-  await load();
-  // 标题只用于展示，读不到作品时保留默认值，不让挂载回调变成 unhandled rejection。
-  try {
-    const project = await projectService.get(props.projectId);
-    if (project) pageTitle.value = `《${project.title}》· 出版中心`;
-  } catch {
-    pageTitle.value = "出版中心";
-  }
-});
+onMounted(() => void load());
 
 // 从别的页面（如写作台改了正文）回来时重读，预览与导出才不会用旧稿。
 onReactivated(() => void load());

@@ -17,6 +17,8 @@ export const outlineService = {
 
   createChapter: (input: NewChapter): Promise<Chapter> => tauriApi.createChapter(input),
   updateChapter: (chapter: Chapter): Promise<void> => tauriApi.updateChapter(chapter),
+  updateChapterSummary: (id: string, summary: string): Promise<void> =>
+    tauriApi.updateChapterSummary(id, summary),
   removeChapter: (id: string): Promise<void> => tauriApi.deleteChapter(id),
 
   createScene: (input: NewScene): Promise<Scene> => tauriApi.createScene(input),

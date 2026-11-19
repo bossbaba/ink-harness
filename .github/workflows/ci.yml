@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  frontend:
+    name: 前端检查（类型 / lint / 规范 / 单测 / 构建）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm check:conventions
+      - run: pnpm test
+      - run: pnpm build
+
+  backend:
+    # 门禁只放「单测 / 编译」这种当前全绿的检查。存量代码尚未通过 rustfmt 与
+    # clippy -D warnings（旧命令层有 redundant_closure 等），待单独清理后再加入，
+    # 否则 CI 从第一天起就是红的，反而失去门禁意义。
+    name: Rust 检查（编译 / 单测）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: cargo check --all-targets
+        working-directory: src-tauri
+      - run: cargo test
+        working-directory: src-tauri

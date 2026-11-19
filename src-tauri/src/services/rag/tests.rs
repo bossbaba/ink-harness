@@ -1,9 +1,12 @@
 //! RAG 索引与检索的单测：不依赖网络，用假的向量直接验证写库、KNN 与项目隔离。
+//!
+//! 这里放主链路用例；状态判定、全量清理、脏数据容错等边界用例在 `tests_bounds.rs`，
+//! 复用本文件的建库与造数助手（故这些助手是 `pub(super)`）。
 
 use super::*;
 use crate::infrastructure::db;
 
-fn temp_state(tag: &str) -> (DbState, std::path::PathBuf) {
+pub(super) fn temp_state(tag: &str) -> (DbState, std::path::PathBuf) {
     let dir = std::env::temp_dir().join(format!("ih-rag-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let state = db::open(&dir).unwrap();
@@ -11,7 +14,7 @@ fn temp_state(tag: &str) -> (DbState, std::path::PathBuf) {
 }
 
 /// 建一条作品记录，rag_chunk 靠外键挂着它。
-fn seed_project(state: &DbState, id: &str) {
+pub(super) fn seed_project(state: &DbState, id: &str) {
     let conn = state.biz();
     conn.execute(
         "insert into project (id, title, created_at, updated_at)
@@ -22,7 +25,7 @@ fn seed_project(state: &DbState, id: &str) {
 }
 
 /// 插一条 Provider，用于验证检索模型的隐私过滤（base_url 随便写，测试不会真的发请求）。
-fn seed_provider(state: &DbState, id: &str, source: &str, model: &str) {
+pub(super) fn seed_provider(state: &DbState, id: &str, source: &str, model: &str) {
     let conn = state.biz();
     conn.execute(
         "insert or replace into provider_config
@@ -34,7 +37,7 @@ fn seed_provider(state: &DbState, id: &str, source: &str, model: &str) {
     .unwrap();
 }
 
-fn draft(title: &str, content: &str) -> ChunkDraft {
+pub(super) fn draft(title: &str, content: &str) -> ChunkDraft {
     ChunkDraft {
         kind: "element".into(),
         source_id: format!("src-{title}"),
@@ -44,13 +47,32 @@ fn draft(title: &str, content: &str) -> ChunkDraft {
 }
 
 /// 测试专用的写入入口：默认只替换当前作品，不牵连别的作品。
-fn write_chunks(
+pub(super) fn write_chunks(
     state: &DbState,
     project_id: &str,
     drafts: &[ChunkDraft],
     vectors: &[Vec<f32>],
 ) -> Result<(), AppError> {
     replace_chunks(state, project_id, drafts, vectors, false)
+}
+
+/// 测试专用：像业务代码那样在处理函数自己的事务里清来源片段。
+///
+/// 生产代码只保留 [`purge_source_in`]（事务由调用方给），这里包一层事务，
+/// 模拟「删章节 / 删设定」的真实调用形态。
+pub(super) fn purge_source_now(state: &DbState, source_id: &str) {
+    let mut conn = state.biz();
+    let tx = conn.transaction().unwrap();
+    purge_source_in(&tx, source_id).unwrap();
+    tx.commit().unwrap();
+}
+
+/// 同上，按作品清（对应删作品）。
+pub(super) fn purge_project_now(state: &DbState, project_id: &str) {
+    let mut conn = state.biz();
+    let tx = conn.transaction().unwrap();
+    purge_project_in(&tx, project_id).unwrap();
+    tx.commit().unwrap();
 }
 
 #[test]
@@ -106,7 +128,10 @@ fn local_only_project_rejects_cloud_embedding() {
         .biz
         .lock()
         .unwrap()
-        .execute("update project set privacy = 'local-only' where id = 'p-1'", [])
+        .execute(
+            "update project set privacy = 'local-only' where id = 'p-1'",
+            [],
+        )
         .unwrap();
     seed_provider(&state, "cloud-embed", "remote", "text-embedding-3-small");
 
@@ -122,7 +147,10 @@ fn local_only_project_rejects_cloud_embedding() {
     assert_eq!(target.reference, "local-embed:nomic-embed-text");
     let status = status(&state, "p-1").unwrap();
     assert!(status.embedding_ready);
-    assert_eq!(status.model.as_deref(), Some("local-embed:nomic-embed-text"));
+    assert_eq!(
+        status.model.as_deref(),
+        Some("local-embed:nomic-embed-text")
+    );
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -152,7 +180,7 @@ fn purge_source_removes_chunk_and_vector() {
     )
     .unwrap();
 
-    purge_source(&state, "src-甲").unwrap();
+    purge_source_now(&state, "src-甲");
 
     // 片段与向量都要少一条：向量还在的话 KNN 会命中一个查不到正文的 rowid。
     let candidates = knn(&state, &[1.0, 0.0, 0.0], 3).unwrap();
@@ -173,7 +201,7 @@ fn purge_project_removes_all_vectors() {
     write_chunks(&state, "p-1", &[draft("甲", "A")], &[vec![1.0, 0.0, 0.0]]).unwrap();
     write_chunks(&state, "p-2", &[draft("乙", "B")], &[vec![0.0, 1.0, 0.0]]).unwrap();
 
-    purge_project(&state, "p-1").unwrap();
+    purge_project_now(&state, "p-1");
 
     let candidates = knn(&state, &[1.0, 0.0, 0.0], 5).unwrap();
     assert_eq!(candidates.len(), 1, "只清被删作品的向量");
@@ -230,7 +258,9 @@ async fn manual_embedding_roundtrip() {
     println!("status = {status:?}");
     assert!(status.chunks >= 2, "设定与章节正文都应被索引");
 
-    let hits = search(&state, "p-1", "提剑的人是谁", 3).await.unwrap();
+    let hits = search(&state, "p-1", "提剑的人是谁", Some(3))
+        .await
+        .unwrap();
     for hit in &hits {
         println!(
             "hit = {} / {:.4} / {}",

@@ -61,28 +61,35 @@ fn create_chapter_appends_order_within_act() {
     assert_eq!((a.act, a.sort_order), (1, 0));
     assert_eq!((b.act, b.sort_order), (1, 1));
     assert_eq!((c.act, c.sort_order), (2, 0));
-    assert!(create_chapter(
-        &state,
-        NewChapter {
-            project_id: project_id.clone(),
-            act: 4,
-            title: "越界".into(),
-            summary: "".into(),
-            status: "planned".into(),
-        }
-    )
-    .is_err());
-    assert!(create_chapter(
-        &state,
-        NewChapter {
-            project_id: project_id.clone(),
-            act: 1,
-            title: "   ".into(),
-            summary: "".into(),
-            status: "planned".into(),
-        }
-    )
-    .is_err());
+    // 第四幕合法：前端允许「新增一幕」，后端不能还按三幕卡死。
+    let d = add_chapter(&state, &project_id, 4, "第四幕第一章");
+    assert_eq!((d.act, d.sort_order), (4, 0));
+    assert!(
+        create_chapter(
+            &state,
+            NewChapter {
+                project_id: project_id.clone(),
+                act: super::ACT_MAX + 1,
+                title: "越界".into(),
+                summary: "".into(),
+                status: "planned".into(),
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        create_chapter(
+            &state,
+            NewChapter {
+                project_id: project_id.clone(),
+                act: 1,
+                title: "   ".into(),
+                summary: "".into(),
+                status: "planned".into(),
+            }
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -325,4 +332,75 @@ fn project_context_includes_character_notes() {
         context.contains("补充备注：冷静的工程学家，沉默寡言"),
         "补充备注必须进入 AI 上下文，否则模型只能看到角色名"
     );
+}
+
+/// 删章后同幕剩余章节要连续编号：拖拽下标是按数组长度算的，留空洞会错位。
+#[test]
+fn delete_chapter_renumbers_siblings() {
+    let (state, project_id) = temp_state("renumber");
+    let a = add_chapter(&state, &project_id, 1, "A");
+    let b = add_chapter(&state, &project_id, 1, "B");
+    let c = add_chapter(&state, &project_id, 1, "C");
+
+    delete_chapter(&state, &b.id).unwrap();
+
+    let left = snapshot(&state, &project_id).unwrap().chapters;
+    let orders: Vec<(String, i64)> = left
+        .iter()
+        .map(|chapter| (chapter.id.clone(), chapter.sort_order))
+        .collect();
+    assert_eq!(orders, vec![(a.id, 0), (c.id, 1)]);
+}
+
+/// 章节元数据乐观锁：拿旧 `updated_at` 提交必须被拒绝，避免缓存副本把新状态盖回去。
+#[test]
+fn stale_chapter_metadata_is_rejected() {
+    let (state, project_id) = temp_state("chapter-conflict");
+    let created = add_chapter(&state, &project_id, 1, "第一章");
+
+    // 模拟别处已经改过：推进状态并刷新时间戳。
+    let mut fresh = get_chapter(&state, &created.id).unwrap().unwrap();
+    fresh.status = "drafting".into();
+    update_chapter(&state, &fresh).unwrap();
+
+    // 模拟一份明显过期的副本（时间戳精度是毫秒，同一毫秒内的两次写可能相等，
+    // 所以这里把基准直接改成老时间，测的是「版本不一致必须拒绝」这条逻辑本身）。
+    let mut stale = created.clone();
+    stale.updated_at = "2000-01-01T00:00:00.000Z".into();
+    stale.title = "改个标题".into();
+    assert!(update_chapter(&state, &stale).is_err());
+    assert_eq!(
+        get_chapter(&state, &created.id).unwrap().unwrap().title,
+        "第一章"
+    );
+}
+
+/// 删章要连带清掉 RAG 片段：`rag_chunk.source_id` 没有外键，
+/// 清理若放在删除提交之后，失败就会留下「章节已删、正文仍可检索」的脏数据。
+#[test]
+fn delete_chapter_removes_rag_chunk() {
+    let (state, project_id) = temp_state("rag-chunk");
+    let chapter = add_chapter(&state, &project_id, 1, "开端");
+    {
+        let conn = state.biz();
+        conn.execute(
+            "insert into rag_chunk (project_id, kind, source_id, title, content, indexed_at)
+             values (?1, 'chapter', ?2, '第1幕 · 开端', '雨夜', 'x')",
+            params![project_id, chapter.id],
+        )
+        .unwrap();
+    }
+
+    delete_chapter(&state, &chapter.id).unwrap();
+
+    let left: i64 = {
+        let conn = state.biz();
+        conn.query_row(
+            "select count(*) from rag_chunk where source_id = ?1",
+            params![chapter.id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    };
+    assert_eq!(left, 0, "删章后片段必须随同一事务消失");
 }

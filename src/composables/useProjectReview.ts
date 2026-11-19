@@ -22,6 +22,7 @@ import type {
   ReviewReport,
   ReviewScope,
 } from "@/types";
+import { onReactivated } from "@/utils/lifecycle";
 import { documentToPlainText, EMPTY_DOCUMENT_TEXT } from "@/utils/tiptap";
 
 /**
@@ -115,8 +116,9 @@ export function useProjectReview(projectId: string) {
       ]);
       project.value = detail;
       chapters.value = snapshot.chapters;
-      if (!chapterId.value && snapshot.chapters.length > 0) {
-        chapterId.value = snapshot.chapters[0].id;
+      // 章节可能在大纲里被删/换 id：失效的选中项要换掉，否则下拉显示空白、运行按钮点不动。
+      if (!snapshot.chapters.some((chapter) => chapter.id === chapterId.value)) {
+        chapterId.value = snapshot.chapters[0]?.id ?? "";
       }
       // 全书没有章节时退化成「本章」，否则运行按钮永远点不动也说不清原因。
       if (snapshot.chapters.length === 0) scope.value = "chapter";
@@ -229,7 +231,8 @@ export function useProjectReview(projectId: string) {
         createdAt: formatNow(),
       };
       if (aiIssues.length === 0) {
-        error.value = "模型的输出没能解析成条目，已把原文留在下面，可复制出来手工整理。";
+        error.value =
+          "模型的输出没能解析成条目（常见原因是 JSON 里有未转义的引号或被截断），已把原文留在下面，可复制出来手工整理。";
       }
     } catch (err) {
       if (seq !== requestSeq) return;
@@ -286,9 +289,22 @@ export function useProjectReview(projectId: string) {
           content: result.content,
           wordCount: result.wordCount,
           snapshot: true,
+          // 以「刚才读到的那一版」为基准：写作台在这期间又存过，就不要再覆盖它的新内容。
+          expectedContentRevision: data.contentRevision,
         });
         // 写作台可能还停在缓存里的旧正文，这里递增版本让它回来时重读。
         draftSync.bump(chapterId.value);
+        // 本页章节列表也要跟上：重新审读时目录里带的是这里的字数与状态。
+        chapters.value = chapters.value.map((item) =>
+          item.id === chapterId.value
+            ? {
+                ...item,
+                wordCount: result.wordCount,
+                status:
+                  item.status === "planned" && result.wordCount > 0 ? "drafting" : item.status,
+              }
+            : item,
+        );
         const applied = new Set(result.appliedIds);
         for (const issue of current.issues) {
           if (applied.has(issue.id)) issue.decision = "applied";
@@ -304,6 +320,13 @@ export function useProjectReview(projectId: string) {
       applying.value = false;
     }
   }
+
+  // 大纲/写作台增删过章节后，缓存里的章节下拉就过期了，回来时重取一次。
+  // 审稿进行中不打断：那一轮用的本来就是开始时的快照。
+  onReactivated(() => {
+    if (running.value) return;
+    void load();
+  });
 
   return {
     project,

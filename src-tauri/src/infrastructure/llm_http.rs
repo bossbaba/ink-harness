@@ -39,3 +39,28 @@ pub fn retryable_status(status: reqwest::StatusCode) -> bool {
 pub fn retryable_error(err: &reqwest::Error) -> bool {
     err.is_timeout() || err.is_connect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backoff_is_exponential_and_capped() {
+        assert_eq!(backoff(0).as_millis(), 400);
+        assert_eq!(backoff(1).as_millis(), 800);
+        assert_eq!(backoff(2).as_millis(), 1600);
+        // attempt 超过 4 后封顶，避免指数爆炸导致重试等到天荒地老。
+        assert_eq!(backoff(10).as_millis(), backoff(4).as_millis());
+    }
+
+    #[test]
+    fn retryable_status_only_rate_limit_and_server_error() {
+        assert!(retryable_status(reqwest::StatusCode::TOO_MANY_REQUESTS));
+        assert!(retryable_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(retryable_status(reqwest::StatusCode::BAD_GATEWAY));
+        // 4xx 是调用方问题（鉴权/参数错误），重试无意义。
+        assert!(!retryable_status(reqwest::StatusCode::UNAUTHORIZED));
+        assert!(!retryable_status(reqwest::StatusCode::BAD_REQUEST));
+        assert!(!retryable_status(reqwest::StatusCode::OK));
+    }
+}

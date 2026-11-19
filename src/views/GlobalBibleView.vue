@@ -3,6 +3,8 @@ import { NButton, NEmpty, NInput, NSelect, NTag } from "naive-ui";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import { useGlobalBible } from "@/composables/useGlobalBible";
 import type { KindFilter } from "@/composables/useStoryBible";
+// 关系类型编码（related-to 等）必须转成中文再显示，界面上不允许出现英文枚举值。
+import { relationTypeLabel } from "@/types";
 
 // 全局设定库页面，只负责组装界面；跨作品汇总、筛选与跳转逻辑都在 useGlobalBible 中。
 // 这里是只读视角，编辑入口由 openProject 跳到对应作品内页面。
@@ -126,7 +128,7 @@ const {
                 :key="relation.targetId"
                 class="relation"
               >
-                <NTag size="tiny" :bordered="false">{{ relation.type }}</NTag>
+                <NTag size="tiny" :bordered="false">{{ relationTypeLabel(relation.type) }}</NTag>
                 {{ relationName(relation.targetId) }}
               </p>
             </section>

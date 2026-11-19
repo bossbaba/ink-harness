@@ -16,6 +16,7 @@ import {
   type ReviewScope,
   type ReviewSeverity,
 } from "@/types";
+import { parseLooseJsonArray } from "@/utils/looseJson";
 import { fitContext, projectFacts } from "./aiContext";
 
 /** 本章正文送进模型的上限：审稿要看全文，但再长就得截断，否则回答质量反而下降。 */
@@ -93,7 +94,9 @@ export function buildReviewMessages(input: ReviewPromptInput): ChatMessage[] {
     "3. 不要写「可以增加细节」「建议丰富描写」这类空话，每条建议都要能直接动手改。",
     // replacement 是「一键替换」用的，含解释或引号会污染正文，所以宁可留空让作者手工改。
     "4. replacement 必须能原样替换 quote，只写替换后的正文，不加解释、引号或前后缀；结构性问题无法一句话替换时留空串。",
-    "5. 只谈文本，不评价作者本人，也不讨论价值观。",
+    // 本地小模型最常犯的错：字段里直接写半角双引号不做转义，整份 JSON 会在这里解析失败。
+    "5. 输出必须是严格 JSON：字符串内容里需要引号时用中文引号「」或“”，绝不要直接写英文双引号。",
+    "6. 只谈文本，不评价作者本人，也不讨论价值观。",
   ].join("\n");
 
   const scopeLine =
@@ -146,30 +149,6 @@ function pickSeverity(value: unknown): ReviewSeverity {
   return "medium";
 }
 
-/** 从模型输出里挖出 JSON：允许代码块、前后废话，数组与 `{issues:[...]}` 两种形态都认。 */
-function extractJson(raw: string): unknown {
-  const cleaned = raw.replace(/```json/gi, "").replace(/```/g, "");
-  const arrayStart = cleaned.indexOf("[");
-  const arrayEnd = cleaned.lastIndexOf("]");
-  if (arrayStart >= 0 && arrayEnd > arrayStart) {
-    try {
-      return JSON.parse(cleaned.slice(arrayStart, arrayEnd + 1));
-    } catch {
-      // 落到下面的对象分支再试一次：模型可能输出 {"issues":[...]}。
-    }
-  }
-  const objectStart = cleaned.indexOf("{");
-  const objectEnd = cleaned.lastIndexOf("}");
-  if (objectStart >= 0 && objectEnd > objectStart) {
-    try {
-      return JSON.parse(cleaned.slice(objectStart, objectEnd + 1));
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
 function toText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -177,14 +156,10 @@ function toText(value: unknown): string {
 /**
  * 解析模型输出为审稿条目。
  * 解析失败返回空数组，由调用方把原文摆出来，而不是直接报「解析失败」让作者无从下手。
+ * 容错（裸引号、被截断、包代码块）交给 parseLooseJsonArray，别让一个坏字符带走整份报告。
  */
 export function parseReviewIssues(raw: string): ReviewIssue[] {
-  const data = extractJson(raw);
-  const items = Array.isArray(data)
-    ? data
-    : data && typeof data === "object" && Array.isArray((data as { issues?: unknown }).issues)
-      ? ((data as { issues: unknown[] }).issues ?? [])
-      : [];
+  const items = parseLooseJsonArray(raw);
 
   const issues: ReviewIssue[] = [];
   items.forEach((item, index) => {

@@ -48,16 +48,29 @@ export async function loadPublishDocument(projectId: string): Promise<PublishDoc
 
   const chapters = await Promise.all(
     snapshot.chapters.map(async (chapter) => {
-      const content = await writingService.getContent(chapter.id);
-      const text = documentToPlainText(content.content);
-      return {
-        id: chapter.id,
-        title: chapter.title,
-        act: chapter.act,
-        summary: chapter.summary,
-        text: text === EMPTY_DOCUMENT_TEXT ? "" : text,
-        wordCount: chapter.wordCount,
-      };
+      try {
+        const content = await writingService.getContent(chapter.id);
+        const text = documentToPlainText(content.content);
+        return {
+          id: chapter.id,
+          title: chapter.title,
+          act: chapter.act,
+          summary: chapter.summary,
+          text: text === EMPTY_DOCUMENT_TEXT ? "" : text,
+          wordCount: chapter.wordCount,
+        };
+      } catch {
+        // 单章读取失败（刚好被删、库被锁）不该让整本都导不出来：
+        // 正文位置写明失败，作者在成品里一眼能看到缺哪一章，而不是以为这章本来就是空的。
+        return {
+          id: chapter.id,
+          title: chapter.title,
+          act: chapter.act,
+          summary: chapter.summary,
+          text: "（本章读取失败，请回写作台检查后重新导出）",
+          wordCount: chapter.wordCount,
+        };
+      }
     }),
   );
 

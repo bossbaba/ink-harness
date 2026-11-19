@@ -17,16 +17,26 @@ pub async fn outline_snapshot(
 }
 
 #[tauri::command]
-pub async fn create_chapter(
-    app: tauri::AppHandle,
-    input: NewChapter,
-) -> Result<Chapter, AppError> {
+pub async fn create_chapter(app: tauri::AppHandle, input: NewChapter) -> Result<Chapter, AppError> {
     blocking(app, move |state| outline::create_chapter(state, input)).await
 }
 
 #[tauri::command]
 pub async fn update_chapter(app: tauri::AppHandle, chapter: Chapter) -> Result<(), AppError> {
     blocking(app, move |state| outline::update_chapter(state, &chapter)).await
+}
+
+/// 只改摘要：摘要自动生成、频率高，单独一条命令避免整对象覆盖标题/幕次/状态。
+#[tauri::command]
+pub async fn update_chapter_summary(
+    app: tauri::AppHandle,
+    id: String,
+    summary: String,
+) -> Result<(), AppError> {
+    blocking(app, move |state| {
+        outline::update_chapter_summary(state, &id, &summary)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -62,7 +72,10 @@ pub async fn update_foreshadow(
     app: tauri::AppHandle,
     foreshadow: Foreshadow,
 ) -> Result<(), AppError> {
-    blocking(app, move |state| outline::update_foreshadow(state, &foreshadow)).await
+    blocking(app, move |state| {
+        outline::update_foreshadow(state, &foreshadow)
+    })
+    .await
 }
 
 #[tauri::command]

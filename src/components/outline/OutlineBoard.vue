@@ -1,15 +1,26 @@
 <script setup lang="ts">
 import { NButton, NEmpty, NTag } from "naive-ui";
-import { computed, ref } from "vue";
-import { type Act, type Chapter, OUTLINE_ACTS, type Scene } from "@/types";
+import { computed, nextTick, ref, watch } from "vue";
+import {
+  ACT_HINTS,
+  type Act,
+  actLabel,
+  type Chapter,
+  DEFAULT_ACT_COUNT,
+  type Scene,
+} from "@/types";
 import OutlineChapterCard from "./OutlineChapterCard.vue";
+import OutlineToc from "./OutlineToc.vue";
+import { actAnchorId, chapterAnchorId } from "./outlineAnchors";
 
-// 三幕看板：负责拖拽落点判定，把「移动意图」交给页面处理，自身不改数据。
+// 幕次看板：幕数由页面传入（可新增），这里只负责展示与拖拽落点判定，自身不改数据。
 const props = defineProps<{
   chapters: Chapter[];
   scenesByChapter: Record<string, Scene[]>;
   foreshadowTags: Record<string, string[]>;
   activeChapterId: string;
+  /** 要渲染的幕数：默认三幕，作者可继续往后新增。 */
+  actCount: number;
 }>();
 
 const emit = defineEmits<{
@@ -22,6 +33,8 @@ const emit = defineEmits<{
     index: number,
   ): void;
   (e: "add-chapter", act: Act): void;
+  (e: "add-act"): void;
+  (e: "remove-act", act: Act): void;
   (e: "select-chapter", id: string): void;
   (e: "edit-chapter", chapter: Chapter): void;
   (e: "remove-chapter", chapter: Chapter): void;
@@ -34,17 +47,43 @@ const emit = defineEmits<{
 const draggingChapterId = ref("");
 const draggingScene = ref<{ id: string; chapterId: string } | null>(null);
 
+/** 1..actCount 的幕列表；新增的幕没有固定语义，所以 hint 允许为空。 */
+const acts = computed(() =>
+  Array.from({ length: Math.max(1, props.actCount) }, (_, index) => {
+    const value = index + 1;
+    return { value, label: actLabel(value), hint: ACT_HINTS[value] ?? "" };
+  }),
+);
+
 function chaptersOfAct(act: Act): Chapter[] {
   return props.chapters
     .filter((chapter) => chapter.act === act)
     .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
-const chaptersByAct = computed<Record<Act, Chapter[]>>(() => ({
-  1: chaptersOfAct(1),
-  2: chaptersOfAct(2),
-  3: chaptersOfAct(3),
-}));
+const chaptersByAct = computed<Record<number, Chapter[]>>(() => {
+  const map: Record<number, Chapter[]> = {};
+  for (const act of acts.value) map[act.value] = chaptersOfAct(act.value);
+  return map;
+});
+
+const boardRef = ref<HTMLElement | null>(null);
+
+/**
+ * 选中的章节可能落在滚动可视区之外（例如刚新建、或从写作台带 id 返回），
+ * 这里把它带进视野。`block: nearest` 保证已可见时不做多余滚动。
+ */
+watch(
+  () => props.activeChapterId,
+  async (chapterId) => {
+    if (!chapterId) return;
+    await nextTick();
+    boardRef.value
+      ?.querySelector<HTMLElement>(`#${chapterAnchorId(chapterId)}`)
+      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  },
+  { immediate: true },
+);
 
 function startChapterDrag(chapter: Chapter): void {
   draggingScene.value = null;
@@ -111,11 +150,21 @@ function dropOnScene(chapter: Chapter, index: number): void {
 </script>
 
 <template>
-  <div class="board">
+  <div ref="boardRef" class="board">
+    <!-- 目录常驻左侧，长页面里靠它直接跳到某一幕或某一章。 -->
+    <OutlineToc
+      class="board__toc"
+      :acts="acts"
+      :chapters-by-act="chaptersByAct"
+      :active-chapter-id="activeChapterId"
+    />
+
     <div class="board__acts">
       <section
-        v-for="act in OUTLINE_ACTS"
+        v-for="act in acts"
+        :id="actAnchorId(act.value)"
         :key="act.value"
+        :data-act="act.value"
         class="act"
         @dragover.prevent
         @drop.prevent="dropOnAct(act.value)"
@@ -123,16 +172,43 @@ function dropOnScene(chapter: Chapter, index: number): void {
         <header class="act__head">
           <div class="act__label">
             <h3 class="act__title serif">{{ act.label }}</h3>
-            <p class="act__hint">{{ act.hint }}</p>
+            <p v-if="act.hint" class="act__hint">{{ act.hint }}</p>
           </div>
-          <NTag class="act__count" size="tiny" round :bordered="false">
-            {{ chaptersByAct[act.value].length }}
-          </NTag>
+          <div class="act__tools">
+            <NTag class="act__count" size="tiny" round :bordered="false">
+              {{ chaptersByAct[act.value].length }}
+            </NTag>
+            <!-- 章节多时底部的「新增章节」要滚到很远，幕头再放一个小入口。 -->
+            <NButton
+              size="tiny"
+              quaternary
+              class="act__add-head"
+              title="在本幕新增章节"
+              @click="emit('add-chapter', act.value)"
+            >
+              ＋
+            </NButton>
+            <!-- 只允许移除末尾的空幕，避免误删正在写的章节。 -->
+            <NButton
+              v-if="
+                act.value === actCount &&
+                act.value > DEFAULT_ACT_COUNT &&
+                chaptersByAct[act.value].length === 0
+              "
+              size="tiny"
+              quaternary
+              class="act__remove"
+              @click="emit('remove-act', act.value)"
+            >
+              移除
+            </NButton>
+          </div>
         </header>
 
         <div class="act__body">
           <OutlineChapterCard
             v-for="chapter in chaptersByAct[act.value]"
+            :id="chapterAnchorId(chapter.id)"
             :key="chapter.id"
             :chapter="chapter"
             :scenes="scenesByChapter[chapter.id] ?? []"
@@ -170,6 +246,8 @@ function dropOnScene(chapter: Chapter, index: number): void {
           />
         </div>
       </section>
+
+      <NButton dashed block class="board__add-act" @click="emit('add-act')"> ＋ 新增一幕 </NButton>
     </div>
   </div>
 </template>
@@ -179,29 +257,53 @@ function dropOnScene(chapter: Chapter, index: number): void {
 @use "../../styles/mixins" as m;
 
 .board {
+  display: flex;
+  align-items: flex-start;
+  gap: t.$space-4;
   min-width: 0;
-  container-type: inline-size;
 }
 
-.board__acts {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: t.$space-3;
-  align-items: start;
+// 目录常驻左侧，跟着页面滚（sticky），长页面里靠它直接跳到某一幕或某一章。
+.board__toc {
+  position: sticky;
+  flex: 0 0 168px;
+  top: t.$space-6;
   min-width: 0;
+}
 
-  @container (max-width: 900px) {
-    grid-template-columns: minmax(0, 1fr);
+// 每一幕占一整行：幕区块自上而下排列，章节在行内按卡片网格铺开。
+.board__acts {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: t.$space-4;
+  min-width: 0;
+}
+
+// 新增一幕用虚线卡片，和「新增章节」保持同一种占位语言。
+.board__add-act.board__add-act {
+  height: auto;
+  min-height: 56px;
+  border: 1px dashed var(--divider, #{t.$divider});
+  border-radius: t.$radius-lg;
+  background: transparent;
+  color: var(--text-soft, #{t.$ink-soft});
+  font-size: 12px;
+  transition:
+    border-color t.$duration t.$ease,
+    color t.$duration t.$ease;
+
+  &:hover {
+    border-color: var(--accent, #{t.$accent});
+    color: var(--accent, #{t.$accent});
   }
 }
 
 .act {
-  display: flex;
-  flex-direction: column;
-  gap: t.$space-2;
   min-width: 0;
-  min-height: 160px;
-  padding: t.$space-3;
+  padding: t.$space-4;
+  // 从目录跳过来时留一点上方余量，幕标题不会贴着滚动容器边缘。
+  scroll-margin-top: t.$space-4;
   @include m.card-surface(var(--bg-surface));
 
   &__head {
@@ -227,17 +329,46 @@ function dropOnScene(chapter: Chapter, index: number): void {
     @include m.ellipsis;
   }
 
+  &__tools {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: t.$space-1;
+  }
+
   // NTag 自带圆角与配色，这里只保证单个数字时的最小宽度。
   &__count {
     min-width: 22px;
     justify-content: center;
   }
 
+  // 移除空幕是低频操作，用更小的字号弱化，避免抢章节的视觉权重。
+  &__remove.act__remove {
+    font-size: 10px;
+  }
+
+  // 列头的「＋」跟列表里的「＋」同一尺寸，保持工具区紧凑。
+  &__add-head.act__add-head {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    padding: 0;
+    font-size: 12px;
+    line-height: 1;
+    color: var(--text-faint);
+
+    &:hover {
+      color: var(--accent, #{t.$accent});
+    }
+  }
+
+  // 一章一行：每个章节卡横跨整幕宽度，纵向依次排列，章节与场景的从属关系不会被网格切断。
   &__body {
     display: flex;
     flex-direction: column;
-    gap: t.$space-2;
+    gap: t.$space-3;
     min-width: 0;
+    margin-top: t.$space-3;
   }
 
   // NButton dashed 变体自带高度/圆角，双写类名保留新增章节按钮的虚线卡片外观。
@@ -263,6 +394,18 @@ function dropOnScene(chapter: Chapter, index: number): void {
     font-size: 10px;
     line-height: 1.6;
     color: var(--text-faint, #{t.$ink-faint});
+  }
+}
+
+// 章节卡是子组件，跳转落点要在这里补一点上边距，避免被滚动容器的边缘裁掉标题。
+:deep(.chapter) {
+  scroll-margin-top: t.$space-4;
+}
+
+// 内容区太窄时目录让位给章节卡：此时只剩一列，页面本身也不长，滚一下就到。
+@container (max-width: 520px) {
+  .board__toc {
+    display: none;
   }
 }
 </style>

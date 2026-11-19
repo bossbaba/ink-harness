@@ -2,8 +2,8 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use rusqlite::{params, OptionalExtension};
-use serde_json::{json, Map, Value};
+use rusqlite::{OptionalExtension, params};
+use serde_json::{Map, Value, json};
 
 use crate::error::AppError;
 use crate::infrastructure::db::DbState;
@@ -130,8 +130,7 @@ pub fn list(state: &DbState, project_id: &str) -> Result<Vec<StoryElement>, AppE
     let rows = stmt
         .query_map(params![project_id], row_to_element)
         .map_err(AppError::from)?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(AppError::from)
+    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
 }
 
 /// 全局设定库：跨作品汇总，仅供浏览，不在此修改。
@@ -155,8 +154,7 @@ pub fn list_all(state: &DbState) -> Result<Vec<StoryElementOverview>, AppError> 
             })
         })
         .map_err(AppError::from)?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(AppError::from)
+    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
 }
 
 pub fn get(state: &DbState, id: &str) -> Result<Option<StoryElement>, AppError> {
@@ -181,7 +179,8 @@ pub fn create(state: &DbState, input: NewStoryElement) -> Result<StoryElement, A
     )?;
     let id = gen_id();
     let detail = serde_json::to_string(&input.detail).map_err(AppError::from)?;
-    conn.execute(
+    let tx = conn.unchecked_transaction().map_err(AppError::from)?;
+    tx.execute(
         r#"insert into story_element
            (id, project_id, kind, name, summary, detail_json, created_at, updated_at)
            values (?1, ?2, ?3, ?4, ?5, ?6,
@@ -196,6 +195,9 @@ pub fn create(state: &DbState, input: NewStoryElement) -> Result<StoryElement, A
         ],
     )
     .map_err(AppError::from)?;
+    // 新设定进入检索范围，该作品的索引过期。
+    crate::services::rag::bump_content_epoch(&tx, &input.project_id)?;
+    tx.commit().map_err(AppError::from)?;
     drop(conn);
     get(state, &id)?.ok_or_else(|| AppError::internal("创建后读取失败"))
 }
@@ -210,7 +212,8 @@ pub fn update(state: &DbState, element: &StoryElement) -> Result<(), AppError> {
         &element.detail,
     )?;
     let detail = serde_json::to_string(&element.detail).map_err(AppError::from)?;
-    let changed = conn
+    let tx = conn.unchecked_transaction().map_err(AppError::from)?;
+    let changed = tx
         .execute(
             r#"update story_element set kind=?2, name=?3, summary=?4, detail_json=?5,
                updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') where id=?1"#,
@@ -226,18 +229,37 @@ pub fn update(state: &DbState, element: &StoryElement) -> Result<(), AppError> {
     if changed == 0 {
         return Err(AppError::not_found("设定条目不存在"));
     }
+    // 设定文本参与索引，改动即过期（纪元按作品分键，只影响当前作品）。
+    crate::services::rag::bump_content_epoch(&tx, &element.project_id)?;
+    tx.commit().map_err(AppError::from)?;
     Ok(())
 }
 
 pub fn remove(state: &DbState, id: &str) -> Result<(), AppError> {
     {
         let conn = state.biz();
-        conn.execute("delete from story_element where id = ?1", params![id])
+        let tx = conn.unchecked_transaction().map_err(AppError::from)?;
+        // 纪元按作品分键，删之前先取所属作品；条目已不存在时无需标记。
+        let project_id: Option<String> = tx
+            .query_row(
+                "select project_id from story_element where id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()
             .map_err(AppError::from)?;
+        tx.execute("delete from story_element where id = ?1", params![id])
+            .map_err(AppError::from)?;
+        // 设定条目也被 RAG 索引过（kind = element）：片段与条目必须同事务删除。
+        // 提交后再清一旦失败，已删除的设定仍会作为参考资料被检索出来。
+        // 这里不依赖 project_id：条目已不存在（重复删除）时也要顺手清掉可能的残留。
+        crate::services::rag::purge_source_in(&tx, id)?;
+        if let Some(project_id) = project_id {
+            crate::services::rag::bump_content_epoch(&tx, &project_id)?;
+        }
+        tx.commit().map_err(AppError::from)?;
     }
-    // 设定条目也被 RAG 索引过（kind = element）：不清理会让已删除的设定继续出现在参考资料里。
-    // 在锁外调用，避免嵌套获取业务库锁。
-    crate::services::rag::purge_source(state, id)
+    Ok(())
 }
 
 /// 从自由文本中提取年份，支持「2024-03」「公元前221年」「19世纪」等写法。

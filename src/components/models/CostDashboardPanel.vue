@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { NButton, NEmpty, NInputNumber, NProgress, NTooltip } from "naive-ui";
 import { computed } from "vue";
-import { estimateCost } from "@/services/usageService";
 import { type ProviderConfig, TASK_KIND_LABEL, type UsageStats } from "@/types";
 
-/** 成本看板：token 是真实采集的，费用按模型配置里的单价估算。 */
+/**
+ * 成本看板：token 是真实采集的，费用按模型配置里的单价估算。
+ * stats / providers / cost 全部由父级 composable 算好后传入，组件自身不调用 service。
+ */
 const props = defineProps<{
   stats: UsageStats | null;
   providers: ProviderConfig[];
+  /** 已估算好的费用，由 composable 依据 stats + providers 派生。 */
+  cost: number;
   budget: number;
   loading: boolean;
 }>();
@@ -17,12 +21,12 @@ const emit = defineEmits<{
   "update:budget": [value: number];
 }>();
 
-const cost = computed(() => (props.stats ? estimateCost(props.stats, props.providers) : 0));
 const percent = computed(() => {
   if (!props.budget || !props.stats) return 0;
   return Math.min(100, Math.round((props.stats.totalTokens / props.budget) * 100));
 });
-const taskLabel = (kind: string): string => TASK_KIND_LABEL[kind] ?? kind;
+// 未登记的任务类型（后端新增而前端还没起名）统一显示「其他」，界面上不出现英文标识。
+const taskLabel = (kind: string): string => TASK_KIND_LABEL[kind] ?? "其他";
 </script>
 
 <template>

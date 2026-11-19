@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { NEmpty } from "naive-ui";
 import { computed } from "vue";
-import { RELATION_TYPE_OPTIONS, STORY_KIND_LABEL, type StoryElement } from "@/types";
+import { findRelationTypeLabel, STORY_KIND_LABEL, type StoryElement } from "@/types";
 
 const props = defineProps<{
   elements: StoryElement[];
@@ -58,7 +58,7 @@ const nodes = computed<GraphNode[]>(() => {
 });
 
 // 每条连线的标签优先用正向关系的类型；只有反向关系时用反向类型。
-// 类型先映射成中文，找不到映射再退回用户自定义的 label，保证线上总有可读文字。
+// 类型先映射成中文；未登记的自定义类型才退回用户自填的 label，界面上不出现英文编码。
 const edges = computed(() => {
   const current = center.value;
   if (!current) return [];
@@ -66,11 +66,7 @@ const edges = computed(() => {
     const forward = current.detail.relations?.find((relation) => relation.targetId === element.id);
     const backward = element.detail.relations?.find((relation) => relation.targetId === current.id);
     const type = forward?.type ?? backward?.type ?? "related-to";
-    const label =
-      RELATION_TYPE_OPTIONS.find((option) => option.value === type)?.label ??
-      forward?.label ??
-      backward?.label ??
-      type;
+    const label = findRelationTypeLabel(type) ?? forward?.label ?? backward?.label ?? "其他";
     const node = nodes.value[index + 1];
     return {
       id: element.id,

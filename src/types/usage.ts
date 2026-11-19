@@ -22,10 +22,11 @@ export interface UsageStats {
   byModel: ModelUsage[];
 }
 
-/** 任务的技术标识换成界面看得懂的名字；未登记的任务原样显示。 */
+/** 任务的技术标识换成界面看得懂的名字；未登记的任务统一显示「其他」，不露出英文标识。 */
 export const TASK_KIND_LABEL: Record<string, string> = {
   ideation: "构思向导",
-  copilot: "Copilot",
+  // 界面上的功能名是「AI 对话」，成本看板沿用同一个称呼，避免中英混排。
+  copilot: "AI 对话",
   continue: "续写",
   rewrite: "改写",
   expand: "扩写",

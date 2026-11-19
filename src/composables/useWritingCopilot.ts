@@ -8,8 +8,9 @@ import {
 import { modelRouter } from "@/services/modelRouter";
 import { outlineService } from "@/services/outlineService";
 import { loadRelatedNotes } from "@/services/ragService";
+import { storyElementService } from "@/services/storyElementService";
 import { getContextBudget } from "@/services/summaryService";
-import type { CopilotMessage, CopilotReference, Project } from "@/types";
+import type { CopilotMessage, CopilotReference, Project, StoryElement } from "@/types";
 
 export interface WritingCopilotOptions {
   projectId: string;
@@ -44,11 +45,43 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
   const references = ref<CopilotReference[]>([]);
   /** 最近一次提问检索到的片段数，用于在界面上说明「资料从哪来」。 */
   const retrievedCount = ref(0);
+  // 以下四项是 @引用 选择器的候选数据：原本在 CopilotReferencePicker 内直接调 service，
+  // 上移到 composable 后组件只收 props，保持「组件不直接请求」的分层。
+  const referenceElements = ref<StoryElement[]>([]);
+  const referenceChapters = ref<Array<{ id: string; act: number; title: string }>>([]);
+  const referenceLoading = ref(false);
+  const referenceError = ref("");
+  /** 记住已加载的作品，切作品后重取，同作品反复展开不重复请求。 */
+  let referencesLoadedFor = "";
 
   // 作品上下文在会话内只拼一次：写作过程中设定/大纲变了，重新打开页面即可刷新。
   let contextCache: string | null = null;
   // 每次发送自增：停止或新问题到来后，旧请求迟到的分片直接丢弃。
   let requestSeq = 0;
+
+  /** 首次展开 @引用 面板时加载候选：设定全量 + 大纲快照，失败给出可见错误。 */
+  async function loadReferences(): Promise<void> {
+    if (!options.projectId || referencesLoadedFor === options.projectId) return;
+    referenceLoading.value = true;
+    referenceError.value = "";
+    try {
+      const [elements, snapshot] = await Promise.all([
+        storyElementService.list(options.projectId),
+        outlineService.snapshot(options.projectId),
+      ]);
+      referenceElements.value = elements;
+      referenceChapters.value = snapshot.chapters.map((chapter) => ({
+        id: chapter.id,
+        act: chapter.act,
+        title: chapter.title,
+      }));
+      referencesLoadedFor = options.projectId;
+    } catch (err) {
+      referenceError.value = err instanceof Error ? err.message : String(err);
+    } finally {
+      referenceLoading.value = false;
+    }
+  }
 
   async function loadContext(force = false): Promise<string> {
     if (!force && contextCache !== null) return contextCache;
@@ -178,6 +211,11 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
     contextChars,
     references,
     retrievedCount,
+    referenceElements,
+    referenceChapters,
+    referenceLoading,
+    referenceError,
+    loadReferences,
     send,
     refreshContext,
     stop,

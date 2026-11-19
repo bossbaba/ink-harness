@@ -107,6 +107,9 @@ export const tauriApi = {
   outlineSnapshot: (projectId: string) => call<OutlineSnapshot>("outline_snapshot", { projectId }),
   createChapter: (input: NewChapter) => call<Chapter>("create_chapter", { input }),
   updateChapter: (chapter: Chapter) => call<void>("update_chapter", { chapter }),
+  /** 只改摘要：避免摘要自动保存把标题/幕次/状态一起整对象覆盖。 */
+  updateChapterSummary: (id: string, summary: string) =>
+    call<void>("update_chapter_summary", { id, summary }),
   deleteChapter: (id: string) => call<void>("delete_chapter", { id }),
   createScene: (input: NewScene) => call<Scene>("create_scene", { input }),
   updateScene: (scene: Scene) => call<void>("update_scene", { scene }),

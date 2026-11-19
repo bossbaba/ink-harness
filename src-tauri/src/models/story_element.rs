@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// 设定库条目：人物 / 地点 / 组织 / 术语 / 时间线事件。
 /// 扩展字段（别名、时间范围、关系等）统一放在 detail JSON 中。

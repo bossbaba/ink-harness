@@ -60,7 +60,11 @@ watch(projectId, loadProject, { immediate: true });
         不同页面（设定库/大纲/写作台）会共用同一条缓存，切页时会渲染出上一个页面。
       -->
       <RouterView v-else-if="project" v-slot="{ Component }">
-        <KeepAlive>
+        <!--
+          上限 6：key 带 projectId，换作品时旧实例不会被复用；
+          没有上限的话，切几个作品的几个页面就会把监听器与整份章节数据一直留在内存里。
+        -->
+        <KeepAlive :max="6">
           <component :is="Component" :key="`${projectId}:${String(route.name ?? '')}`" />
         </KeepAlive>
       </RouterView>

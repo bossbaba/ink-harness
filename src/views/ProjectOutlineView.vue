@@ -18,6 +18,7 @@ const {
   activeChapterId,
   error,
   busy,
+  actCount,
   chapterShow,
   chapterIsNew,
   chapterDraft,
@@ -34,6 +35,8 @@ const {
   chapterOptions,
   stats,
   selectChapter,
+  addAct,
+  removeAct,
   openCreateChapter,
   openEditChapter,
   saveChapter,
@@ -60,7 +63,7 @@ const {
           {{ projectTitle ? `《${projectTitle}》· 大纲` : "作品大纲" }}
         </h1>
         <p class="outline__subtitle">
-          按三幕组织章节与场景，拖拽可调整归属与顺序；伏笔按「铺设 → 回收」追踪。
+          按幕组织章节与场景，可继续新增幕；拖拽可调整归属与顺序，伏笔按「铺设 → 回收」追踪。
         </p>
       </div>
       <NSpace>
@@ -100,9 +103,12 @@ const {
           :scenes-by-chapter="scenesByChapter"
           :foreshadow-tags="foreshadowTags"
           :active-chapter-id="activeChapterId"
+          :act-count="actCount"
           @move-chapter="moveChapter"
           @move-scene="moveScene"
           @add-chapter="openCreateChapter"
+          @add-act="addAct"
+          @remove-act="removeAct"
           @select-chapter="selectChapter"
           @edit-chapter="openEditChapter"
           @remove-chapter="removeChapter"
@@ -128,6 +134,7 @@ const {
       :is-new="chapterIsNew"
       :busy="busy"
       :error="error"
+      :act-count="actCount"
       @save="saveChapter"
     />
 

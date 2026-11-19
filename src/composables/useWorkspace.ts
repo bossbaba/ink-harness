@@ -2,7 +2,7 @@ import { computed, onMounted, ref } from "vue";
 import { projectService } from "@/services/projectService";
 import { runtimeService } from "@/services/runtimeService";
 import { useAppStore } from "@/stores/app";
-import type { DatabaseInfo, Project } from "@/types";
+import type { DatabaseInfo, NewProject, Project } from "@/types";
 import { onReactivated } from "@/utils/lifecycle";
 import { useOllamaControl } from "./useOllamaControl";
 
@@ -63,6 +63,15 @@ export function useWorkspace() {
   // keep-alive 缓存后 onMounted 只跑一次，从作品里回来时补刷作品列表。
   onReactivated(() => void loadProjects());
 
+  /**
+   * 新建作品：唯一的 service 调用点。弹窗只收集表单并通过 prop 拿到本函数，
+   * 不在组件内直接 import service，保持「组件只通信、composable 管请求」的分层。
+   */
+  async function createProject(input: NewProject): Promise<{ id: string; title: string }> {
+    const created = await projectService.create(input);
+    return { id: created.id, title: created.title };
+  }
+
   return {
     app,
     backend,
@@ -76,5 +85,6 @@ export function useWorkspace() {
     ollamaStarting,
     startOllama,
     loadProjects,
+    createProject,
   };
 }

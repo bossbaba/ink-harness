@@ -1,15 +1,23 @@
 <script setup lang="ts">
 import { NButton, NInput, NModal, NSelect, NSpace } from "naive-ui";
-import { CHAPTER_STATUS_OPTIONS, type ChapterDraft, OUTLINE_ACTS } from "@/types";
+import { computed } from "vue";
+import { actOptions, CHAPTER_STATUS_OPTIONS, type ChapterDraft, DEFAULT_ACT_COUNT } from "@/types";
 
 // 章节弹窗：只编辑草稿，提交动作 emit save 交给页面/composable 发请求。
-const props = defineProps<{
-  isNew: boolean;
-  busy: boolean;
-  error: string;
-}>();
+const props = withDefaults(
+  defineProps<{
+    isNew: boolean;
+    busy: boolean;
+    error: string;
+    /** 所属幕的可选范围：默认三幕，大纲/写作台新增幕后会一起变大。 */
+    actCount?: number;
+  }>(),
+  { actCount: DEFAULT_ACT_COUNT },
+);
 
 const emit = defineEmits<(e: "save") => void>();
+
+const actSelectOptions = computed(() => actOptions(props.actCount));
 
 const show = defineModel<boolean>("show", { required: true });
 const draft = defineModel<ChapterDraft>("draft", { required: true });
@@ -30,11 +38,7 @@ function close(): void {
     <div class="form">
       <label class="field">
         <span class="field__label">所属幕</span>
-        <NSelect
-          v-model:value="draft.act"
-          :options="OUTLINE_ACTS.map((act) => ({ label: act.label, value: act.value }))"
-          size="small"
-        />
+        <NSelect v-model:value="draft.act" :options="actSelectOptions" size="small" />
       </label>
       <label class="field">
         <span class="field__label">章节标题</span>

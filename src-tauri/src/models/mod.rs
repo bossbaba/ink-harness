@@ -9,17 +9,15 @@ pub mod stats;
 pub mod story_element;
 pub mod usage;
 
-pub use chat::{ChatChunk, ChatParams, TokenUsage};
-pub use draft::{
-    ChapterContent, DraftVersion, DraftVersionBrief, SaveContentInput,
-};
+pub use chat::{ChatChunk, ChatMessage, ChatParams, TokenUsage};
+pub use draft::{ChapterContent, DraftVersion, DraftVersionBrief, SaveContentInput};
 pub use outline::{
     Chapter, Foreshadow, MoveChapter, MoveScene, NewChapter, NewForeshadow, NewScene,
     OutlineSnapshot, Scene,
 };
 pub use project::{DatabaseInfo, NewProject, Project};
 pub use provider::{
-    split_model_ref, OllamaStatus, ProbeProviderInput, ProviderConfig, ProviderModel,
+    OllamaStatus, ProbeProviderInput, ProviderConfig, ProviderModel, split_model_ref,
 };
 pub use publish::ExportResult;
 pub use rag::{RagHit, RagStatus};

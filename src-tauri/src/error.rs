@@ -193,6 +193,9 @@ mod tests {
 
     #[test]
     fn display_is_plain_message() {
-        assert_eq!(AppError::validation("标题不能为空").to_string(), "标题不能为空");
+        assert_eq!(
+            AppError::validation("标题不能为空").to_string(),
+            "标题不能为空"
+        );
     }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { darkTheme, NConfigProvider } from "naive-ui";
+import { darkTheme, dateZhCN, NConfigProvider, zhCN } from "naive-ui";
 import { computed, onMounted, onUnmounted, watch } from "vue";
 import { RouterView } from "vue-router";
 import AppShell from "@/components/AppShell.vue";
@@ -36,7 +36,17 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 </script>
 
 <template>
-  <NConfigProvider :theme="naiveTheme" :theme-overrides="themeOverrides" class="app-root">
+  <!--
+    必须显式指定中文 locale：naive-ui 默认是英文，NPopconfirm 会出现
+    Confirm / Cancel，NDatePicker 会出现英文月份与星期。
+  -->
+  <NConfigProvider
+    :theme="naiveTheme"
+    :theme-overrides="themeOverrides"
+    :locale="zhCN"
+    :date-locale="dateZhCN"
+    class="app-root"
+  >
     <AppShell>
       <!--
         路由页统一缓存：切到设定库再回写作台时，编辑器正文、AI 面板、

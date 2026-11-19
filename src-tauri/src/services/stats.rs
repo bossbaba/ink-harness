@@ -9,10 +9,7 @@ fn scalar(conn: &rusqlite::Connection, sql: &str) -> Result<i64, AppError> {
         .map_err(AppError::from)
 }
 
-fn grouped(
-    conn: &rusqlite::Connection,
-    sql: &str,
-) -> Result<Vec<CountItem>, AppError> {
+fn grouped(conn: &rusqlite::Connection, sql: &str) -> Result<Vec<CountItem>, AppError> {
     let mut stmt = conn.prepare(sql).map_err(AppError::from)?;
     let rows = stmt
         .query_map([], |row| {
@@ -35,10 +32,7 @@ pub fn workspace_stats(state: &DbState) -> Result<WorkspaceStats, AppError> {
     Ok(WorkspaceStats {
         projects: scalar(&conn, "select count(*) from project")?,
         chapters: scalar(&conn, "select count(*) from chapter")?,
-        total_words: scalar(
-            &conn,
-            "select coalesce(sum(word_count), 0) from chapter",
-        )?,
+        total_words: scalar(&conn, "select coalesce(sum(word_count), 0) from chapter")?,
         story_elements: scalar(&conn, "select count(*) from story_element")?,
         scenes: scalar(&conn, "select count(*) from scene")?,
         foreshadows: scalar(&conn, "select count(*) from foreshadow")?,
@@ -62,10 +56,7 @@ mod tests {
     use super::*;
 
     fn seed() -> DbState {
-        let dir = std::env::temp_dir().join(format!(
-            "ink-harness-stats-test-{}",
-            gen_suffix()
-        ));
+        let dir = std::env::temp_dir().join(format!("ink-harness-stats-test-{}", gen_suffix()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let state = crate::infrastructure::db::open(&dir).unwrap();
@@ -87,7 +78,10 @@ mod tests {
 
     fn gen_suffix() -> String {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         format!("{}-{}", std::process::id(), nanos)
     }
 
@@ -101,11 +95,23 @@ mod tests {
         assert_eq!(stats.story_elements, 1);
         assert_eq!(stats.scenes, 1);
         assert_eq!(stats.foreshadows, 1);
-        let drafting = stats.projects_by_status.iter().find(|i| i.key == "drafting").unwrap();
+        let drafting = stats
+            .projects_by_status
+            .iter()
+            .find(|i| i.key == "drafting")
+            .unwrap();
         assert_eq!(drafting.count, 1);
-        let done = stats.chapters_by_status.iter().find(|i| i.key == "done").unwrap();
+        let done = stats
+            .chapters_by_status
+            .iter()
+            .find(|i| i.key == "done")
+            .unwrap();
         assert_eq!(done.count, 1);
-        let character = stats.elements_by_kind.iter().find(|i| i.key == "character").unwrap();
+        let character = stats
+            .elements_by_kind
+            .iter()
+            .find(|i| i.key == "character")
+            .unwrap();
         assert_eq!(character.count, 1);
     }
 

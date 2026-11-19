@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { NButton, NInput, NModal, NSelect, NSpace } from "naive-ui";
 import { ref } from "vue";
-import { projectService } from "@/services/projectService";
 import type { NewProject } from "@/types";
 
-const props = defineProps<{ show: boolean }>();
+/**
+ * 新建作品弹窗：只负责收集表单与展示错误，真正的落库由父级注入的 create 回调完成，
+ * 组件本身不 import 任何 service。
+ */
+const props = defineProps<{
+  show: boolean;
+  create: (input: NewProject) => Promise<{ id: string; title: string }>;
+}>();
 const emit = defineEmits<{
   (e: "update:show", value: boolean): void;
   (e: "created", project: { id: string; title: string }): void;
@@ -48,7 +54,7 @@ async function submit() {
       premise: premise.value,
       privacy: privacy.value,
     };
-    const created = await projectService.create(input);
+    const created = await props.create(input);
     title.value = "";
     genre.value = "";
     premise.value = "";

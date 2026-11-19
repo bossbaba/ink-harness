@@ -4,7 +4,7 @@
 //! 设置项都很少、都是标量，单表足够，也省掉一次迁移。
 //! 布尔值统一存 `"1"` / `"0"`，避免各家 `true/yes/on` 混用。
 
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 
 use crate::error::AppError;
 use crate::infrastructure::db::DbState;

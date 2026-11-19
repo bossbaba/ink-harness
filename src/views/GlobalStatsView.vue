@@ -17,18 +17,24 @@ import { onReactivated } from "@/utils/lifecycle";
  * 全局统计（一级路由 /stats）：汇总所有作品的作品数、字数、设定规模与 token 成本。
  * 只读页，不做任何写入；成本看板复用模型管理页的组件，避免两套口径。
  */
-const { loading, stats, usage, providers, budget, error, load, updateBudget } = useGlobalStats();
+const { loading, stats, usage, providers, budget, cost, error, load, updateBudget } =
+  useGlobalStats();
 
 const totalWorks = computed(() => stats.value?.projects ?? 0);
 
-/** 按给定顺序补全 0 值档位，让状态分布看起来稳定；顺序表外的 key 追加在后面。 */
+/**
+ * 按给定顺序补全 0 值档位，让状态分布看起来稳定。
+ * 顺序表外的 key 是后端新增、前端还没起名的状态，合并成一行「其他」计数，
+ * 避免把英文状态值直接摆到界面上。
+ */
 function withOrder(items: StatCountItem[], order: Array<{ key: string; label: string }>) {
   const map = new Map(items.map((item) => [item.key, item.count]));
   const rows = order.map((item) => ({ label: item.label, count: map.get(item.key) ?? 0 }));
   const known = new Set(order.map((item) => item.key));
-  for (const item of items) {
-    if (!known.has(item.key)) rows.push({ label: item.key, count: item.count });
-  }
+  const unknownCount = items
+    .filter((item) => !known.has(item.key))
+    .reduce((sum, item) => sum + item.count, 0);
+  if (unknownCount > 0) rows.push({ label: "其他", count: unknownCount });
   return rows;
 }
 
@@ -40,7 +46,7 @@ const chapterStatusRows = computed(() =>
 );
 const elementKindRows = computed(() =>
   (stats.value?.elementsByKind ?? [])
-    .map((item) => ({ label: ELEMENT_KIND_LABEL[item.key] ?? item.key, count: item.count }))
+    .map((item) => ({ label: ELEMENT_KIND_LABEL[item.key] ?? "其他", count: item.count }))
     .sort((a, b) => b.count - a.count),
 );
 
@@ -114,6 +120,7 @@ onReactivated(() => void load());
       <CostDashboardPanel
         :stats="usage"
         :providers="providers"
+        :cost="cost"
         :budget="budget"
         :loading="loading"
         @refresh="load"

@@ -22,6 +22,7 @@ const {
   ollamaStarting,
   startOllama,
   loadProjects,
+  createProject,
 } = useWorkspace();
 
 // 新建作品弹窗创建成功后的回调：重新拉取列表，让新作品立即出现在卡片区。
@@ -50,7 +51,7 @@ function openWriting(projectId: string): void {
 }
 
 function openPublish(projectId: string): void {
-  // 出版中心属于某部作品，路径上必须带 projectId；全局菜单的同名项仍是禁用占位。
+  // 出版中心属于某部作品，路径上必须带 projectId；它是作品内页面，不进全局导航。
   void router.push({ name: "project-publish", params: { projectId } });
 }
 
@@ -163,7 +164,7 @@ function openModels(): void {
       {{ dbInfo.path }}
     </NTooltip>
 
-    <NewProjectDialog v-model:show="showNew" @created="onCreated" />
+    <NewProjectDialog v-model:show="showNew" :create="createProject" @created="onCreated" />
   </div>
 </template>
 

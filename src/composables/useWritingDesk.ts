@@ -1,22 +1,14 @@
-import { storeToRefs } from "pinia";
 import { computed, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { outlineService } from "@/services/outlineService";
 import { projectService } from "@/services/projectService";
 import { writingService } from "@/services/writingService";
 import { useDraftSyncStore } from "@/stores/draftSync";
-import { useProjectStore } from "@/stores/project";
-import type {
-  Act,
-  Chapter,
-  ChapterStatus,
-  DraftVersion,
-  DraftVersionBrief,
-  Project,
-} from "@/types";
 import { clearDraftBackup, readDraftBackup, writeDraftBackup } from "@/utils/draftBackup";
+import { normalizeError } from "@/utils/errors";
 import { onReactivated } from "@/utils/lifecycle";
 import { countCharacters } from "@/utils/text";
+import { useWritingChapters } from "./useWritingChapters";
+import { useWritingVersions } from "./useWritingVersions";
 
 /** 自动保存防抖间隔：太短会频繁写库，太长又容易在切章时丢刚写的内容。 */
 const AUTOSAVE_DELAY = 1200;
@@ -42,33 +34,56 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
   const draftSync = useDraftSyncStore();
   const route = useRoute();
   const router = useRouter();
-  // 当前作品来自全局 store：别的页面改了作品状态，这里能立刻看到。
-  const project = storeToRefs(useProjectStore()).current;
-  const chapters = ref<Chapter[]>([]);
+  const error = ref("");
+
+  // 章节列表与阶段归 useWritingChapters；正文与自动保存状态留在写作台主体。
+  const chaptersApi = useWritingChapters(projectId, { error });
+  const {
+    project,
+    chapters,
+    chaptersLoading,
+    actCount,
+    totalWords,
+    chaptersByAct,
+    markDraftingStage,
+    patchChapter,
+    loadChapters,
+    createChapter,
+  } = chaptersApi;
+
   const content = ref("");
   const wordCount = ref(0);
-  const error = ref("");
-  const chaptersLoading = ref(true);
   const contentLoading = ref(false);
   const saveState = ref<SaveState>("idle");
   const lastSavedAt = ref("");
   /** 供编辑器重新挂载用：切章或恢复版本时递增，让编辑器拿到新的初始内容。 */
   const editorRevision = ref(0);
 
-  const versions = ref<DraftVersionBrief[]>([]);
-  const versionsLoading = ref(false);
-  const versionsBusy = ref(false);
-  const previewVersion = ref<DraftVersion | null>(null);
-
-  // 待落库的正文；自动保存与手动快照都从这里取，避免读到编辑器之外的旧值。
-  let pending: { content: string; wordCount: number } | null = null;
+  /**
+   * 待落库的正文。带上 chapterId：切章时上一章的字还在队列里，
+   * 若只记内容，切章后的循环会把新章的正文写进旧章（或反过来丢字）。
+   */
+  let pending: { chapterId: string; content: string; wordCount: number } | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   /**
-   * 是否已有一次保存在飞。
-   * 保存期间用户继续输入时不再另起请求（那会让两次 save 落库顺序不确定，
-   * 旧内容可能覆盖新内容），而是把内容留在 pending，由当前这一轮循环补写。
+   * 在飞的那一轮保存。`flush()` 靠它串行：后到的调用者先等前一轮写完，
+   * 再决定要不要写剩下的 pending，这样「离开页面前的保存」才是真屏障。
    */
-  let saving = false;
+  let inFlight: Promise<void> | null = null;
+  /** 载入正文的请求序号：连点两章时，只有最后一次请求的结果允许落到编辑器。 */
+  let loadSeq = 0;
+  /**
+   * 遇到版本冲突后暂停自动保存。
+   * 冲突意味着库里的正文已经不是我们这一版，继续重试只会对同一个 conflict 空转，
+   * 所以先把内容留在本地备份，等用户重新载入本章（loadContent 会复位）再继续。
+   */
+  let halted = false;
+  /**
+   * 每章「我读到的正文版本号」。
+   * 按章节记在 Map 里而不是单个变量：切章时上一章可能还有一次补写，
+   * 用当前章的版本去校验上一章会必然失败。
+   */
+  const contentRevisions = new Map<string, number>();
   /** 载入正文时记住的版本：审稿页在外部改过正文后，靠它判断缓存是否已过期。 */
   let seenRevision = 0;
 
@@ -81,15 +96,6 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
   const activeChapter = computed(
     () => chapters.value.find((chapter) => chapter.id === activeChapterId.value) ?? null,
   );
-  const totalWords = computed(() =>
-    chapters.value.reduce((sum, chapter) => sum + chapter.wordCount, 0),
-  );
-  const chaptersByAct = computed(() =>
-    ([1, 2, 3] as Act[]).map((act) => ({
-      act,
-      chapters: chapters.value.filter((chapter) => chapter.act === act),
-    })),
-  );
 
   function clearTimer(): void {
     if (timer) {
@@ -99,74 +105,60 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
   }
 
   /**
-   * 首次写出正文后，把作品阶段从「大纲」推进到「初稿」。
-   * 阶段标签只是顶栏进度提示，写失败保持原状即可，不影响正文保存。
+   * 从大纲页回到写作台时对齐章节与幕数。
+   *
+   * 两个页面各自被 keep-alive 缓存：大纲里新增/删除章节、新增幕，写作台不会重建，
+   * 不重取就会一直显示旧列表（新章节看不见、删掉的章节还挂在列表里、新增的幕选不到）。
    */
-  async function markDraftingStage(): Promise<void> {
-    const current = project.value;
-    if (current?.status !== "outline") return;
-    try {
-      const next: Project = { ...current, status: "drafting" };
-      await projectService.update(next);
-      project.value = next;
-    } catch {
-      // 忽略：阶段推进失败时用户仍能正常写作。
-    }
-  }
+  async function syncOutline(): Promise<void> {
+    if (!projectId) return;
+    await loadChapters({ silent: true });
 
-  /** 章节列表里的字数/状态就地更新，避免每次自动保存都重拉整份快照。 */
-  function patchChapter(
-    chapterId: string,
-    patch: { wordCount?: number; status?: ChapterStatus; summary?: string },
-  ) {
-    chapters.value = chapters.value.map((chapter) =>
-      chapter.id === chapterId ? { ...chapter, ...patch } : chapter,
-    );
-  }
+    const chapterId = loadedChapterId.value;
+    if (!chapterId) return;
+    if (chapters.value.some((chapter) => chapter.id === chapterId)) return;
 
-  async function loadChapters(): Promise<void> {
-    chaptersLoading.value = true;
-    try {
-      const snapshot = await outlineService.snapshot(projectId);
-      chapters.value = snapshot.chapters;
-    } catch (err) {
-      error.value = `读取章节失败：${String(err)}`;
-    } finally {
-      chaptersLoading.value = false;
-    }
-  }
+    // 正在写的章已在大纲里被删：正文没有可写的地方了，清掉载入状态并明确提示，
+    // 否则用户继续敲字，自动保存只会在一个不存在的章节上反复失败。
+    // 先等在飞保存结束再丢弃，免得刚丢掉又被失败的保存重新塞回队列。
+    if (inFlight) await inFlight;
+    pending = null;
+    clearTimer();
+    contentRevisions.delete(chapterId);
+    loadedChapterId.value = "";
+    content.value = "";
+    wordCount.value = 0;
+    saveState.value = "idle";
+    clearVersionCache();
+    error.value = "这一章已在大纲中被删除，请在左侧重新选一章。";
 
-  async function loadVersions(chapterId: string): Promise<void> {
-    if (!chapterId) {
-      versions.value = [];
-      return;
-    }
-    versionsLoading.value = true;
-    try {
-      versions.value = await writingService.listVersions(chapterId);
-    } catch (err) {
-      error.value = `读取版本失败：${String(err)}`;
-    } finally {
-      versionsLoading.value = false;
+    // 地址里还挂着已删除的章节 id 时一并摘掉，避免刷新/分享后回到一个不存在的章节。
+    if (route.name === "project-writing") {
+      void router.replace({ name: "project-writing", params: { projectId } });
     }
   }
 
   async function loadContent(chapterId: string): Promise<void> {
-    pending = null;
     clearTimer();
+    // 重新载入就是「以库里为准」，解除冲突后的保存暂停。
+    halted = false;
+    const seq = ++loadSeq;
     if (!chapterId) {
       loadedChapterId.value = "";
       content.value = "";
       wordCount.value = 0;
       saveState.value = "idle";
-      versions.value = [];
+      clearVersionCache();
       return;
     }
     contentLoading.value = true;
     try {
       const data = await writingService.getContent(chapterId);
+      // 连续点两章时先发的请求可能后返回：旧响应不能再覆盖当前章。
+      if (seq !== loadSeq) return;
       loadedChapterId.value = chapterId;
       seenRevision = draftSync.revisionOf(chapterId);
+      contentRevisions.set(chapterId, data.contentRevision);
       lastSavedAt.value = data.updatedAt;
 
       // 上次写库失败留下的本地备份如果比库里的正文更新，就载入编辑器并提示保存。
@@ -181,21 +173,28 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
         saveState.value = "error";
         error.value = "检测到上次未保存的本地备份，已载入编辑器，请确认后保存。";
       } else {
-        if (backup) clearDraftBackup(chapterId);
+        // 只有内容一致才清备份：不一致说明它是某次失败保存留下的稿子，
+        // 而别的页面（审稿/工作流）推后 updated_at 也会走到这个分支，
+        // 无条件清掉就等于把用户没落库的那段文字静默删除。
+        if (backup && backup.content === data.content) clearDraftBackup(chapterId);
         content.value = data.content;
         wordCount.value = data.wordCount;
         saveState.value = "saved";
       }
       editorRevision.value += 1;
       await loadVersions(chapterId);
+      // 载入期间用户在旧章里继续敲的字属于旧章：交给 flush 落库，别跟着换章一起丢掉。
+      if (pending && pending.chapterId !== chapterId) void flush();
     } catch (err) {
+      if (seq !== loadSeq) return;
       // 载入失败时清掉「已载入章节」，避免用户对着旧正文继续写、却写到上一章去。
       loadedChapterId.value = "";
       content.value = "";
       wordCount.value = 0;
       error.value = `读取正文失败：${String(err)}`;
     } finally {
-      contentLoading.value = false;
+      // 只有最新一次载入才负责关掉加载态，否则旧请求会把新请求的 loading 提前关掉。
+      if (seq === loadSeq) contentLoading.value = false;
     }
   }
 
@@ -203,10 +202,20 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
   function onEditorUpdate(payload: EditorPayload): void {
     const chapterId = loadedChapterId.value;
     if (!chapterId) return;
-    pending = { content: payload.content, wordCount: countCharacters(payload.text) };
+    pending = {
+      chapterId,
+      content: payload.content,
+      wordCount: countCharacters(payload.text),
+    };
     wordCount.value = pending.wordCount;
-    saveState.value = "dirty";
     clearTimer();
+    if (halted) {
+      // 冲突未解决前不再排保存：新敲的字同样写进本地备份，别让「继续写」变成「继续丢」。
+      writeDraftBackup(chapterId, pending);
+      saveState.value = "error";
+      return;
+    }
+    saveState.value = "dirty";
     timer = setTimeout(() => void flush(), AUTOSAVE_DELAY);
   }
 
@@ -214,26 +223,29 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
    * 立即把待保存内容写库。
    * 切章、离开页面、手动快照前都会调用它，保证「界面上看到的字」已经落盘。
    *
-   * 单飞：同一时刻只允许一个保存请求在飞；期间产生的新内容留在 pending，
-   * 由本轮循环接着写一次。这样既不会并发覆盖，也不会丢字。
+   * 串行：同一时刻只跑一轮保存；后到的调用先等在飞那轮结束，再处理自己看到的 pending。
+   * 这样 `onBeforeRouteLeave` 里的 `await flush()` 才是真正的屏障，而不是「有请求在飞就返回」。
    */
   async function flush(): Promise<void> {
     clearTimer();
-    if (saving) return;
-    const chapterId = loadedChapterId.value;
-    if (!chapterId || !pending) return;
-    saving = true;
+    if (inFlight) await inFlight;
+    // 冲突后暂停：内容已备份，重试必然再次失败，交给用户重新载入后再写。
+    if (halted) return;
+    if (!pending) return;
     saveState.value = "saving";
-    try {
+    const run = (async () => {
       while (pending) {
         const payload = pending;
         pending = null;
-        const ok = await saveOnce(chapterId, payload);
         // 失败时内容已回到队列，这里必须停下：继续循环只会对同一个后端错误空转。
-        if (!ok) break;
+        if (!(await saveOnce(payload))) break;
       }
+    })();
+    inFlight = run;
+    try {
+      await run;
     } finally {
-      saving = false;
+      if (inFlight === run) inFlight = null;
     }
   }
 
@@ -242,16 +254,22 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
    * 失败时不抛异常（避免 `void flush()` 变成 unhandled rejection），
    * 而是把内容放回 pending 并标记 error，等下一次输入/切章/离开页面再试。
    */
-  async function saveOnce(
-    chapterId: string,
-    payload: { content: string; wordCount: number },
-  ): Promise<boolean> {
+  async function saveOnce(payload: {
+    chapterId: string;
+    content: string;
+    wordCount: number;
+  }): Promise<boolean> {
+    const chapterId = payload.chapterId;
     try {
       const saved = await writingService.saveContent({
         chapterId,
         content: payload.content,
         wordCount: payload.wordCount,
+        // 带上基准版本：库里已被别处改过时后端返回 conflict，避免静默覆盖。
+        expectedContentRevision: contentRevisions.get(chapterId),
       });
+      // 记下这次保存后的版本，后面的保存都以它为准。
+      contentRevisions.set(chapterId, saved.contentRevision);
       // 章节列表按 id 更新，切章后也能正确反映上一章的新字数。
       patchChapter(chapterId, {
         wordCount: saved.wordCount,
@@ -268,85 +286,54 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
       if (saved.wordCount > 0) void markDraftingStage();
       return true;
     } catch (err) {
+      const info = normalizeError(err);
       // 期间用户又输入了新内容时优先保留新的那份，别让旧 payload 把它盖掉。
       if (!pending) pending = payload;
       // 写库失败时把正文留在本地，否则关窗/崩溃就真的丢了；下次载入该章会提示恢复。
       writeDraftBackup(chapterId, payload);
       saveState.value = "error";
-      error.value = `保存失败：${String(err)}（正文已留在本地备份）`;
+      if (info.code === "conflict") {
+        halted = true;
+        error.value = `${info.message}。当前文字已存入本地备份，请重新载入本章后再继续。`;
+      } else {
+        error.value = `保存失败：${info.message}（正文已留在本地备份）`;
+      }
       return false;
     }
   }
 
-  /** 手动留一版快照；先把编辑器里的最新内容写进去，否则快照会落后于屏幕。 */
-  async function createSnapshot(): Promise<void> {
-    const chapterId = loadedChapterId.value;
-    if (!chapterId) return;
-    versionsBusy.value = true;
-    error.value = "";
-    try {
-      clearTimer();
-      const payload = pending ?? { content: content.value, wordCount: wordCount.value };
-      const saved = await writingService.saveContent({
-        chapterId,
-        content: payload.content,
-        wordCount: payload.wordCount,
-        snapshot: true,
-      });
+  // 版本管理委托给独立 composable：注入自动保存桥接，避免两处各维护一份保存状态。
+  const versionsApi = useWritingVersions({
+    loadedChapterId,
+    content,
+    wordCount,
+    saveState,
+    lastSavedAt,
+    editorRevision,
+    contentRevisions,
+    error,
+    flush: () => flush(),
+    getPending: () => pending,
+    clearPending: () => {
       pending = null;
-      clearDraftBackup(chapterId);
-      wordCount.value = saved.wordCount;
-      lastSavedAt.value = saved.updatedAt;
-      saveState.value = "saved";
-      patchChapter(chapterId, {
-        wordCount: saved.wordCount,
-        status: saved.wordCount > 0 ? "drafting" : undefined,
-      });
-      await loadVersions(chapterId);
-    } catch (err) {
-      error.value = `保存快照失败：${String(err)}`;
-    } finally {
-      versionsBusy.value = false;
-    }
-  }
-
-  /** 预览某一版：只取该版正文，不改动当前稿。 */
-  async function openVersionPreview(versionId: string): Promise<void> {
-    try {
-      previewVersion.value = await writingService.getVersion(versionId);
-    } catch (err) {
-      error.value = `读取版本失败：${String(err)}`;
-    }
-  }
-
-  function closeVersionPreview(): void {
-    previewVersion.value = null;
-  }
-
-  /** 恢复到某一版：后端会先把当前正文补成底稿，这里只需把页面同步回旧内容。 */
-  async function restoreVersion(versionId: string): Promise<void> {
-    const chapterId = loadedChapterId.value;
-    if (!chapterId) return;
-    versionsBusy.value = true;
-    error.value = "";
-    try {
-      clearTimer();
-      pending = null;
-      const restored = await writingService.restoreVersion(versionId);
-      content.value = restored.content;
-      wordCount.value = restored.wordCount;
-      lastSavedAt.value = restored.updatedAt;
-      saveState.value = "saved";
-      editorRevision.value += 1;
-      previewVersion.value = null;
-      patchChapter(chapterId, { wordCount: restored.wordCount });
-      await loadVersions(chapterId);
-    } catch (err) {
-      error.value = `恢复版本失败：${String(err)}`;
-    } finally {
-      versionsBusy.value = false;
-    }
-  }
+    },
+    clearHalted: () => {
+      halted = false;
+    },
+    patchChapter,
+  });
+  const {
+    versions,
+    versionsLoading,
+    versionsBusy,
+    previewVersion,
+    loadVersions,
+    clearVersionCache,
+    createSnapshot,
+    openVersionPreview,
+    closeVersionPreview,
+    restoreVersion,
+  } = versionsApi;
 
   // 章节 id 变化（用户点列表或直接改地址）时，先把上一章未保存的内容写掉再载入新章。
   watch(
@@ -413,11 +400,18 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
   // 这里补一次落库，作者切到设定库/审稿时不用等自动保存的 2 秒。
   onDeactivated(() => void flush());
 
-  // 审稿页把修改写进本章正文后，缓存里的编辑器内容就过期了。
-  // 回来时若版本对不上，丢弃可能残留的旧稿直接重读，避免自动保存把审稿结果覆盖掉。
-  onReactivated(() => {
+  // 从缓存回来时做两件事：
+  // 1) 大纲页可能在另一份缓存里增删了幕/章节，先对齐列表与幕数；
+  // 2) 审稿页可能改过本章正文，版本对不上就丢弃缓存旧稿重读，
+  //    避免自动保存把审稿结果覆盖回去。
+  onReactivated(async () => {
+    await syncOutline();
+
     const chapterId = loadedChapterId.value;
     if (!chapterId || draftSync.revisionOf(chapterId) === seenRevision) return;
+    // 外部（审稿/工作流）改过正文：本地 pending 是过期的，重读前先让在飞保存结束再丢弃，
+    // 否则丢弃的瞬间可能还有一次旧内容正在写库。
+    if (inFlight) await inFlight;
     pending = null;
     clearTimer();
     seenRevision = draftSync.revisionOf(chapterId);
@@ -428,7 +422,9 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
     project,
     chapters,
     chaptersByAct,
+    actCount,
     chaptersLoading,
+    createChapter,
     activeChapter,
     activeChapterId,
     loadedChapterId,

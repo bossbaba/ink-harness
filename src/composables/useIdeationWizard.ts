@@ -159,18 +159,18 @@ export function useIdeationWizard(projectId: string) {
 
     applying.value = true;
     error.value = "";
+    const hasOutline = includeOutline.value && value.outline.some((act) => act.chapters.length > 0);
     try {
       const title = selectedTitle.value.trim() || current.title;
-      const hasOutline =
-        includeOutline.value && value.outline.some((act) => act.chapters.length > 0);
       const nextProject: Project = {
         ...current,
         title,
         premise: value.premise || current.premise,
         audience: value.audience || current.audience,
         style: value.style || current.style,
-        // 只有真的写入章节才把阶段推进到大纲，否则保持原阶段。
-        status: hasOutline ? "outline" : current.status,
+        // 只有从「构思」阶段真的写入章节才推进到大纲；
+        // 已经在写作/已发布的作品不能被导回大纲阶段。
+        status: hasOutline && current.status === "idea" ? "outline" : current.status,
       };
       await projectService.update(nextProject);
       project.value = nextProject;
@@ -202,7 +202,11 @@ export function useIdeationWizard(projectId: string) {
       outlineCreated.value = hasOutline;
       applied.value = true;
     } catch (err) {
-      error.value = `写入失败：${String(err)}`;
+      // 章节是逐条创建的：中途失败时前面几条已经落库，必须说清楚，
+      // 否则用户会直接重试，把已经写进去的章节再建一遍。
+      error.value = hasOutline
+        ? `写入中断：${String(err)}。已创建的章节会保留，请先到大纲页确认再补齐，不要直接重复写入。`
+        : `写入失败：${String(err)}`;
     } finally {
       applying.value = false;
     }

@@ -164,3 +164,47 @@ fn consistency_reports_duplicates_and_timeline_conflicts() {
     assert!(issues.iter().any(|i| i.kind == "timeline-conflict"));
     assert!(issues.iter().any(|i| i.kind == "invalid-time-range"));
 }
+
+/// 删设定同样要连带清掉 RAG 片段（kind = element），且与删除同事务。
+#[test]
+fn remove_element_removes_rag_chunk() {
+    let (state, project_id) = temp_state("rag-chunk");
+    {
+        let conn = state.biz();
+        conn.execute(
+            "insert into story_element
+             (id, project_id, kind, name, summary, detail_json, created_at, updated_at)
+             values ('el-rag', ?1, 'character', '墨白', '少年剑客', '{}', 'x', 'x')",
+            params![project_id],
+        )
+        .unwrap();
+        conn.execute(
+            "insert into rag_chunk (project_id, kind, source_id, title, content, indexed_at)
+             values (?1, 'element', 'el-rag', '墨白', '少年剑客', 'x')",
+            params![project_id],
+        )
+        .unwrap();
+    }
+
+    remove(&state, "el-rag").unwrap();
+
+    let (elements, chunks): (i64, i64) = {
+        let conn = state.biz();
+        (
+            conn.query_row(
+                "select count(*) from story_element where id = 'el-rag'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap(),
+            conn.query_row(
+                "select count(*) from rag_chunk where source_id = 'el-rag'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap(),
+        )
+    };
+    assert_eq!(elements, 0);
+    assert_eq!(chunks, 0, "删设定后片段必须随同一事务消失");
+}

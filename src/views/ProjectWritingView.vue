@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { onBeforeRouteLeave, useRouter } from "vue-router";
+import ChapterEditDialog from "@/components/outline/ChapterEditDialog.vue";
 import WritingAiPanel from "@/components/writing/WritingAiPanel.vue";
 import WritingChapterList from "@/components/writing/WritingChapterList.vue";
 import WritingEditor from "@/components/writing/WritingEditor.vue";
@@ -12,7 +13,7 @@ import { useWritingAssist } from "@/composables/useWritingAssist";
 import { useWritingCopilot } from "@/composables/useWritingCopilot";
 import { useWritingDesk } from "@/composables/useWritingDesk";
 import { useAppStore } from "@/stores/app";
-import type { AssistApplyMode, AssistSelection, CopilotReference } from "@/types";
+import type { AssistApplyMode, AssistSelection, ChapterDraft, CopilotReference } from "@/types";
 import { onReactivated } from "@/utils/lifecycle";
 import { documentToPlainText, EMPTY_DOCUMENT_TEXT } from "@/utils/tiptap";
 
@@ -35,7 +36,9 @@ const editorRef = ref<InstanceType<typeof WritingEditor> | null>(null);
 const {
   project,
   chaptersByAct,
+  actCount,
   chaptersLoading,
+  createChapter,
   activeChapter,
   activeChapterId,
   loadedChapterId,
@@ -103,6 +106,11 @@ const {
   contextChars: copilotContextChars,
   references: copilotReferences,
   retrievedCount: copilotRetrieved,
+  referenceElements: copilotReferenceElements,
+  referenceChapters: copilotReferenceChapters,
+  referenceLoading: copilotReferenceLoading,
+  referenceError: copilotReferenceError,
+  loadReferences: loadCopilotReferences,
   send: sendCopilot,
   refreshContext: refreshCopilotContext,
   stop: stopCopilot,
@@ -127,13 +135,16 @@ const {
   busy: ragBusy,
   error: ragError,
   label: ragLabel,
+  refresh: refreshRag,
   reindex: reindexRag,
 } = useRagIndex(() => props.projectId, { refreshOn: () => app.copilotOpen });
 
-// 去大纲页补了章节/伏笔再回来，必须重取作品上下文，否则 AI 还会按旧大纲写作。
+// 去大纲页补了章节/伏笔再回来，必须重取作品上下文，否则 AI 还会按旧大纲写作；
+// 索引状态也要重读：AI 面板默认是展开的，只靠「面板开合」监听回到页面时不会触发。
 onReactivated(() => {
   void refreshAssistContext();
   void refreshCopilotContext();
+  void refreshRag();
 });
 
 // 收起面板时作废进行中的辅助请求，避免关掉后还在后台收字。
@@ -192,6 +203,50 @@ function goOutline(): void {
   void router.push({ name: "project-outline", params: { projectId: props.projectId } });
 }
 
+// 写作台直接建章：复用大纲的章节弹窗，保存成功后就跳到新章开始写。
+const chapterDialogShow = ref(false);
+const chapterDialogBusy = ref(false);
+const chapterDialogError = ref("");
+const chapterDialogDraft = ref<ChapterDraft>({
+  id: "",
+  act: 1,
+  title: "",
+  summary: "",
+  status: "planned",
+});
+
+function openCreateChapter(act: number): void {
+  chapterDialogError.value = "";
+  chapterDialogDraft.value = { id: "", act, title: "", summary: "", status: "planned" };
+  chapterDialogShow.value = true;
+}
+
+async function saveNewChapter(): Promise<void> {
+  const draft = chapterDialogDraft.value;
+  if (!draft.title.trim()) {
+    chapterDialogError.value = "请输入章节标题";
+    return;
+  }
+  chapterDialogBusy.value = true;
+  chapterDialogError.value = "";
+  try {
+    const chapter = await createChapter({
+      act: draft.act,
+      title: draft.title,
+      summary: draft.summary,
+      status: draft.status,
+    });
+    if (!chapter) {
+      chapterDialogError.value = error.value || "创建章节失败，请重试。";
+      return;
+    }
+    chapterDialogShow.value = false;
+    openChapter(chapter.id);
+  } finally {
+    chapterDialogBusy.value = false;
+  }
+}
+
 function toggleFocus(): void {
   app.toggleFocusMode();
 }
@@ -245,6 +300,7 @@ async function handleRestore(versionId: string): Promise<void> {
         :loading="chaptersLoading"
         :total-words="totalWords"
         @select="openChapter"
+        @add-chapter="openCreateChapter"
       />
 
       <div class="writing__main">
@@ -252,7 +308,7 @@ async function handleRestore(versionId: string): Promise<void> {
         <WritingEmptyState
           v-else-if="!activeChapterId"
           title="还没有选择章节。"
-          hint="在左侧点一章开始写；如果还没有章节，先去大纲建一章。"
+          hint="在左侧点一章开始写；还没有章节可以点列表顶部的「＋」直接新建。"
           action-label="去大纲创建章节"
           @action="goOutline"
         />
@@ -280,12 +336,15 @@ async function handleRestore(versionId: string): Promise<void> {
       <WritingAiPanel
         v-if="app.copilotOpen"
         class="writing__copilot"
-        :project-id="projectId"
         :messages="copilotMessages"
         :streaming="copilotStreaming"
         :error="copilotError"
         :context-chars="copilotContextChars"
         :references="copilotReferences"
+        :reference-elements="copilotReferenceElements"
+        :reference-chapters="copilotReferenceChapters"
+        :reference-loading="copilotReferenceLoading"
+        :reference-error="copilotReferenceError"
         :rag-label="ragLabel"
         :rag-stale="ragStatus?.stale ?? false"
         :rag-busy="ragBusy"
@@ -298,6 +357,7 @@ async function handleRestore(versionId: string): Promise<void> {
         @clear="clearCopilot"
         @pick="toggleCopilotReference"
         @unpick="removeCopilotReference"
+        @open-reference="() => void loadCopilotReferences()"
         @insert="(text: string) => editorRef?.insertAtCursor(text)"
         @assist-stop="stopAssist"
         @assist-retry="retryAssist"
@@ -316,6 +376,17 @@ async function handleRestore(versionId: string): Promise<void> {
       @preview="openVersionPreview"
       @restore="handleRestore"
       @close-preview="closeVersionPreview"
+    />
+
+    <!-- 建章弹窗与大纲页共用：字段少、就地创建，成功后直接跳到新章开始写。 -->
+    <ChapterEditDialog
+      v-model:show="chapterDialogShow"
+      v-model:draft="chapterDialogDraft"
+      :is-new="true"
+      :busy="chapterDialogBusy"
+      :error="chapterDialogError"
+      :act-count="actCount"
+      @save="saveNewChapter"
     />
   </div>
 </template>

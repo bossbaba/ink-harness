@@ -48,6 +48,7 @@ const {
   remove,
   testProvider,
   syncModels,
+  rag,
 } = useModelSettings();
 
 const groups = computed(() =>
@@ -252,7 +253,14 @@ const routeOptions: SegmentOption[] = [
     </section>
 
     <!-- 检索模型选择：这里只定用哪个模型做向量化，索引状态与重建按作品进行 -->
-    <RagSettingsPanel :providers="providers" />
+    <RagSettingsPanel
+      :current="rag.current.value"
+      :options="rag.options.value"
+      :saving="rag.saving.value"
+      :unavailable="rag.unavailable.value"
+      :error="rag.error.value"
+      @change="(value: string | null) => void rag.setModel(value)"
+    />
 
     <ProviderEditDialog
       v-model:show="dialogShow"

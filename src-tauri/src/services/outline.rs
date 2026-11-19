@@ -7,7 +7,7 @@ mod scene;
 pub use self::foreshadow::{create_foreshadow, delete_foreshadow, update_foreshadow};
 pub use self::scene::{create_scene, delete_scene, move_scene, update_scene};
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::error::AppError;
 use crate::infrastructure::db::DbState;
@@ -18,9 +18,10 @@ use crate::models::{Chapter, Foreshadow, MoveChapter, NewChapter, OutlineSnapsho
 pub const CHAPTER_STATUSES: [&str; 3] = ["planned", "drafting", "done"];
 /// 伏笔状态机：待铺设 → 已铺设 → 已回收。
 pub const FORESHADOW_STATUSES: [&str; 3] = ["planned", "setup", "paid-off"];
-/// 幕次取值范围，超出直接报错，不做静默兜底。
+/// 幕次取值范围：与前端 `MAX_ACTS`(99) 对齐。之前写死 3 会让「新增第四幕」建章直接报错，
+/// 而大纲页却已经把幕数存进 app_meta，表现为「幕加得出来，章节加不进去」。
 pub(super) const ACT_MIN: i64 = 1;
-pub(super) const ACT_MAX: i64 = 3;
+pub(super) const ACT_MAX: i64 = 99;
 
 const CHAPTER_COLUMNS: &str =
     "id, project_id, act, title, summary, status, word_count, sort_order, created_at, updated_at";
@@ -40,18 +41,22 @@ fn row_to_chapter(row: &rusqlite::Row<'_>) -> rusqlite::Result<Chapter> {
     })
 }
 
-pub(crate) fn query_chapters(conn: &Connection, project_id: &str) -> Result<Vec<Chapter>, AppError> {
+pub(crate) fn query_chapters(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<Vec<Chapter>, AppError> {
     let mut stmt = conn
         .prepare(&format!(
+            // 最后再按 id 兜底：同幕同序（历史数据/并发插入）时顺序也必须稳定，
+            // 否则每次刷新可能换位置，拖拽结果看起来「自己乱跳」。
             "select {CHAPTER_COLUMNS} from chapter where project_id = ?1 \
-             order by act, sort_order, created_at"
+             order by act, sort_order, created_at, id"
         ))
         .map_err(AppError::from)?;
     let rows = stmt
         .query_map(params![project_id], row_to_chapter)
         .map_err(AppError::from)?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(AppError::from)
+    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
 }
 
 pub(crate) fn query_scenes(conn: &Connection, project_id: &str) -> Result<Vec<Scene>, AppError> {
@@ -66,8 +71,7 @@ pub(crate) fn query_scenes(conn: &Connection, project_id: &str) -> Result<Vec<Sc
     let rows = stmt
         .query_map(params![project_id], scene::row_to_scene)
         .map_err(AppError::from)?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(AppError::from)
+    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
 }
 
 pub(crate) fn query_foreshadows(
@@ -83,8 +87,7 @@ pub(crate) fn query_foreshadows(
     let rows = stmt
         .query_map(params![project_id], foreshadow::row_to_foreshadow)
         .map_err(AppError::from)?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(AppError::from)
+    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
 }
 
 pub(super) fn project_exists(conn: &Connection, project_id: &str) -> Result<bool, AppError> {
@@ -125,7 +128,9 @@ pub(super) fn validate_status(status: &str, allowed: &[&str], label: &str) -> Re
     if allowed.contains(&status) {
         Ok(())
     } else {
-        Err(AppError::validation(format!("不支持的{label}状态：{status}")))
+        Err(AppError::validation(format!(
+            "不支持的{label}状态：{status}"
+        )))
     }
 }
 
@@ -201,41 +206,99 @@ pub fn update_chapter(state: &DbState, chapter: &Chapter) -> Result<(), AppError
     validate_status(&chapter.status, &CHAPTER_STATUSES, "章节")?;
 
     let conn = state.biz();
-    let existing: Option<(i64, i64)> = conn
+    let existing: Option<(i64, i64, String)> = conn
         .query_row(
-            "select act, sort_order from chapter where id = ?1",
+            "select act, sort_order, updated_at from chapter where id = ?1",
             params![chapter.id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()
         .map_err(AppError::from)?;
-    let (old_act, old_order) = existing.ok_or_else(|| AppError::not_found("章节不存在"))?;
+    let (old_act, old_order, db_updated_at) =
+        existing.ok_or_else(|| AppError::not_found("章节不存在"))?;
+
+    // 乐观锁：前端提交的是它读到的整份章节，`updated_at` 就是基准版本。
+    // 不带（空串）视为「不校验」，保持老调用方兼容。
+    let expected = chapter.updated_at.as_str();
+    if !expected.is_empty() && expected != db_updated_at {
+        return Err(AppError::conflict("章节已在其他页面被修改，请刷新后再保存"));
+    }
+
     // 改幕次时排到新幕末尾，避免与已有章节的 sort_order 冲突。
     let sort_order = if chapter.act == old_act {
         old_order
     } else {
         next_chapter_order(&conn, &chapter.project_id, chapter.act)?
     };
-    conn.execute(
-        r#"update chapter set act=?2, title=?3, summary=?4, status=?5, sort_order=?6,
-           updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') where id=?1"#,
-        params![
-            chapter.id,
-            chapter.act,
-            title,
-            chapter.summary,
-            chapter.status,
-            sort_order
-        ],
-    )
-    .map_err(AppError::from)?;
+    let tx = conn.unchecked_transaction().map_err(AppError::from)?;
+    let changed = tx
+        .execute(
+            // updated_at 同时充当元数据版本号，必须严格递增：同一毫秒内连着改两次
+            // （脚本/连点保存）时，若不进位下一次的基准就和这次相同，乐观锁会失效。
+            r#"update chapter set act=?2, title=?3, summary=?4, status=?5, sort_order=?6,
+               updated_at = case
+                 when coalesce(strftime('%Y-%m-%dT%H:%M:%fZ','now'), '') > updated_at
+                   then strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                 else coalesce(
+                   strftime('%Y-%m-%dT%H:%M:%fZ', updated_at, '+0.001 seconds'),
+                   strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                 )
+               end
+               where id=?1 and (?7 = '' or updated_at = ?7)"#,
+            params![
+                chapter.id,
+                chapter.act,
+                title,
+                chapter.summary,
+                chapter.status,
+                sort_order,
+                expected
+            ],
+        )
+        .map_err(AppError::from)?;
+    if changed == 0 {
+        return Err(AppError::conflict("章节已在其他页面被修改，请刷新后再保存"));
+    }
+    // 标题与幕次都会出现在 RAG 片段的标题里（「第N幕 · 标题」），改动同样让索引过期。
+    crate::services::rag::bump_content_epoch(&tx, &chapter.project_id)?;
+    tx.commit().map_err(AppError::from)?;
+    Ok(())
+}
+
+/// 只更新章节摘要。
+///
+/// 摘要由 AI 自动生成、保存频繁，不能走 `update_chapter` 的整对象提交：
+/// 那样会把缓存里的 `title/act/status` 一起写回去（尤其是正文保存刚推进的 status）。
+/// 这里也不 bump `updated_at`：摘要不属于 RAG 片段，不该让索引被判成过期。
+pub fn update_chapter_summary(state: &DbState, id: &str, summary: &str) -> Result<(), AppError> {
+    let conn = state.biz();
+    let changed = conn
+        .execute(
+            "update chapter set summary = ?2 where id = ?1",
+            params![id, summary],
+        )
+        .map_err(AppError::from)?;
+    if changed == 0 {
+        return Err(AppError::not_found("章节不存在"));
+    }
     Ok(())
 }
 
 pub fn delete_chapter(state: &DbState, id: &str) -> Result<(), AppError> {
     {
         let conn = state.biz();
-        // 三步必须同事务：解绑伏笔与删章节中间失败会留下「伏笔丢失但章节还在」的半更新状态。
+        // 先记住所属作品与幕：删完要把同幕剩余章节重新编号，不能留空洞。
+        let (project_id, act): (String, i64) = conn
+            .query_row(
+                "select project_id, act from chapter where id = ?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError::not_found("章节不存在"))?;
+
+        // 这一步必须同事务：解绑伏笔、删章节、重排、清旁路元数据中间失败会留下半更新状态。
         let tx = conn.unchecked_transaction().map_err(AppError::from)?;
         // 伏笔的章节引用没有外键约束，删章前先解除，避免看板出现悬空引用。
         tx.execute(
@@ -251,16 +314,50 @@ pub fn delete_chapter(state: &DbState, id: &str) -> Result<(), AppError> {
         // scene 通过外键 on delete cascade 跟随删除。
         tx.execute("delete from chapter where id = ?1", params![id])
             .map_err(AppError::from)?;
+
+        // 同幕剩余章节按原顺序压缩到 0..n，避免 sort_order 出现空洞（拖拽下标会按数组长度算）。
+        let mut stmt = tx
+            .prepare(
+                "select id from chapter where project_id = ?1 and act = ?2 \
+                 order by sort_order, id",
+            )
+            .map_err(AppError::from)?;
+        let remaining: Vec<String> = stmt
+            .query_map(params![project_id, act], |row| row.get(0))
+            .map_err(AppError::from)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)?;
+        drop(stmt);
+        for (order, chapter_id) in remaining.iter().enumerate() {
+            tx.execute(
+                "update chapter set sort_order = ?2 where id = ?1",
+                params![chapter_id, order as i64],
+            )
+            .map_err(AppError::from)?;
+        }
+
+        // 摘要缓存挂在 app_meta 上，没有外键；不清理会随删章慢慢堆积。
+        tx.execute(
+            "delete from app_meta where key = 'summary_meta:' || ?1",
+            params![id],
+        )
+        .map_err(AppError::from)?;
+        // 索引片段与章节之间没有外键，必须和删章放在同一个事务里：
+        // 提交后再清一旦失败，已删除的正文仍会被 RAG 当成参考资料检索出来，
+        // 只能靠日志和下次启动兜底。同事务后要么两件事都成，要么都不发生。
+        crate::services::rag::purge_source_in(&tx, id)?;
+        // 删章也是一次内容变更，纪元一起前进：索引里其它章节的片段同样可能已落后，
+        // status 据此如实提示过期（检索会短路返回空，而不是拿旧正文续写）。
+        crate::services::rag::bump_content_epoch(&tx, &project_id)?;
         tx.commit().map_err(AppError::from)?;
     }
-    // 索引片段与章节没有外键：不清理的话，已删除的正文仍会被 RAG 当成参考资料检索出来。
-    // 放在锁外调用，避免同一把业务库锁被嵌套获取。
-    crate::services::rag::purge_source(state, id)
+    Ok(())
 }
 
 /// 章节拖拽：把章节从原幕移到目标幕的指定下标，并整幕重排 sort_order。
 pub fn move_chapter(state: &DbState, input: &MoveChapter) -> Result<(), AppError> {
-    let target_act = input.target_act.clamp(ACT_MIN, ACT_MAX);
+    // 越界报错而不是静默 clamp：clamp 会让拖拽「看起来成功但落到别的幕」。
+    validate_act(input.target_act)?;
     let conn = state.biz();
     let mut chapters = query_chapters(&conn, &input.project_id)?;
     let index = chapters
@@ -269,31 +366,44 @@ pub fn move_chapter(state: &DbState, input: &MoveChapter) -> Result<(), AppError
         .ok_or_else(|| AppError::not_found("章节不存在"))?;
     let moving = chapters.remove(index);
 
-    // 按幕拆桶后插入；chapters 已按 act、sort_order 排好序，桶内顺序即当前顺序。
-    let mut buckets: Vec<Vec<Chapter>> = (ACT_MIN..=ACT_MAX)
+    // 只给数据里实际出现过的幕（加上目标幕）建桶：幕数上限是 99，
+    // 按 1..=99 全建会造一堆空桶，而按实际幕建也能兼容历史数据里的越界值。
+    let mut acts: Vec<i64> = chapters.iter().map(|chapter| chapter.act).collect();
+    acts.push(input.target_act);
+    acts.sort_unstable();
+    acts.dedup();
+    let mut buckets: Vec<Vec<Chapter>> = acts
+        .iter()
         .map(|act| {
             chapters
                 .iter()
-                .filter(|chapter| chapter.act == act)
+                .filter(|chapter| chapter.act == *act)
                 .cloned()
                 .collect()
         })
         .collect();
-    let bucket = &mut buckets[(target_act - ACT_MIN) as usize];
+    let bucket_index = acts
+        .iter()
+        .position(|act| *act == input.target_act)
+        .ok_or_else(|| AppError::internal("目标幕未进入分桶"))?;
+    let bucket = &mut buckets[bucket_index];
     let insert_at = input.target_index.min(bucket.len());
     bucket.insert(insert_at, moving);
 
     let tx = conn.unchecked_transaction().map_err(AppError::from)?;
-    for (act_index, bucket) in buckets.iter().enumerate() {
+    for (index, bucket) in buckets.iter().enumerate() {
+        let act = acts[index];
         for (order, chapter) in bucket.iter().enumerate() {
             tx.execute(
                 r#"update chapter set act=?2, sort_order=?3,
                    updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') where id=?1"#,
-                params![chapter.id, act_index as i64 + ACT_MIN, order as i64],
+                params![chapter.id, act, order as i64],
             )
             .map_err(AppError::from)?;
         }
     }
+    // 跨幕移动会改变片段标题里的幕次，索引同样视为过期。
+    crate::services::rag::bump_content_epoch(&tx, &input.project_id)?;
     tx.commit().map_err(AppError::from)?;
     Ok(())
 }

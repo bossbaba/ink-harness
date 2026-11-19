@@ -107,6 +107,11 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("ink-harness-export-test.MD");
         let resolved = resolve_export_path(path.to_str().unwrap()).expect("应通过校验");
-        assert_eq!(resolved, dir.canonicalize().unwrap().join("ink-harness-export-test.MD"));
+        assert_eq!(
+            resolved,
+            dir.canonicalize()
+                .unwrap()
+                .join("ink-harness-export-test.MD")
+        );
     }
 }

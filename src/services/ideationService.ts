@@ -6,6 +6,7 @@ import type {
   ProposalChapter,
   ProposalScene,
 } from "@/types";
+import { parseLooseJson } from "@/utils/looseJson";
 
 /** 新建一份空白访谈答案，类型与读者沿用作品已有信息。 */
 export function createIdeationAnswers(project: {
@@ -148,26 +149,13 @@ function normalizeAct(value: unknown): ProposalAct | null {
   return { act, chapters };
 }
 
-/** 模型偶尔会把 JSON 包在代码块或前后废话里，这里取第一个 { 到最后一个 }。 */
-function extractJson(raw: string): unknown {
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced?.[1] ?? raw;
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  try {
-    return JSON.parse(candidate.slice(start, end + 1));
-  } catch {
-    return null;
-  }
-}
-
 /**
  * 把模型输出解析成方案；完全不可用时返回 null，由页面提示重新生成或手动填写。
  * 对数组/字段做防御性裁剪，避免模型多输出导致界面出现脏数据。
  */
 export function parseProposal(raw: string): IdeaProposal | null {
-  const parsed = extractJson(raw);
+  // 复用宽松解析器：能处理代码块围栏、前后散字、字符串内未转义引号与被截断的 JSON。
+  const parsed = parseLooseJson(raw);
   if (!parsed || typeof parsed !== "object") return null;
   const data = parsed as Record<string, unknown>;
 

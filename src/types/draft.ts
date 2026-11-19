@@ -6,6 +6,8 @@ export interface ChapterContent {
   chapterId: string;
   content: string;
   wordCount: number;
+  /** 正文版本号，正文每保存一次 +1；正文乐观锁用它，而不是 updatedAt。 */
+  contentRevision: number;
   updatedAt: string;
 }
 
@@ -15,6 +17,11 @@ export interface SaveContentInput {
   content: string;
   wordCount: number;
   snapshot?: boolean;
+  /**
+   * 读到的正文版本号（`ChapterContent.contentRevision`），用于后端做乐观锁比对。
+   * 不传表示「不校验」（确实需要无条件整篇覆盖的入口）。
+   */
+  expectedContentRevision?: number;
 }
 
 /** 版本列表项：不带正文，避免一次拉回几十份全文。 */

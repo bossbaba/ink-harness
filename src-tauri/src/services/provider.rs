@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 
 use crate::error::AppError;
 use crate::infrastructure::{db::DbState, id::gen_id, keychain, llm_http};
@@ -28,6 +28,41 @@ fn row_to_provider(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProviderConfig> 
     })
 }
 
+/// 首次启动时种入本地 Ollama 默认配置；用 app_meta 标记，用户删除后不再复活。
+///
+/// 这是「Provider 初始有哪些」的领域决策，放在 service 而非 db 基础设施层，
+/// 这样将来换默认厂商或改种子策略只动这里，不必碰数据库迁移代码。
+pub fn ensure_default_seeded(state: &DbState) -> Result<(), AppError> {
+    let conn = state.biz();
+    let seeded: Option<String> = conn
+        .query_row(
+            "select value from app_meta where key = 'provider_seeded'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(AppError::from)?;
+    if seeded.is_some() {
+        return Ok(());
+    }
+
+    conn.execute(
+        r#"insert or ignore into provider_config
+           (id, name, source, base_url, api_key_ref, enabled, models_json, updated_at)
+           values ('ollama-local', '本地 Ollama', 'local',
+                   'http://localhost:11434/v1', null, 1, '[]',
+                   strftime('%Y-%m-%dT%H:%M:%fZ','now'))"#,
+        [],
+    )
+    .map_err(AppError::from)?;
+    conn.execute(
+        "insert or replace into app_meta(key, value) values ('provider_seeded', '1')",
+        [],
+    )
+    .map_err(AppError::from)?;
+    Ok(())
+}
+
 pub fn list(state: &DbState) -> Result<Vec<ProviderConfig>, AppError> {
     let conn = state.biz();
     let mut stmt = conn
@@ -39,8 +74,7 @@ pub fn list(state: &DbState) -> Result<Vec<ProviderConfig>, AppError> {
     let rows = stmt
         .query_map([], row_to_provider)
         .map_err(AppError::from)?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(AppError::from)
+    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
 }
 
 pub fn get(state: &DbState, id: &str) -> Result<Option<ProviderConfig>, AppError> {

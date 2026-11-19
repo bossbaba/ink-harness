@@ -18,7 +18,8 @@ import type {
   PublishTemplate,
 } from "@/types";
 
-const PLAN_KEY = "ink-harness.publish.plan";
+/** 发布计划按作品分开存：同一个键会让 A 作品的投放平台出现在 B 作品里。 */
+const PLAN_KEY_PREFIX = "ink-harness.publish.plan";
 const AUTHOR_KEY = "ink-harness.publish.author";
 
 interface SavedPlan {
@@ -27,9 +28,9 @@ interface SavedPlan {
 }
 
 /** 发布计划只存在本机：它随作者换个浏览器就没了也无妨，不必污染作品库。 */
-function loadPlan(): SavedPlan {
+function loadPlan(key: string): SavedPlan {
   try {
-    const raw = localStorage.getItem(PLAN_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return { selected: [], entries: [] };
     const parsed = JSON.parse(raw) as Partial<SavedPlan>;
     return {
@@ -64,7 +65,8 @@ export function useProjectPublish(projectId: string) {
   const briefReceived = ref(0);
   const briefError = ref("");
 
-  const plan = ref<SavedPlan>(loadPlan());
+  const planKey = `${PLAN_KEY_PREFIX}:${projectId}`;
+  const plan = ref<SavedPlan>(loadPlan(planKey));
 
   const previewHtml = computed(() => (doc.value ? renderHtml(doc.value, template.value) : ""));
   const previewMarkdown = computed(() =>
@@ -75,7 +77,7 @@ export function useProjectPublish(projectId: string) {
   );
 
   function savePlan(): void {
-    localStorage.setItem(PLAN_KEY, JSON.stringify(plan.value));
+    localStorage.setItem(planKey, JSON.stringify(plan.value));
   }
 
   async function load(): Promise<void> {
@@ -103,13 +105,33 @@ export function useProjectPublish(projectId: string) {
     if (doc.value) doc.value.author = value;
   }
 
+  /**
+   * 导出/打印前重取正文。
+   *
+   * 本页是缓存页：`doc` 是进入页面那一刻的快照，作者可能刚在写作台补完最后一章
+   * （甚至离开写作台时的保存比本页加载还晚），不重取就会把旧稿交付出去。
+   */
+  async function refreshDocument(): Promise<PublishDocument | null> {
+    try {
+      const document = await loadPublishDocument(projectId);
+      document.author = author.value;
+      doc.value = document;
+      return document;
+    } catch (err) {
+      exportNotice.value = `重新读取正文失败：${err instanceof Error ? err.message : String(err)}`;
+      return null;
+    }
+  }
+
   async function exportFile(): Promise<void> {
-    if (!doc.value || exporting.value || format.value === "pdf") return;
+    if (exporting.value || format.value === "pdf") return;
     exporting.value = true;
     exportNotice.value = "";
     try {
-      const bytes = renderExport(doc.value, format.value, template.value);
-      const result = await exportBytes(bytes, format.value, doc.value.title || "作品");
+      const document = await refreshDocument();
+      if (!document) return;
+      const bytes = renderExport(document, format.value, template.value);
+      const result = await exportBytes(bytes, format.value, document.title || "作品");
       if (!result) {
         exportNotice.value = "已取消保存。";
         return;
@@ -124,8 +146,9 @@ export function useProjectPublish(projectId: string) {
   }
 
   /** 打印走系统对话框，由用户在里面选「另存为 PDF」，避免前端手搓中文字体嵌入。 */
-  function printPdf(): void {
-    if (!doc.value) return;
+  async function printPdf(): Promise<void> {
+    const document = await refreshDocument();
+    if (!document) return;
     const frame = window.document.createElement("iframe");
     frame.setAttribute("aria-hidden", "true");
     frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
@@ -136,7 +159,7 @@ export function useProjectPublish(projectId: string) {
       return;
     }
     win.document.open();
-    win.document.write(renderHtml(doc.value, template.value));
+    win.document.write(renderHtml(document, template.value));
     win.document.close();
     win.onload = () => {
       win.focus();
@@ -146,12 +169,15 @@ export function useProjectPublish(projectId: string) {
   }
 
   async function generateBrief(): Promise<void> {
-    if (!doc.value || briefGenerating.value) return;
+    if (briefGenerating.value) return;
+    // 物料基于全文生成：同样先重取，避免用旧稿生成简介与投稿信。
+    const document = await refreshDocument();
+    if (!document) return;
     briefGenerating.value = true;
     briefError.value = "";
     briefReceived.value = 0;
     try {
-      const raw = await requestPublicationBrief(doc.value, privacy.value, projectId, (count) => {
+      const raw = await requestPublicationBrief(document, privacy.value, projectId, (count) => {
         briefReceived.value = count;
       });
       briefRaw.value = raw;

@@ -2,24 +2,33 @@
 import { NButton, NInput, NPopover, NSpin } from "naive-ui";
 import { computed, ref } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
-import { outlineService } from "@/services/outlineService";
-import { storyElementService } from "@/services/storyElementService";
 import { type CopilotReference, STORY_KIND_LABEL, type StoryElement } from "@/types";
 
 /**
  * Copilot 的「@引用」选择器：从本作品的设定条目与已有章节里挑资料。
  *
- * 数据在第一次展开时才拉取（设定全量 + 大纲快照），
- * 同一作品内多次展开直接复用，避免每开一次面板就重查一遍库。
+ * 这是纯展示组件：候选数据、加载状态由 useWritingCopilot 提供并经父级传入，
+ * 本组件只做本地搜索过滤与点选上报，不直接调用任何 service。
  */
 const props = defineProps<{
-  projectId: string;
   /** 已经引用的资料，用于在列表里打勾。 */
   selected: CopilotReference[];
+  /** 候选设定条目。 */
+  elements: StoryElement[];
+  /** 候选章节。 */
+  chapters: Array<{ id: string; act: number; title: string }>;
+  /** 候选是否正在加载。 */
+  loading: boolean;
+  /** 加载失败的错误文案，空串表示无错误。 */
+  error: string;
 }>();
 
-// 点选一条资料；加还是删由上层按当前选中状态决定。
-const emit = defineEmits<(event: "pick", reference: CopilotReference) => void>();
+// pick：点选一条资料，加还是删由上层按当前选中状态决定。
+// open：面板首次展开时通知上层加载候选（是否重复请求由 composable 去重）。
+const emit = defineEmits<{
+  (event: "pick", reference: CopilotReference): void;
+  (event: "open"): void;
+}>();
 
 interface PickerRow {
   reference: CopilotReference;
@@ -29,40 +38,11 @@ interface PickerRow {
 }
 
 const show = ref(false);
-const loading = ref(false);
-const error = ref("");
 const keyword = ref("");
-const elements = ref<StoryElement[]>([]);
-const chapters = ref<Array<{ id: string; act: number; title: string }>>([]);
-// 记住已加载的作品，切作品后重新取数；同作品反复展开不重复请求。
-let loadedFor = "";
-
-async function load(): Promise<void> {
-  if (!props.projectId || loadedFor === props.projectId) return;
-  loading.value = true;
-  error.value = "";
-  try {
-    const [elementList, snapshot] = await Promise.all([
-      storyElementService.list(props.projectId),
-      outlineService.snapshot(props.projectId),
-    ]);
-    elements.value = elementList;
-    chapters.value = snapshot.chapters.map((chapter) => ({
-      id: chapter.id,
-      act: chapter.act,
-      title: chapter.title,
-    }));
-    loadedFor = props.projectId;
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    loading.value = false;
-  }
-}
 
 function handleShow(value: boolean): void {
   show.value = value;
-  if (value) void load();
+  if (value) emit("open");
 }
 
 const term = computed(() => keyword.value.trim().toLowerCase());
@@ -76,7 +56,7 @@ function isChecked(reference: CopilotReference): boolean {
 }
 
 const elementRows = computed<PickerRow[]>(() =>
-  elements.value
+  props.elements
     .filter((element) => match(element.name))
     .map((element) => {
       const reference: CopilotReference = { kind: "element", id: element.id, label: element.name };
@@ -90,7 +70,7 @@ const elementRows = computed<PickerRow[]>(() =>
 );
 
 const chapterRows = computed<PickerRow[]>(() =>
-  chapters.value
+  props.chapters
     .filter((chapter) => match(chapter.title))
     .map((chapter) => {
       const label = `第${chapter.act}幕 · ${chapter.title}`;
@@ -106,8 +86,8 @@ const chapterRows = computed<PickerRow[]>(() =>
 
 const isEmpty = computed(
   () =>
-    !loading.value &&
-    !error.value &&
+    !props.loading &&
+    !props.error &&
     elementRows.value.length === 0 &&
     chapterRows.value.length === 0,
 );
@@ -128,11 +108,11 @@ const isEmpty = computed(
     <div class="picker">
       <NInput v-model:value="keyword" size="small" clearable placeholder="搜索设定名或章节名" />
 
-      <div v-if="loading" class="picker__state">
+      <div v-if="props.loading" class="picker__state">
         <NSpin size="small" />
         <span>正在载入本作品的设定与章节…</span>
       </div>
-      <p v-else-if="error" class="picker__state picker__state--error">{{ error }}</p>
+      <p v-else-if="props.error" class="picker__state picker__state--error">{{ props.error }}</p>
       <p v-else-if="isEmpty" class="picker__state">没有匹配的设定或章节。</p>
 
       <div v-else class="picker__list">

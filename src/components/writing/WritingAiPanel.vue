@@ -9,6 +9,7 @@ import {
   COPILOT_REF_KIND_LABEL,
   type CopilotMessage,
   type CopilotReference,
+  type StoryElement,
 } from "@/types";
 
 /**
@@ -19,7 +20,6 @@ import {
  * 面板只负责展示，请求与流式状态都在 useWritingCopilot / useWritingAssist 里。
  */
 const props = defineProps<{
-  projectId: string;
   messages: CopilotMessage[];
   streaming: boolean;
   error: string;
@@ -27,6 +27,11 @@ const props = defineProps<{
   contextChars: number;
   /** 下一条消息要携带的引用。 */
   references: CopilotReference[];
+  /** @引用 选择器的候选数据，来自 useWritingCopilot。 */
+  referenceElements: StoryElement[];
+  referenceChapters: Array<{ id: string; act: number; title: string }>;
+  referenceLoading: boolean;
+  referenceError: string;
   /** 检索索引状态文案，如「索引 12 段 · 已过期」；空串表示还没读到。 */
   ragLabel: string;
   /** 索引在建完之后又改过内容或换了模型，建议重建。 */
@@ -45,6 +50,8 @@ const emit = defineEmits<{
   (event: "clear"): void;
   (event: "pick", reference: CopilotReference): void;
   (event: "unpick", reference: CopilotReference): void;
+  /** @引用 面板展开，通知父级加载候选。 */
+  (event: "open-reference"): void;
   (event: "insert", text: string): void;
   /** 重建检索索引：耗时随作品规模增长，由父级负责 loading 与错误。 */
   (event: "reindex"): void;
@@ -242,9 +249,13 @@ function isLive(message: CopilotMessage): boolean {
 
       <div class="chat__tools">
         <CopilotReferencePicker
-          :project-id="projectId"
           :selected="references"
+          :elements="referenceElements"
+          :chapters="referenceChapters"
+          :loading="referenceLoading"
+          :error="referenceError"
           @pick="emit('pick', $event)"
+          @open="emit('open-reference')"
         />
         <span class="chat__tools-spacer" />
         <NButton v-if="streaming" size="small" @click="emit('stop')">停止</NButton>

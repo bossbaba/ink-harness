@@ -94,6 +94,23 @@ export const RELATION_TYPE_OPTIONS = [
   { label: "发生于", value: "happened-at" },
 ];
 
+/**
+ * 查关系类型（内部编码，如 `related-to`）对应的中文；未登记时返回 undefined。
+ * 给需要「映射不到就换别的文案」的场景用（如关系图优先用用户自定义标签）。
+ */
+export function findRelationTypeLabel(type: string): string | undefined {
+  return RELATION_TYPE_OPTIONS.find((option) => option.value === type)?.label;
+}
+
+/**
+ * 关系类型转成界面显示的中文。
+ * 界面只允许中文，绝不能把 type 原值直接渲染到标签上；
+ * 遇到未登记的自定义类型时统一显示「其他」，不回落成英文编码。
+ */
+export function relationTypeLabel(type: string): string {
+  return findRelationTypeLabel(type) ?? "其他";
+}
+
 export const CONSISTENCY_KIND_LABEL: Record<ConsistencyIssueKind, string> = {
   "duplicate-name": "名称重复",
   "timeline-conflict": "时间线重叠",

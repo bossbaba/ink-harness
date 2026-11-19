@@ -4,6 +4,7 @@ import { ref } from "vue";
 import type { Draft } from "@/composables/useStoryBible";
 import {
   RELATION_TYPE_OPTIONS,
+  relationTypeLabel,
   STORY_KIND_LABEL,
   STORY_KIND_OPTIONS,
   type StoryElement,
@@ -130,7 +131,7 @@ function addRelation(): void {
           :key="`${relation.targetId}-${index}`"
           class="relation-row"
         >
-          <NTag size="small" :bordered="false">{{ relation.type }}</NTag>
+          <NTag size="small" :bordered="false">{{ relationTypeLabel(relation.type) }}</NTag>
           <span class="relation-row__target">{{
             props.relationTargetName(relation.targetId)
           }}</span>

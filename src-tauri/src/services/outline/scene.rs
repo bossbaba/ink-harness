@@ -1,6 +1,6 @@
 //! 场景 CRUD 与跨章拖拽：场景是章节下的最小上下文单元，排序按所属章节各自维护。
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::error::AppError;
 use crate::infrastructure::db::DbState;
@@ -46,8 +46,7 @@ fn query_scenes_of_chapter(conn: &Connection, chapter_id: &str) -> Result<Vec<Sc
     let rows = stmt
         .query_map(params![chapter_id], row_to_scene)
         .map_err(AppError::from)?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(AppError::from)
+    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
 }
 
 fn renumber_scenes(conn: &Connection, scenes: &[Scene]) -> Result<(), AppError> {
@@ -164,7 +163,14 @@ pub fn move_scene(state: &DbState, input: &MoveScene) -> Result<(), AppError> {
         .position(|scene| scene.id == input.scene_id)
         .ok_or_else(|| AppError::not_found("场景不存在"))?;
     let moving = target_list.remove(moving_index);
-    let insert_at = input.target_index.min(target_list.len());
+    // 前端的 targetIndex 取自「移动前的列表」（拖到某个场景上就插到它前面）。
+    // 同章向下拖时，移动项自己还占着一个位置，移除后必须减一，否则会多走一格。
+    let target_index = if moving_index < input.target_index {
+        input.target_index - 1
+    } else {
+        input.target_index
+    };
+    let insert_at = target_index.min(target_list.len());
     target_list.insert(insert_at, moving);
     renumber_scenes(&tx, &target_list)?;
 

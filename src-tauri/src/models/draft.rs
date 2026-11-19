@@ -9,6 +9,9 @@ pub struct ChapterContent {
     pub content: String,
     /// 非空白字符数，由前端编辑器统计后回写，后端只负责持久化与按需校验。
     pub word_count: i64,
+    /// 正文版本号：正文每次保存自增。用于乐观锁，
+    /// 与 `updated_at` 分开是因为改标题/摘要/状态也会动时间戳，不能算正文变化。
+    pub content_revision: i64,
     pub updated_at: String,
 }
 
@@ -23,6 +26,12 @@ pub struct SaveContentInput {
     pub word_count: i64,
     #[serde(default)]
     pub snapshot: bool,
+    /// 前端读到的正文版本号（`ChapterContent.content_revision`），用于乐观锁。
+    ///
+    /// 不传（None）表示调用方不掌握基准版本，保持「直接覆盖」的旧行为；
+    /// 传了就必须与库内一致，否则返回 `conflict`。
+    #[serde(default)]
+    pub expected_content_revision: Option<i64>,
 }
 
 /// 版本列表项：不带 content，避免一次拉回几十份全文。

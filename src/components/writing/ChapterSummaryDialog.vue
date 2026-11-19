@@ -53,7 +53,7 @@ const dirty = () => draft.value !== props.summary;
   >
     <div class="summary">
       <p class="summary__hint">
-        摘要会在续写、改写、Copilot
+        摘要会在续写、改写、AI 对话
         和审稿时作为「本章梗概」注入模型。正文比摘要多出较多字时，记得更新。
       </p>
 

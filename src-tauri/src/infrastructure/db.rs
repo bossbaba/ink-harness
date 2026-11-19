@@ -5,7 +5,7 @@ use crate::error::AppError;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, Once};
 
-use rusqlite::{ffi::sqlite3_auto_extension, params, Connection, OptionalExtension};
+use rusqlite::{Connection, ffi::sqlite3_auto_extension, params};
 
 /// sqlite-vec 导出的初始化符号签名与 rusqlite 期望的不同，需转成 auto extension 要求的 C 函数指针。
 type VecEntryPoint = unsafe extern "C" fn(
@@ -81,7 +81,9 @@ pub fn open(app_data_dir: &PathBuf) -> Result<DbState, AppError> {
 }
 
 /// 当前 schema 版本。每次改结构 +1，并在 [`migrate`] 里追加一段幂等步骤。
-const SCHEMA_VERSION: i64 = 1;
+///
+/// 3：修复「user_version 已到 2、`chapter.content_revision` 却没补上」的库。
+const SCHEMA_VERSION: i64 = 3;
 
 /// 顺序迁移：从 `pragma user_version` 记录的位置往后执行。
 ///
@@ -100,7 +102,12 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         // 老库的 chapter 表没有 act 列，建表语句的 if not exists 不会补列，需显式迁移。
         ensure_column(conn, "chapter", "act", "act integer not null default 1")?;
         // 写作台（P4）新增：章节正文与字数、版本快照的字数，老库同样需要补列。
-        ensure_column(conn, "chapter", "content", "content text not null default ''")?;
+        ensure_column(
+            conn,
+            "chapter",
+            "content",
+            "content text not null default ''",
+        )?;
         ensure_column(
             conn,
             "chapter",
@@ -126,11 +133,106 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
             "completion_tokens",
             "completion_tokens integer not null default 0",
         )?;
-        seed_default_provider(conn)?;
         conn.pragma_update(None, "user_version", 1)
             .map_err(AppError::from)?;
     }
 
+    if current < 2 {
+        // 正文独立的版本号：正文保存会 bump `updated_at`，而改标题/摘要/状态也会 bump，
+        // 两者混用会让「改个标题」把写作台的保存基准顶掉。正文乐观锁只认这一列。
+        ensure_column(
+            conn,
+            "chapter",
+            "content_revision",
+            "content_revision integer not null default 0",
+        )?;
+        // 版本号在「查询 max + 写入」之间没有互斥，多实例/异常重试会写出同章同号的快照，
+        // 恢复历史时就会出现「两个第 3 版」。先按 (chapter_id, version) 去重保留最新写入，
+        // 再建唯一索引，让数据库兜住后续并发。
+        conn.execute_batch(
+            r#"
+            delete from draft_version
+             where rowid not in (
+                 select max(rowid) from draft_version group by chapter_id, version
+             );
+            create unique index if not exists idx_draft_version_unique
+                on draft_version(chapter_id, version);
+            "#,
+        )
+        .map_err(AppError::from)?;
+        conn.pragma_update(None, "user_version", 2)
+            .map_err(AppError::from)?;
+    }
+
+    if current < 3 {
+        // 自愈步骤：曾有一版把 user_version 提到 2 却没真正补上 `chapter.content_revision`
+        //（版本号先推进、补列后补），这类库的 `current < 2` 分支再也不会执行，
+        // 打开写作台就报 `no such column: content_revision`。
+        // 这里重跑一遍完全幂等的建表 + 补列 + 建唯一索引，不论版本号是否对得上都能补齐结构。
+        init_schema(conn)?;
+        backfill_columns(conn)?;
+        conn.pragma_update(None, "user_version", 3)
+            .map_err(AppError::from)?;
+    }
+
+    Ok(())
+}
+
+/// 幂等补齐「后加的列与派生索引」。
+///
+/// 与 v1/v2 分支里的补列内容重复是有意的：迁移必须能对任意残缺的旧库自愈，
+/// 不能依赖 `user_version` 已经如实反映结构。新增列时除了在版本分支里加，
+/// 也要在这里加一份，否则历史上版本号超前的库永远补不上。
+fn backfill_columns(conn: &Connection) -> Result<(), AppError> {
+    ensure_column(conn, "chapter", "act", "act integer not null default 1")?;
+    ensure_column(
+        conn,
+        "chapter",
+        "content",
+        "content text not null default ''",
+    )?;
+    ensure_column(
+        conn,
+        "chapter",
+        "word_count",
+        "word_count integer not null default 0",
+    )?;
+    ensure_column(
+        conn,
+        "chapter",
+        "content_revision",
+        "content_revision integer not null default 0",
+    )?;
+    ensure_column(
+        conn,
+        "draft_version",
+        "word_count",
+        "word_count integer not null default 0",
+    )?;
+    ensure_column(
+        conn,
+        "agent_run",
+        "prompt_tokens",
+        "prompt_tokens integer not null default 0",
+    )?;
+    ensure_column(
+        conn,
+        "agent_run",
+        "completion_tokens",
+        "completion_tokens integer not null default 0",
+    )?;
+    // 唯一索引前的去重同样要重跑：缺索引的库靠它兜住「同章同号快照」。
+    conn.execute_batch(
+        r#"
+        delete from draft_version
+         where rowid not in (
+             select max(rowid) from draft_version group by chapter_id, version
+         );
+        create unique index if not exists idx_draft_version_unique
+            on draft_version(chapter_id, version);
+        "#,
+    )
+    .map_err(AppError::from)?;
     Ok(())
 }
 
@@ -208,6 +310,7 @@ fn init_schema(conn: &Connection) -> Result<(), AppError> {
             status      text not null default 'planned',
             content     text not null default '',     -- TipTap 文档 JSON，列表查询不读这一列
             word_count  integer not null default 0,   -- 正文非空白字符数，列表页直接显示
+            content_revision integer not null default 0, -- 正文保存计数，正文乐观锁专用
             created_at  text not null,
             updated_at  text not null
         );
@@ -303,37 +406,6 @@ fn init_schema(conn: &Connection) -> Result<(), AppError> {
     .map_err(AppError::from)
 }
 
-/// 只种一次本地 Ollama 默认配置：用 app_meta 标记，避免用户删除后每次启动又冒出来。
-fn seed_default_provider(conn: &Connection) -> Result<(), AppError> {
-    let seeded: Option<String> = conn
-        .query_row(
-            "select value from app_meta where key = 'provider_seeded'",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(AppError::from)?;
-    if seeded.is_some() {
-        return Ok(());
-    }
-
-    conn.execute(
-        r#"insert or ignore into provider_config
-           (id, name, source, base_url, api_key_ref, enabled, models_json, updated_at)
-           values ('ollama-local', '本地 Ollama', 'local',
-                   'http://localhost:11434/v1', null, 1, '[]',
-                   strftime('%Y-%m-%dT%H:%M:%fZ','now'))"#,
-        [],
-    )
-    .map_err(AppError::from)?;
-    conn.execute(
-        "insert or replace into app_meta(key, value) values ('provider_seeded', '1')",
-        [],
-    )
-    .map_err(AppError::from)?;
-    Ok(())
-}
-
 fn init_vec_schema(conn: &Connection) -> Result<(), AppError> {
     // dimension 由使用方确定；先在 P2 建通用表，P4 接入 embedding 时按模型维度调整。
     conn.execute_batch(
@@ -372,89 +444,4 @@ fn ensure_column(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{ensure_column, migrate, purge_orphan_chunks};
-    use rusqlite::Connection;
-
-    /// 老库的 chapter 表没有 act 列，迁移必须补上，且重复执行保持幂等。
-    #[test]
-    fn ensure_column_migrates_legacy_chapter_table() {
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "create table chapter (
-                id text primary key,
-                project_id text not null,
-                title text not null,
-                sort_order integer not null default 0,
-                summary text not null default '',
-                status text not null default 'planned',
-                created_at text not null,
-                updated_at text not null
-            );",
-        )
-        .unwrap();
-
-        ensure_column(&conn, "chapter", "act", "act integer not null default 1").unwrap();
-        ensure_column(&conn, "chapter", "act", "act integer not null default 1").unwrap();
-
-        let count: i64 = conn
-            .query_row(
-                "select count(*) from pragma_table_info('chapter') where name = 'act'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(count, 1);
-    }
-
-    /// 迁移要把版本号写进库，且重复执行保持幂等（老库从 0 升到当前版本）。
-    #[test]
-    fn migrate_records_schema_version_and_is_idempotent() {
-        let conn = Connection::open_in_memory().unwrap();
-        migrate(&conn).unwrap();
-        let version: i64 = conn
-            .query_row("pragma user_version", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, 1);
-
-        migrate(&conn).unwrap();
-        let again: i64 = conn
-            .query_row("pragma user_version", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(again, 1);
-    }
-
-    /// 来源已被删除的片段属于孤儿数据，启动时要清掉，否则删掉的正文还能被检索出来。
-    #[test]
-    fn purge_orphan_chunks_drops_chunks_without_source() {
-        let biz = Connection::open_in_memory().unwrap();
-        let vec = Connection::open_in_memory().unwrap();
-        migrate(&biz).unwrap();
-        biz.execute(
-            "insert into project (id, title, created_at, updated_at) values ('p', 't', 'x', 'x')",
-            [],
-        )
-        .unwrap();
-        biz.execute(
-            "insert into story_element (id, project_id, kind, name, detail_json, created_at, updated_at)
-             values ('el', 'p', 'character', 'a', '{}', 'x', 'x')",
-            [],
-        )
-        .unwrap();
-        for source in ["el", "gone"] {
-            biz.execute(
-                "insert into rag_chunk (project_id, kind, source_id, title, content, indexed_at)
-                 values ('p', 'element', ?1, 'a', 'x', 'x')",
-                rusqlite::params![source],
-            )
-            .unwrap();
-        }
-
-        purge_orphan_chunks(&biz, &vec).unwrap();
-
-        let left: i64 = biz
-            .query_row("select count(*) from rag_chunk", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(left, 1, "只保留来源仍存在的片段");
-    }
-}
+mod tests;

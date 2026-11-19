@@ -59,7 +59,9 @@ export function useChapterSummary(options: ChapterSummaryOptions) {
     if (!chapter) return;
     saving.value = true;
     try {
-      await outlineService.updateChapter({ ...chapter, summary: value });
+      // 只写摘要字段：摘要会被自动更新，不能顺手把整份章节（标题/幕次/状态）写回去，
+      // 否则会用缓存里的旧值覆盖正文保存刚推进的状态。
+      await outlineService.updateChapterSummary(chapter.id, value);
       const next: SummaryMeta = {
         wordCount: chapter.wordCount,
         generatedAt: new Date().toISOString(),

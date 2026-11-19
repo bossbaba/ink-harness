@@ -13,6 +13,7 @@ import {
   saveWorkflowState,
 } from "@/services/workflowService";
 import { writingService } from "@/services/writingService";
+import { useDraftSyncStore } from "@/stores/draftSync";
 import { useProjectStore } from "@/stores/project";
 import type {
   Chapter,
@@ -33,6 +34,7 @@ import { documentToPlainText, plainTextToDocument } from "@/utils/tiptap";
 export function useProjectWorkflow(projectId: string) {
   // 当前作品来自全局 store：别的页面改了作品状态，这里能立刻看到。
   const project = storeToRefs(useProjectStore()).current;
+  const draftSync = useDraftSyncStore();
   const chapters = ref<Chapter[]>([]);
   const state = ref<WorkflowState | null>(null);
   const loading = ref(false);
@@ -68,6 +70,9 @@ export function useProjectWorkflow(projectId: string) {
   }
 
   async function load(): Promise<void> {
+    // 正在跑阶段/落地时不要重读：本轮 run/approve 手里的 state 才是准的，
+    // 中途被缓存页回来的 load 覆盖，会导致落库时把刚改的选章、阶段状态写回旧值。
+    if (running.value || busy.value) return;
     loading.value = true;
     loadError.value = "";
     try {
@@ -271,16 +276,22 @@ export function useProjectWorkflow(projectId: string) {
           const chapter = chapters.value.find((item) => item.id === workflow.selectedChapterId);
           if (!chapter) throw new Error("目标章节已不存在，请重新选择章节后再通过。");
           const doc = plainTextToDocument(target.artifact);
+          const words = countCharacters(target.artifact);
+          // 先读一次正文拿到版本号：作者在这期间手改过就报冲突，不能悄悄覆盖。
+          const current = await writingService.getContent(chapter.id);
+          // 这一步是「整篇覆盖正文」：必须留一版旧稿，否则作者手写的内容被替换后无法恢复。
           await writingService.saveContent({
             chapterId: chapter.id,
             content: JSON.stringify(doc),
-            wordCount: countCharacters(target.artifact),
-            snapshot: stage === "editing",
+            wordCount: words,
+            snapshot: true,
+            expectedContentRevision: current.contentRevision,
           });
+          // 写作台可能还缓存着旧正文：递增版本号，让它回来时重读，
+          // 否则作者在写作台敲一个字就会用旧稿覆盖掉刚写回的正文。
+          draftSync.bump(chapter.id);
           chapters.value = chapters.value.map((item) =>
-            item.id === chapter.id
-              ? { ...item, wordCount: countCharacters(target.artifact), status: "drafting" }
-              : item,
+            item.id === chapter.id ? { ...item, wordCount: words, status: "drafting" } : item,
           );
         } else if (stage === "review") {
           applyReview(target.artifact);

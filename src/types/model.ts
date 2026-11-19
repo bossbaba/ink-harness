@@ -1,17 +1,24 @@
 /** 模型来源：本地推理（Ollama/llama.cpp）或三方云端 API。 */
 export type ModelSource = "local" | "remote";
 
-/** 模型能力声明，任务路由据此选择模型。 */
+/**
+ * 模型能力声明，任务路由据此选择模型。
+ *
+ * 注意：目前路由实际只用到 `contextWindow` 与 `source`（本地/三方），
+ * `tools` / `json` / `vision` 三项尚未在模型管理里采集，恒为 false，
+ * 属于「已声明但未兑现」的契约——调用方读取它们之前需先补齐采集链路，
+ * 不要把 false 当成模型真实不支持。见 `modelRouter.toModelInfo`。
+ */
 export interface ModelCapabilities {
   /** 上下文窗口（token 数），长篇续写依赖此值。 */
   contextWindow: number;
-  /** 是否支持 function/tool calling。 */
+  /** @experimental 是否支持 function/tool calling，暂未采集，恒为 false。 */
   tools: boolean;
-  /** 是否支持 JSON mode。 */
+  /** @experimental 是否支持 JSON mode，暂未采集，恒为 false。 */
   json: boolean;
-  /** 是否支持多模态输入。 */
+  /** @experimental 是否支持多模态输入，暂未采集，恒为 false。 */
   vision: boolean;
-  /** 是否支持流式输出。 */
+  /** 是否支持流式输出，当前统一按支持处理。 */
   streaming: boolean;
 }
 

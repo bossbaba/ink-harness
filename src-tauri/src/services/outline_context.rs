@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 
 use crate::error::AppError;
@@ -79,6 +79,48 @@ fn detail_str(detail: &Value, key: &str) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kind_labels_map_all_known_kinds() {
+        assert_eq!(kind_label("character"), "人物");
+        assert_eq!(kind_label("place"), "地点");
+        assert_eq!(kind_label("org"), "组织");
+        assert_eq!(kind_label("event"), "时间线");
+        assert_eq!(kind_label("term"), "术语");
+        assert_eq!(kind_label("unknown-kind"), "其他");
+    }
+
+    #[test]
+    fn status_labels_fall_back_to_defaults() {
+        assert_eq!(chapter_status_label("drafting"), "写作中");
+        assert_eq!(chapter_status_label("done"), "已完成");
+        assert_eq!(chapter_status_label("planned"), "待写");
+        assert_eq!(foreshadow_status_label("setup"), "已铺设");
+        assert_eq!(foreshadow_status_label("paid-off"), "已回收");
+        assert_eq!(foreshadow_status_label("planned"), "待铺设");
+        assert_eq!(act_label(1), "第一幕");
+        assert_eq!(act_label(2), "第二幕");
+        assert_eq!(act_label(3), "第三幕");
+        assert_eq!(act_label(9), "第一幕");
+    }
+
+    #[test]
+    fn detail_str_trims_and_drops_empty_or_non_string() {
+        let detail = serde_json::json!({
+            "notes": "  一段备注  ",
+            "blank": "   ",
+            "count": 42,
+        });
+        assert_eq!(detail_str(&detail, "notes").as_deref(), Some("一段备注"));
+        assert_eq!(detail_str(&detail, "blank"), None);
+        assert_eq!(detail_str(&detail, "count"), None);
+        assert_eq!(detail_str(&detail, "missing"), None);
+    }
 }
 
 fn query_project(conn: &Connection, project_id: &str) -> Result<ProjectBrief, AppError> {
@@ -156,8 +198,7 @@ fn query_elements(conn: &Connection, project_id: &str) -> Result<Vec<ElementBrie
             })
         })
         .map_err(AppError::from)?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(AppError::from)
+    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
 }
 
 /// 把单个章节下的场景格式化为上下文条目。

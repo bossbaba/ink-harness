@@ -33,5 +33,6 @@ pub async fn rag_search(
     query: String,
     limit: Option<usize>,
 ) -> Result<Vec<RagHit>, AppError> {
-    rag::search(&state, &project_id, &query, limit.unwrap_or(5)).await
+    // 默认取几条由 service 决定（产品口径），命令层只做透传，避免前后端口径漂移。
+    rag::search(&state, &project_id, &query, limit).await
 }

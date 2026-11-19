@@ -7,7 +7,7 @@
 //!   自动保存不会每次都写一版，否则几十次防抖保存就把表写爆了。
 //! - 恢复历史版本前会先把当前正文存一版，防止「点了恢复，刚写的几百字没了」。
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::error::AppError;
 use crate::infrastructure::db::DbState;
@@ -24,7 +24,8 @@ fn row_to_content(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChapterContent> {
         chapter_id: row.get(0)?,
         content: row.get(1)?,
         word_count: row.get(2)?,
-        updated_at: row.get(3)?,
+        content_revision: row.get(3)?,
+        updated_at: row.get(4)?,
     })
 }
 
@@ -37,7 +38,7 @@ pub fn get_content(state: &DbState, chapter_id: &str) -> Result<ChapterContent, 
 
 fn query_content(conn: &Connection, chapter_id: &str) -> Result<Option<ChapterContent>, AppError> {
     conn.query_row(
-        "select id, content, word_count, updated_at from chapter where id = ?1",
+        "select id, content, word_count, content_revision, updated_at from chapter where id = ?1",
         params![chapter_id],
         row_to_content,
     )
@@ -49,16 +50,19 @@ fn query_content(conn: &Connection, chapter_id: &str) -> Result<Option<ChapterCo
 struct DraftState {
     content: String,
     word_count: i64,
+    /// 库内正文版本号，保存前用来判断前端是不是拿着旧副本。
+    content_revision: i64,
 }
 
 fn query_draft_state(conn: &Connection, chapter_id: &str) -> Result<DraftState, AppError> {
     conn.query_row(
-        "select content, word_count from chapter where id = ?1",
+        "select content, word_count, content_revision from chapter where id = ?1",
         params![chapter_id],
         |row| {
             Ok(DraftState {
                 content: row.get(0)?,
                 word_count: row.get(1)?,
+                content_revision: row.get(2)?,
             })
         },
     )
@@ -68,7 +72,10 @@ fn query_draft_state(conn: &Connection, chapter_id: &str) -> Result<DraftState, 
 }
 
 /// 最近一版快照（序号、字数、正文），没有则返回 None。
-fn last_version(conn: &Connection, chapter_id: &str) -> Result<Option<(i64, i64, String)>, AppError> {
+fn last_version(
+    conn: &Connection,
+    chapter_id: &str,
+) -> Result<Option<(i64, i64, String)>, AppError> {
     conn.query_row(
         "select version, word_count, content from draft_version \
          where chapter_id = ?1 order by version desc limit 1",
@@ -79,27 +86,22 @@ fn last_version(conn: &Connection, chapter_id: &str) -> Result<Option<(i64, i64,
     .map_err(AppError::from)
 }
 
-fn next_version(conn: &Connection, chapter_id: &str) -> Result<i64, AppError> {
-    conn.query_row(
-        "select coalesce(max(version), 0) + 1 from draft_version where chapter_id = ?1",
-        params![chapter_id],
-        |row| row.get(0),
-    )
-    .map_err(AppError::from)
-}
-
 /// 写入一版快照，并把该章版本数裁到上限，避免历史无限增长。
+///
+/// 版本号在 insert 语句里用 `max(version)+1` 现算，而不是「先查再插」：
+/// 配合 `unique(chapter_id, version)` 索引，多实例并发时也不会写出重号。
 fn insert_version(
     conn: &Connection,
     chapter_id: &str,
     content: &str,
     word_count: i64,
 ) -> Result<(), AppError> {
-    let version = next_version(conn, chapter_id)?;
     conn.execute(
         r#"insert into draft_version (id, chapter_id, content, version, word_count, created_at)
-           values (?1, ?2, ?3, ?4, ?5, strftime('%Y-%m-%dT%H:%M:%fZ','now'))"#,
-        params![gen_id("dv"), chapter_id, content, version, word_count],
+           select ?1, ?2, ?3, coalesce(max(version), 0) + 1, ?4,
+                  strftime('%Y-%m-%dT%H:%M:%fZ','now')
+             from draft_version where chapter_id = ?2"#,
+        params![gen_id("dv"), chapter_id, content, word_count],
     )
     .map_err(AppError::from)?;
     conn.execute(
@@ -121,6 +123,26 @@ pub fn save_content(state: &DbState, input: SaveContentInput) -> Result<ChapterC
     }
     let conn = state.biz();
     let current = query_draft_state(&conn, &input.chapter_id)?;
+
+    // 乐观锁：前端带着「我读到的正文版本」提交，库里已经变了就拒绝，
+    // 否则写作台/审稿/工作流之间会互相静默覆盖（谁最后写谁赢）。
+    if let Some(expected) = input.expected_content_revision {
+        if expected != current.content_revision {
+            return Err(AppError::conflict(
+                "本章正文已在其他页面被修改，请重新载入后再保存",
+            ));
+        }
+    }
+
+    // RAG 的内容纪元按作品分键，先取所属作品，供事务内的过期标记使用。
+    let project_id: String = conn
+        .query_row(
+            "select project_id from chapter where id = ?1",
+            params![input.chapter_id],
+            |row| row.get(0),
+        )
+        .map_err(AppError::from)?;
+
     let content_changed = current.content != input.content;
     let previous = last_version(&conn, &input.chapter_id)?;
 
@@ -137,18 +159,35 @@ pub fn save_content(state: &DbState, input: SaveContentInput) -> Result<ChapterC
             || (input.word_count - last_words).abs() >= AUTO_SNAPSHOT_CHARS);
 
     let tx = conn.unchecked_transaction().map_err(AppError::from)?;
-    tx.execute(
-        r#"update chapter set content = ?2, word_count = ?3,
-             status = case when status = 'planned' and ?3 > 0 then 'drafting' else status end,
-             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-           where id = ?1"#,
-        params![input.chapter_id, input.content, input.word_count],
-    )
-    .map_err(AppError::from)?;
+    // 校验与写入之间仍可能被别的进程插一脚，条件里再带一次版本判定，
+    // 影响行数为 0 就说明这期间被改过，回滚并报冲突。
+    let changed = tx
+        .execute(
+            r#"update chapter set content = ?2, word_count = ?3,
+                 status = case when status = 'planned' and ?3 > 0 then 'drafting' else status end,
+                 content_revision = content_revision + 1,
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+               where id = ?1
+                 and (?4 is null or content_revision = ?4)"#,
+            params![
+                input.chapter_id,
+                input.content,
+                input.word_count,
+                input.expected_content_revision
+            ],
+        )
+        .map_err(AppError::from)?;
+    if changed == 0 {
+        return Err(AppError::conflict(
+            "本章正文已在其他页面被修改，请重新载入后再保存",
+        ));
+    }
 
     if should_snapshot {
         insert_version(&tx, &input.chapter_id, &input.content, input.word_count)?;
     }
+    // 正文变了，RAG 索引随之过期；和正文写在同一个事务里，避免纪元漏加。
+    crate::services::rag::bump_content_epoch(&tx, &project_id)?;
     tx.commit().map_err(AppError::from)?;
     drop(conn);
 
@@ -156,7 +195,10 @@ pub fn save_content(state: &DbState, input: SaveContentInput) -> Result<ChapterC
 }
 
 /// 版本列表：新的在前，不带正文，避免一次拉回整章全文。
-pub fn list_versions(state: &DbState, chapter_id: &str) -> Result<Vec<DraftVersionBrief>, AppError> {
+pub fn list_versions(
+    state: &DbState,
+    chapter_id: &str,
+) -> Result<Vec<DraftVersionBrief>, AppError> {
     let conn = state.biz();
     let mut stmt = conn
         .prepare(
@@ -175,8 +217,7 @@ pub fn list_versions(state: &DbState, chapter_id: &str) -> Result<Vec<DraftVersi
             })
         })
         .map_err(AppError::from)?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(AppError::from)
+    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
 }
 
 pub fn get_version(state: &DbState, id: &str) -> Result<DraftVersion, AppError> {
@@ -215,6 +256,14 @@ pub fn restore_version(state: &DbState, version_id: &str) -> Result<ChapterConte
         .ok_or_else(|| AppError::not_found("版本不存在"))?;
 
     let current = query_draft_state(&conn, &chapter_id)?;
+    // 恢复也会改变检索内容，纪元按作品分键，先取所属作品。
+    let project_id: String = conn
+        .query_row(
+            "select project_id from chapter where id = ?1",
+            params![chapter_id],
+            |row| row.get(0),
+        )
+        .map_err(AppError::from)?;
     let tx = conn.unchecked_transaction().map_err(AppError::from)?;
     // 当前正文与目标版本不同、且还没被任何快照收录时先补一版底稿，
     // 否则用户点恢复就等于把刚写的内容彻底弄丢了。
@@ -232,13 +281,17 @@ pub fn restore_version(state: &DbState, version_id: &str) -> Result<ChapterConte
             insert_version(&tx, &chapter_id, &current.content, current.word_count)?;
         }
     }
+    // 恢复同样是一次正文变更：递增版本号，让别处拿着的旧版本号立即失效。
     tx.execute(
         r#"update chapter set content = ?2, word_count = ?3,
+             content_revision = content_revision + 1,
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
            where id = ?1"#,
         params![chapter_id, content, word_count],
     )
     .map_err(AppError::from)?;
+    // 恢复也是正文变更，索引同样过期。
+    crate::services::rag::bump_content_epoch(&tx, &project_id)?;
     tx.commit().map_err(AppError::from)?;
     drop(conn);
 

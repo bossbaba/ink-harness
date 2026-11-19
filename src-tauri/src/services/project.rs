@@ -1,6 +1,6 @@
 //! 作品领域服务：CRUD 与草稿/向量骨架。不依赖 Tauri。
 
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 
 use crate::error::AppError;
 use crate::infrastructure::db::DbState;
@@ -48,11 +48,8 @@ pub fn list(state: &DbState) -> Result<Vec<Project>, AppError> {
             "select {SELECT_COLUMNS} from project order by updated_at desc"
         ))
         .map_err(AppError::from)?;
-    let rows = stmt
-        .query_map([], row_to_project)
-        .map_err(AppError::from)?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(AppError::from)
+    let rows = stmt.query_map([], row_to_project).map_err(AppError::from)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
 }
 
 pub fn get(state: &DbState, id: &str) -> Result<Option<Project>, AppError> {
@@ -113,12 +110,37 @@ pub fn update(state: &DbState, project: &Project) -> Result<(), AppError> {
 }
 
 pub fn remove(state: &DbState, id: &str) -> Result<(), AppError> {
-    // 先清向量索引：vec_rag 没有外键，project 一删就再也找不到那些 rowid，
-    // 会留下永久残留的向量（rag_chunk 本身靠外键级联删除）。
-    crate::services::rag::purge_project(state, id)?;
     let conn = state.biz();
-    conn.execute("delete from project where id = ?1", params![id])
+    let tx = conn.unchecked_transaction().map_err(AppError::from)?;
+    // 先清向量索引，且与删作品同事务：vec_rag 没有外键，project 一删就再也找不到
+    // 那些 rowid（rag_chunk 靠外键级联走）。放同一事务里才是「作品与索引一起消失」，
+    // 不会出现「索引清了、作品还在」的中间态。
+    crate::services::rag::purge_project_in(&tx, id)?;
+    // 旁路元数据（幕数、章节摘要）挂在 app_meta 上、没有外键，
+    // 必须在章节还查得到的时候先清，否则删完作品就再也定位不到这些键。
+    tx.execute(
+        "delete from app_meta where key = 'outline_act_count:' || ?1",
+        params![id],
+    )
+    .map_err(AppError::from)?;
+    tx.execute(
+        r#"delete from app_meta where key like 'summary_meta:%'
+             and substr(key, length('summary_meta:') + 1)
+                 in (select id from chapter where project_id = ?1)"#,
+        params![id],
+    )
+    .map_err(AppError::from)?;
+    // RAG 的内容纪元与建索引模型标记按作品分键，同样挂在 app_meta 上，
+    // 没有外键，不清理会随删作品一直残留。
+    tx.execute(
+        "delete from app_meta
+         where key in ('rag_content_epoch:' || ?1, 'rag_index_epoch:' || ?1, 'rag_indexed_model:' || ?1)",
+        params![id],
+    )
+    .map_err(AppError::from)?;
+    tx.execute("delete from project where id = ?1", params![id])
         .map_err(AppError::from)?;
+    tx.commit().map_err(AppError::from)?;
     Ok(())
 }
 
@@ -142,7 +164,11 @@ pub fn is_local_only(state: &DbState, project_id: &str) -> Result<bool, AppError
 
 /// 向量 upsert 骨架：P4 接入 embedding 后调用，先按 entity_id 去重。
 #[allow(dead_code)]
-pub fn upsert_fragment(state: &DbState, entity_id: &str, embedding: &[f32]) -> Result<(), AppError> {
+pub fn upsert_fragment(
+    state: &DbState,
+    entity_id: &str,
+    embedding: &[f32],
+) -> Result<(), AppError> {
     if embedding.len() != 768 {
         return Err(AppError::validation(format!(
             "向量维度必须为 768，收到 {}",
@@ -223,18 +249,20 @@ mod tests {
     #[test]
     fn create_rejects_empty_title() {
         let (state, dir) = temp_state("empty");
-        assert!(create(
-            &state,
-            NewProject {
-                title: "   ".into(),
-                genre: "".into(),
-                premise: "".into(),
-                audience: "".into(),
-                style: "".into(),
-                privacy: "any".into(),
-            },
-        )
-        .is_err());
+        assert!(
+            create(
+                &state,
+                NewProject {
+                    title: "   ".into(),
+                    genre: "".into(),
+                    premise: "".into(),
+                    audience: "".into(),
+                    style: "".into(),
+                    privacy: "any".into(),
+                },
+            )
+            .is_err()
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

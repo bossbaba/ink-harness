@@ -1,9 +1,9 @@
 //! 作品命令层：薄适配，调 project service。
 
+use crate::commands::blocking;
 use crate::error::AppError;
 use crate::models::{DatabaseInfo, NewProject, Project};
 use crate::services::project;
-use crate::commands::blocking;
 
 #[tauri::command]
 pub async fn database_info(app: tauri::AppHandle) -> Result<DatabaseInfo, AppError> {
@@ -21,10 +21,7 @@ pub async fn get_project(app: tauri::AppHandle, id: String) -> Result<Option<Pro
 }
 
 #[tauri::command]
-pub async fn create_project(
-    app: tauri::AppHandle,
-    input: NewProject,
-) -> Result<Project, AppError> {
+pub async fn create_project(app: tauri::AppHandle, input: NewProject) -> Result<Project, AppError> {
     blocking(app, move |state| project::create(state, input)).await
 }
 

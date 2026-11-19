@@ -1,37 +1,56 @@
 <script setup lang="ts">
 import { NButton, NEmpty, NSpin, NTag } from "naive-ui";
+import { computed } from "vue";
 import {
   type Act,
+  actLabel,
   CHAPTER_STATUS_LABEL,
   CHAPTER_STATUS_TAG_TYPE,
   type Chapter,
-  OUTLINE_ACTS,
 } from "@/types";
 import { formatCount } from "@/utils/text";
 
 /**
- * 写作台左侧章节列表：按三幕分组，标题 + 字数 + 状态。
- * 只负责展示与派发选中事件；章节数据由页面/组合式函数提供。
+ * 写作台左侧章节列表：按幕分组，标题 + 字数 + 状态。
+ * 只负责展示与派发事件；章节数据由页面/组合式函数提供，建章也交回页面处理。
  */
-defineProps<{
+const props = defineProps<{
   groups: Array<{ act: Act; chapters: Chapter[] }>;
   activeChapterId: string;
   loading: boolean;
   totalWords: number;
 }>();
 
-const emit = defineEmits<(event: "select", chapterId: string) => void>();
+const emit = defineEmits<{
+  (event: "select", chapterId: string): void;
+  (event: "add-chapter", act: Act): void;
+}>();
 
-function actLabel(act: Act): string {
-  return OUTLINE_ACTS.find((item) => item.value === act)?.label ?? "第?幕";
-}
+/** 顶部「＋」默认落在当前章节所在的幕，没有选中章节时回到第一幕。 */
+const activeAct = computed(
+  () =>
+    props.groups.find((group) =>
+      group.chapters.some((chapter) => chapter.id === props.activeChapterId),
+    )?.act ?? 1,
+);
 </script>
 
 <template>
   <aside class="chapter-list">
     <div class="chapter-list__head">
       <span class="chapter-list__title">章节</span>
-      <span class="chapter-list__total">{{ formatCount(totalWords) }} 字</span>
+      <div class="chapter-list__head-right">
+        <span class="chapter-list__total">{{ formatCount(totalWords) }} 字</span>
+        <NButton
+          size="tiny"
+          quaternary
+          class="chapter-list__add"
+          title="新增章节"
+          @click="emit('add-chapter', activeAct)"
+        >
+          ＋
+        </NButton>
+      </div>
     </div>
 
     <div v-if="loading" class="chapter-list__hint">
@@ -43,15 +62,26 @@ function actLabel(act: Act): string {
       class="chapter-list__hint"
       size="small"
       :show-icon="false"
-      description="还没有章节，先到「大纲」建几章再回来写。"
+      description="还没有章节，点上方「＋」直接新建一章。"
     />
 
     <div v-for="group in groups" :key="group.act" class="chapter-list__group">
       <div class="chapter-list__act">
         <span>{{ actLabel(group.act) }}</span>
-        <NTag class="chapter-list__count" size="tiny" round :bordered="false">
-          {{ group.chapters.length }}
-        </NTag>
+        <div class="chapter-list__act-right">
+          <NTag class="chapter-list__count" size="tiny" round :bordered="false">
+            {{ group.chapters.length }}
+          </NTag>
+          <NButton
+            size="tiny"
+            quaternary
+            class="chapter-list__act-add"
+            :title="`在${actLabel(group.act)}新增章节`"
+            @click="emit('add-chapter', group.act)"
+          >
+            ＋
+          </NButton>
+        </div>
       </div>
       <NButton
         v-for="(chapter, index) in group.chapters"
@@ -106,10 +136,34 @@ function actLabel(act: Act): string {
     color: var(--text-primary);
   }
 
+  &__head-right,
+  &__act-right {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
   &__total,
   &__hint {
     font-size: 11px;
     color: var(--text-faint);
+  }
+
+  // 小圆形「＋」：quaternary 自带点击态，这里只压尺寸，保持列表紧凑。
+  &__add.chapter-list__add,
+  &__act-add.chapter-list__act-add {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    padding: 0;
+    font-size: 12px;
+    line-height: 1;
+    color: var(--text-faint);
+    transition: color t.$duration t.$ease;
+
+    &:hover {
+      color: var(--accent, #{t.$accent});
+    }
   }
 
   &__hint {

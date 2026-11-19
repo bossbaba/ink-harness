@@ -34,7 +34,13 @@ fn temp_chapter(tag: &str) -> (DbState, String) {
     (state, chapter.id)
 }
 
-fn save(state: &DbState, chapter_id: &str, content: &str, words: i64, snapshot: bool) -> ChapterContent {
+fn save(
+    state: &DbState,
+    chapter_id: &str,
+    content: &str,
+    words: i64,
+    snapshot: bool,
+) -> ChapterContent {
     save_content(
         state,
         SaveContentInput {
@@ -42,6 +48,7 @@ fn save(state: &DbState, chapter_id: &str, content: &str, words: i64, snapshot: 
             content: content.into(),
             word_count: words,
             snapshot,
+            expected_content_revision: None,
         },
     )
     .unwrap()
@@ -137,6 +144,46 @@ fn versions_are_pruned_to_limit() {
     assert_eq!(versions[0].word_count, MAX_VERSIONS_PER_CHAPTER + 2);
 }
 
+/// 正文乐观锁：拿着旧版本号保存必须被拒绝，且库里内容不能被覆盖。
+#[test]
+fn stale_content_revision_is_rejected() {
+    let (state, chapter_id) = temp_chapter("conflict");
+    let first = save(&state, &chapter_id, "第一版正文", 5, false);
+    assert_eq!(first.content_revision, 1);
+
+    // 模拟「另一个页面」用旧版本号写：应当冲突，且内容保持第一次写的那版。
+    let stale = save_content(
+        &state,
+        SaveContentInput {
+            chapter_id: chapter_id.clone(),
+            content: "旧副本写回".into(),
+            word_count: 5,
+            snapshot: false,
+            expected_content_revision: Some(first.content_revision - 1),
+        },
+    );
+    assert!(stale.is_err());
+    assert_eq!(
+        get_content(&state, &chapter_id).unwrap().content,
+        "第一版正文"
+    );
+
+    // 用最新版本号继续写是允许的，版本号随之前进。
+    let next = save_content(
+        &state,
+        SaveContentInput {
+            chapter_id: chapter_id.clone(),
+            content: "第二版正文".into(),
+            word_count: 5,
+            snapshot: false,
+            expected_content_revision: Some(first.content_revision),
+        },
+    )
+    .unwrap();
+    assert_eq!(next.content_revision, 2);
+    assert_eq!(next.content, "第二版正文");
+}
+
 /// 章节不存在时不能静默返回空正文——写作台必须能区分「没写过」和「章节没了」。
 #[test]
 fn missing_chapter_reports_error_and_negative_words_rejected() {
@@ -150,6 +197,7 @@ fn missing_chapter_reports_error_and_negative_words_rejected() {
             content: "x".into(),
             word_count: -1,
             snapshot: false,
+            expected_content_revision: None,
         },
     );
     assert!(result.is_err());

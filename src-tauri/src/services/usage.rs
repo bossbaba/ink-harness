@@ -89,3 +89,97 @@ pub fn stats(state: &DbState) -> Result<UsageStats, AppError> {
         by_model,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::infrastructure::db;
+    use crate::models::ChatMessage;
+
+    fn temp_state(tag: &str) -> (DbState, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("ih-usage-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let state = db::open(&dir).unwrap();
+        state
+            .biz()
+            .execute(
+                "insert into project (id, title, created_at, updated_at)
+                 values ('p1','甲',strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+                [],
+            )
+            .unwrap();
+        (state, dir)
+    }
+
+    fn params(model: &str, task: Option<&str>, project: Option<&str>) -> ChatParams {
+        ChatParams {
+            model: model.to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "hi".to_string(),
+            }],
+            temperature: None,
+            max_tokens: None,
+            privacy_local_only: false,
+            task_kind: task.map(|s| s.to_string()),
+            project_id: project.map(|s| s.to_string()),
+        }
+    }
+
+    fn usage(prompt: u32, completion: u32) -> TokenUsage {
+        TokenUsage {
+            prompt_tokens: prompt,
+            completion_tokens: completion,
+            total_tokens: prompt + completion,
+        }
+    }
+
+    #[test]
+    fn no_runs_returns_zero_stats() {
+        let (state, dir) = temp_state("empty");
+        let result = stats(&state).unwrap();
+        assert_eq!(result.calls, 0);
+        assert_eq!(result.total_tokens, 0);
+        assert!(result.by_task.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn record_accumulates_tokens_and_calls() {
+        let (state, dir) = temp_state("accumulate");
+        record(&state, &params("m", Some("continue"), Some("p1")), &usage(10, 5)).unwrap();
+        record(&state, &params("m", Some("continue"), Some("p1")), &usage(20, 7)).unwrap();
+        let result = stats(&state).unwrap();
+        assert_eq!(result.calls, 2);
+        assert_eq!(result.total_tokens, 42);
+        assert_eq!(result.prompt_tokens, 30);
+        assert_eq!(result.completion_tokens, 12);
+        let task = result.by_task.iter().find(|item| item.task_kind == "continue").expect("应有 continue 分组");
+        assert_eq!(task.calls, 2);
+        assert_eq!(task.tokens, 42);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn record_groups_by_task_kind() {
+        let (state, dir) = temp_state("group");
+        record(&state, &params("m", Some("continue"), Some("p1")), &usage(10, 0)).unwrap();
+        record(&state, &params("m", Some("polish"), Some("p1")), &usage(5, 0)).unwrap();
+        record(&state, &params("m", None, Some("p1")), &usage(3, 0)).unwrap();
+        let result = stats(&state).unwrap();
+        assert_eq!(result.by_task.len(), 3);
+        assert_eq!(result.by_task.iter().find(|i| i.task_kind == "unknown").unwrap().tokens, 3);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn record_without_project_is_skipped() {
+        // 没有作品 ID 的请求（如全局设置）不该混进用量看板。
+        let (state, dir) = temp_state("no-project");
+        record(&state, &params("m", None, None), &usage(10, 5)).unwrap();
+        record(&state, &params("m", None, Some("")), &usage(10, 5)).unwrap();
+        let result = stats(&state).unwrap();
+        assert_eq!(result.calls, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

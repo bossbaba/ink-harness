@@ -9,6 +9,7 @@ pub use error::{AppError, ErrorCode};
 use tauri::Manager;
 
 use infrastructure::db;
+use services::provider;
 
 #[tauri::command]
 fn ping() -> String {
@@ -23,7 +24,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
-            let db_state = db::open(&dir).map_err(|e| e.to_string())?;
+            // db::open 返回带 db 错误码的 AppError，用 ? 直接向上抛，
+            // 前端才能按「数据库不可用」分支提示，而不是笼统归到 internal。
+            let db_state = db::open(&dir)?;
+            // 首次启动的默认 Provider 由领域服务决定（幂等，用户删过就不复活）。
+            provider::ensure_default_seeded(&db_state)?;
             app.manage(db_state);
             Ok(())
         })
@@ -56,6 +61,7 @@ pub fn run() {
             commands::outline::outline_snapshot,
             commands::outline::create_chapter,
             commands::outline::update_chapter,
+            commands::outline::update_chapter_summary,
             commands::outline::delete_chapter,
             commands::outline::create_scene,
             commands::outline::update_scene,

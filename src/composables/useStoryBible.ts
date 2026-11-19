@@ -1,7 +1,9 @@
+import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { projectService } from "@/services/projectService";
 import { storyElementService } from "@/services/storyElementService";
+import { useProjectStore } from "@/stores/project";
 import {
   type ConsistencyIssue,
   STORY_KIND_LABEL,
@@ -33,7 +35,9 @@ export function useStoryBible(projectIdFromRoute: string) {
   const route = useRoute();
 
   const projectId = ref(projectIdFromRoute);
-  const projectTitle = ref("");
+  // 标题从全局作品 store 派生：构思向导/工作流改了书名后，这里不用等刷新就能跟上。
+  const project = storeToRefs(useProjectStore()).current;
+  const projectTitle = computed(() => project.value?.title ?? "");
   const elements = ref<StoryElement[]>([]);
   const filterKind = ref<KindFilter>("all");
   const keyword = ref("");
@@ -285,7 +289,7 @@ export function useStoryBible(projectIdFromRoute: string) {
         error.value = "作品不存在或已删除。";
         return;
       }
-      projectTitle.value = project.title;
+      // 标题由 store 派生，这里只负责校验作品是否还存在。
       await loadElements();
       const queryElement = route.query.element;
       if (
