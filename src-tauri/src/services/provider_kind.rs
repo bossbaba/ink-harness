@@ -16,9 +16,28 @@ pub fn is_local(source: &str) -> bool {
 /// 对话接口地址。
 ///
 /// OpenAI 兼容协议统一是 `/chat/completions`；Ollama 的 `/v1` 前缀说的也是这套协议，
-/// 所以不需要按厂商分支。
+/// 所以不需要按厂商分支。注意思考型模型在该端点上会把输出全放进 `reasoning` 字段，
+/// 这种情况由 [`native_chat_url`] 走原生协议处理。
 pub fn chat_url(base_url: &str) -> String {
     format!("{}/chat/completions", trim(base_url))
+}
+
+/// Ollama 原生对话地址：把 `/v1` 去掉后拼 `/api/chat`。
+/// 原生接口支持 `think: false`，能让思考型模型直接输出正文，而不是把内容塞进 reasoning 字段。
+pub fn native_chat_url(base_url: &str) -> String {
+    let base = trim(base_url);
+    let base = base.strip_suffix("/v1").unwrap_or(base);
+    format!("{base}/api/chat")
+}
+
+/// 是否应该走 Ollama 原生协议。只识别本地 Provider 的默认端口：
+/// 其他本地 OpenAI 兼容服务（llama.cpp 等）仍走通用 SSE 分支，避免误判。
+pub fn is_ollama_native(source: &str, base_url: &str) -> bool {
+    if !is_local(source) {
+        return false;
+    }
+    let base = trim(base_url);
+    base.contains("://localhost:11434") || base.contains("://127.0.0.1:11434")
 }
 
 /// embedding 接口地址（同样走 OpenAI 兼容协议）。
@@ -73,5 +92,25 @@ mod tests {
         assert!(is_local("local"));
         assert!(!is_local("Local"));
         assert!(!is_local("remote"));
+    }
+
+    #[test]
+    fn native_chat_url_strips_v1_prefix() {
+        assert_eq!(
+            native_chat_url("http://localhost:11434/v1/"),
+            "http://localhost:11434/api/chat"
+        );
+        assert_eq!(
+            native_chat_url("http://localhost:11434"),
+            "http://localhost:11434/api/chat"
+        );
+    }
+
+    #[test]
+    fn ollama_native_only_matches_local_default_port() {
+        assert!(is_ollama_native("local", "http://localhost:11434/v1"));
+        assert!(is_ollama_native("local", "http://127.0.0.1:11434/v1"));
+        assert!(!is_ollama_native("remote", "http://localhost:11434/v1"));
+        assert!(!is_ollama_native("local", "http://localhost:8080/v1"));
     }
 }

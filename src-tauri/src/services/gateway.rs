@@ -42,7 +42,15 @@ where
         ));
     }
 
-    let url = provider_kind::chat_url(&provider.base_url);
+    // 本地 Ollama 的思考型模型（qwen3.5 / deepseek-r1 等）在 OpenAI 兼容端点上会把全部输出
+    // 放进 `delta.reasoning`，`delta.content` 始终为空，前端就会报「模型没有返回内容」。
+    // 原生 /api/chat 支持 think:false，能稳定拿到正文；其他 Provider 仍走通用 SSE。
+    let native_ollama = provider_kind::is_ollama_native(&provider.source, &provider.base_url);
+    let url = if native_ollama {
+        provider_kind::native_chat_url(&provider.base_url)
+    } else {
+        provider_kind::chat_url(&provider.base_url)
+    };
     // 注意用 resolved.model（已剥掉 `providerId:` 前缀）：上游只认自己家的模型名，
     // 把路由标识整串发过去，Ollama 会直接回 400 invalid model name。
     let mut body = serde_json::json!({
@@ -50,6 +58,9 @@ where
         "messages": params.messages,
         "stream": true,
     });
+    if native_ollama {
+        body["think"] = serde_json::json!(false);
+    }
     // NaN/Infinity 会被序列化成 null 导致上游 400，非有限值和无效 token 上限就地丢弃。
     if let Some(t) = params.temperature.filter(|t| t.is_finite()) {
         body["temperature"] = serde_json::json!(t);
@@ -96,8 +107,12 @@ where
         }
     };
 
-    // SSE 解析委托给纯函数组件，便于单测；用量可能在 [DONE] 之前的某块到达。
-    let mut parser = SseParser::new();
+    // 流式解析委托给纯函数组件，便于单测；用量可能在结束帧之前的某块到达。
+    let mut parser = if native_ollama {
+        ResponseParser::Jsonl(JsonlParser::new())
+    } else {
+        ResponseParser::Sse(SseParser::new())
+    };
     let mut usage: Option<TokenUsage> = None;
     let mut stream = response.bytes_stream();
     loop {
@@ -243,6 +258,63 @@ impl Default for SseParser {
     }
 }
 
+/// 两种上游响应格式共用同一套事件，调用方不需要按方言分支。
+enum ResponseParser {
+    Sse(SseParser),
+    Jsonl(JsonlParser),
+}
+
+impl ResponseParser {
+    fn push(&mut self, chunk: &str) -> Vec<SseEvent> {
+        match self {
+            Self::Sse(parser) => parser.push(chunk),
+            Self::Jsonl(parser) => parser.push(chunk),
+        }
+    }
+}
+
+/// Ollama 原生 /api/chat 返回 JSON Lines：每行一个 JSON，正文在 `message.content`。
+/// 这里不处理 `done` 帧，交给外层流结束后统一发 done，避免与取消逻辑重复。
+struct JsonlParser {
+    buffer: String,
+}
+
+impl JsonlParser {
+    fn new() -> Self {
+        Self {
+            buffer: String::new(),
+        }
+    }
+
+    fn push(&mut self, chunk: &str) -> Vec<SseEvent> {
+        self.buffer.push_str(chunk);
+        let mut events = Vec::new();
+        while let Some(pos) = self.buffer.find('\n') {
+            let line: String = self.buffer.drain(..pos + 1).collect();
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+            if let Some(content) = value
+                .get("message")
+                .and_then(|message| message.get("content"))
+                .and_then(|content| content.as_str())
+            {
+                if !content.is_empty() {
+                    events.push(SseEvent::Delta(content.to_string()));
+                }
+            }
+            if let Some(usage) = extract_usage(line) {
+                events.push(SseEvent::Usage(usage));
+            }
+        }
+        events
+    }
+}
+
 fn extract_delta(data: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(data).ok()?;
     value
@@ -297,6 +369,7 @@ fn truncate(s: &str, max: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::chat::ChatMessage;
     use crate::models::ProviderModel;
 
     fn provider(id: &str, source: &str, enabled: bool, models: &[&str]) -> ProviderConfig {
@@ -441,5 +514,58 @@ mod tests {
             SseEvent::Usage(usage) => assert_eq!(usage.total_tokens, 16),
             _ => panic!("expected usage"),
         }
+    }
+
+    #[test]
+    fn jsonl_parser_emits_message_content_and_usage() {
+        let mut parser = JsonlParser::new();
+        let events = parser
+            .push("{\"message\":{\"role\":\"assistant\",\"content\":\"你好\"},\"done\":false}\n");
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], SseEvent::Delta(text) if text == "你好"));
+
+        let events = parser.push(
+            "{\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"prompt_eval_count\":7,\"eval_count\":9}\n",
+        );
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], SseEvent::Usage(usage) if usage.total_tokens == 16));
+    }
+
+    #[test]
+    fn jsonl_parser_buffers_incomplete_line() {
+        let mut parser = JsonlParser::new();
+        assert!(parser.push("{\"message\":{\"content\":\"你").is_empty());
+        let events = parser.push("好\"}}\n");
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], SseEvent::Delta(text) if text == "你好"));
+    }
+
+    #[tokio::test]
+    #[ignore = "需要本机运行 Ollama 并已拉取 qwen3.5:4b"]
+    async fn manual_native_ollama_returns_content() {
+        let dir = std::env::temp_dir().join(format!("ink-gateway-test-{}", std::process::id()));
+        let state = crate::infrastructure::db::open(&dir).expect("open temp db");
+        let mut content = String::new();
+        let params = ChatParams {
+            model: "ollama-local:qwen3.5:4b".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "用一句话回答：1+1等于几？".to_string(),
+            }],
+            temperature: None,
+            max_tokens: None,
+            privacy_local_only: false,
+            task_kind: None,
+            project_id: None,
+        };
+        let usage = stream_chat(&state, &params, |chunk| {
+            content.push_str(&chunk.delta);
+            true
+        })
+        .await
+        .expect("stream");
+        assert!(!content.trim().is_empty(), "原生接口应返回正文");
+        println!("content={content}, usage={usage:?}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
