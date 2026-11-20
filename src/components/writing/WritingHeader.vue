@@ -67,7 +67,14 @@ const emit = defineEmits<{
         placeholder="选择章节"
         @update:value="emit('select-chapter', $event)"
       />
-      <NButton size="small" :disabled="!activeChapterId" @click="emit('save')"> 立即保存 </NButton>
+      <NButton
+        size="small"
+        :loading="saveState === 'saving'"
+        :disabled="!activeChapterId"
+        @click="emit('save')"
+      >
+        立即保存
+      </NButton>
       <NButton size="small" :disabled="!activeChapterId" @click="emit('show-versions')">
         版本快照
       </NButton>

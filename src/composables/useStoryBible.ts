@@ -49,6 +49,8 @@ export function useStoryBible(projectIdFromRoute: string) {
   const issues = ref<ConsistencyIssue[]>([]);
   const error = ref("");
   const busy = ref(false);
+  // 一致性检查是只读操作，单独一个标志：检查期间表单保存不该转圈。
+  const checking = ref(false);
 
   function emptyDraft(): Draft {
     return {
@@ -259,14 +261,14 @@ export function useStoryBible(projectIdFromRoute: string) {
 
   async function checkConsistency(): Promise<void> {
     if (!projectId.value) return;
-    busy.value = true;
+    checking.value = true;
     error.value = "";
     try {
       issues.value = await storyElementService.checkConsistency(projectId.value);
     } catch (err) {
       error.value = String(err);
     } finally {
-      busy.value = false;
+      checking.value = false;
     }
   }
 
@@ -320,6 +322,7 @@ export function useStoryBible(projectIdFromRoute: string) {
     issues,
     error,
     busy,
+    checking,
     draft,
     filterOptions,
     filteredElements,

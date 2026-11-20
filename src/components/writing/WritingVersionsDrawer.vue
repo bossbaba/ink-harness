@@ -12,7 +12,8 @@ const show = defineModel<boolean>("show", { required: true });
 defineProps<{
   versions: DraftVersionBrief[];
   loading: boolean;
-  busy: boolean;
+  snapshotBusy: boolean;
+  restoreBusy: boolean;
   preview: DraftVersion | null;
 }>();
 
@@ -30,7 +31,8 @@ const emit = defineEmits<{
       <DraftVersionPanel
         :versions="versions"
         :loading="loading"
-        :busy="busy"
+        :snapshot-busy="snapshotBusy"
+        :restore-busy="restoreBusy"
         :preview="preview"
         @snapshot="emit('snapshot')"
         @preview="emit('preview', $event)"

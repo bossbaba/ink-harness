@@ -7,6 +7,10 @@ import type { ProviderConfig } from "@/types";
 const props = defineProps<{
   provider: ProviderConfig;
   busy: boolean;
+  /** 本卡片正在测试连接（只让这个按钮转圈）。 */
+  testing: boolean;
+  /** 本卡片正在同步模型。 */
+  syncing: boolean;
   testMessage: string;
 }>();
 
@@ -77,14 +81,21 @@ const hiddenCount = computed(() => Math.max(0, props.provider.models.length - 6)
     <p v-if="props.testMessage" class="provider__probe">{{ props.testMessage }}</p>
 
     <footer class="provider__actions">
-      <NButton size="tiny" quaternary :disabled="props.busy" @click="emit('test')">
+      <NButton
+        size="tiny"
+        quaternary
+        :loading="props.testing"
+        :disabled="props.busy && !props.testing"
+        @click="emit('test')"
+      >
         测试连接
       </NButton>
       <NButton
         v-if="props.provider.source === 'local'"
         size="tiny"
         quaternary
-        :disabled="props.busy"
+        :loading="props.syncing"
+        :disabled="props.busy && !props.syncing"
         @click="emit('sync')"
       >
         同步模型

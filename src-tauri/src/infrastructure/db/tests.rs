@@ -1,7 +1,7 @@
 //! 数据库迁移与启动清理的单测。
 
-use super::schema::{SCHEMA_VERSION, ensure_column, migrate};
 use super::purge_orphan_chunks;
+use super::schema::{ensure_column, migrate, SCHEMA_VERSION};
 use rusqlite::Connection;
 
 /// 老库的 chapter 表没有 act 列，迁移必须补上，且重复执行保持幂等。

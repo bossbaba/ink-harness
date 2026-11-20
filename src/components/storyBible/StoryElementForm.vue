@@ -142,9 +142,7 @@ function addRelation(): void {
       </div>
 
       <div class="detail-actions">
-        <NButton type="primary" :disabled="props.busy" @click="emit('save')">
-          {{ props.busy ? "保存中…" : "保存修改" }}
-        </NButton>
+        <NButton type="primary" :loading="props.busy" @click="emit('save')">保存修改</NButton>
       </div>
     </template>
     <NEmpty

@@ -15,6 +15,7 @@ const {
   providers,
   ollama,
   ollamaStarting,
+  ollamaRefreshing,
   ollamaError,
   stopOllamaOnExit,
   routeStrategy,
@@ -22,6 +23,8 @@ const {
   savingSetting,
   loading,
   busy,
+  testingId,
+  syncingId,
   error,
   probeMessages,
   totalModels,
@@ -111,7 +114,14 @@ const routeOptions: SegmentOption[] = [
     >
       <template #actions>
         <NSpace>
-          <NButton size="small" :disabled="loading" @click="refreshOllama">重新检测 Ollama</NButton>
+          <NButton
+            size="small"
+            :loading="ollamaRefreshing"
+            :disabled="loading && !ollamaRefreshing"
+            @click="refreshOllama"
+          >
+            重新检测 Ollama
+          </NButton>
           <NButton size="small" type="primary" :disabled="loading" @click="openCreate">
             新增 Provider
           </NButton>
@@ -140,10 +150,10 @@ const routeOptions: SegmentOption[] = [
             v-if="!ollamaRunning"
             size="small"
             type="primary"
-            :disabled="ollamaStarting"
+            :loading="ollamaStarting"
             @click="startOllama"
           >
-            {{ ollamaStarting ? "启动中…" : "启动本地模型" }}
+            启动本地模型
           </NButton>
         </div>
       </header>
@@ -189,6 +199,8 @@ const routeOptions: SegmentOption[] = [
           :key="provider.id"
           :provider="provider"
           :busy="busy"
+          :testing="testingId === provider.id"
+          :syncing="syncingId === provider.id"
           :test-message="probeMessages[provider.id] ?? ''"
           @edit="openEdit(provider)"
           @remove="remove(provider)"

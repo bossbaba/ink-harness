@@ -34,8 +34,8 @@ function asText(value: string | string[] | undefined): string {
       <p class="brief__hint">简介、标签、封面简报和投稿信一次生成，改成你要的措辞后再复制。</p>
       <span class="brief__spacer" />
       <NButton size="small" :disabled="!brief" @click="emit('copy')">复制物料</NButton>
-      <NButton size="small" type="primary" :disabled="generating" @click="emit('generate')">
-        {{ generating ? "生成中…" : brief ? "重新生成" : "生成物料" }}
+      <NButton size="small" type="primary" :loading="generating" @click="emit('generate')">
+        {{ brief ? "重新生成" : "生成物料" }}
       </NButton>
     </div>
 

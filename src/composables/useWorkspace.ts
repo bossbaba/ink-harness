@@ -81,6 +81,7 @@ export function useWorkspace() {
     app,
     backend,
     projects,
+    projectsLoading,
     dbInfo,
     showNew,
     error,

@@ -13,7 +13,10 @@ import { documentToPlainText } from "@/utils/tiptap";
 const props = defineProps<{
   versions: DraftVersionBrief[];
   loading: boolean;
-  busy: boolean;
+  /** 保存快照进行中。 */
+  snapshotBusy: boolean;
+  /** 恢复版本进行中。 */
+  restoreBusy: boolean;
   preview: DraftVersion | null;
 }>();
 
@@ -34,7 +37,15 @@ const previewText = computed(() =>
   <aside class="versions">
     <div class="versions__head">
       <span class="versions__title">版本快照</span>
-      <NButton size="tiny" quaternary :loading="busy" @click="emit('snapshot')">保存快照</NButton>
+      <NButton
+        size="tiny"
+        quaternary
+        :loading="props.snapshotBusy"
+        :disabled="props.restoreBusy"
+        @click="emit('snapshot')"
+      >
+        保存快照
+      </NButton>
     </div>
 
     <p class="versions__hint">自动保存会在字数大幅变化时留版；想固定一个节点时点「保存快照」。</p>
@@ -58,7 +69,15 @@ const previewText = computed(() =>
           <NButton size="tiny" quaternary @click="emit('preview', item.id)">预览</NButton>
           <NPopconfirm @positive-click="emit('restore', item.id)">
             <template #trigger>
-              <NButton size="tiny" quaternary type="error" :disabled="busy">恢复</NButton>
+              <NButton
+                size="tiny"
+                quaternary
+                type="error"
+                :loading="props.restoreBusy"
+                :disabled="props.snapshotBusy"
+              >
+                恢复
+              </NButton>
             </template>
             恢复后当前正文会被替换（当前内容会先存为一版快照）。
           </NPopconfirm>
@@ -82,7 +101,8 @@ const previewText = computed(() =>
             v-if="preview"
             size="small"
             type="primary"
-            :loading="busy"
+            :loading="props.restoreBusy"
+            :disabled="props.snapshotBusy"
             @click="emit('restore', preview.id)"
           >
             恢复到这一版

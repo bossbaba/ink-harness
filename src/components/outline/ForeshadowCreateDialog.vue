@@ -72,10 +72,11 @@ function close(): void {
         <NButton
           size="small"
           type="primary"
-          :disabled="props.busy || !draft.title.trim()"
+          :loading="props.busy"
+          :disabled="!draft.title.trim()"
           @click="emit('save')"
         >
-          {{ props.busy ? "保存中…" : "创建伏笔" }}
+          创建伏笔
         </NButton>
       </NSpace>
     </template>

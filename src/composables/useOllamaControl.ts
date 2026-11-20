@@ -10,14 +10,19 @@ import type { OllamaStatus } from "@/types";
 export function useOllamaControl() {
   const status = ref<OllamaStatus | null>(null);
   const starting = ref(false);
+  // 「重新检测」自身的 loading：与启动分开，避免启动时检测按钮也转圈。
+  const refreshing = ref(false);
   const error = ref("");
 
   /** 静默重新探测：用于首屏和「重新检测」，失败不打扰用户。 */
   async function refresh(): Promise<void> {
+    refreshing.value = true;
     try {
       status.value = await runtimeService.checkOllama();
     } catch {
       status.value = null;
+    } finally {
+      refreshing.value = false;
     }
   }
 
@@ -38,5 +43,5 @@ export function useOllamaControl() {
     }
   }
 
-  return { status, starting, error, refresh, start };
+  return { status, starting, refreshing, error, refresh, start };
 }

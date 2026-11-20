@@ -50,9 +50,7 @@ const taskLabel = (kind: string): string => TASK_KIND_LABEL[kind] ?? "其他";
           @update:value="(value: number | null) => emit('update:budget', value ?? 0)"
         />
       </label>
-      <NButton size="small" :disabled="loading" @click="emit('refresh')">
-        {{ loading ? "读取中…" : "刷新" }}
-      </NButton>
+      <NButton size="small" :loading="loading" @click="emit('refresh')">刷新</NButton>
     </div>
 
     <p v-if="!stats" class="dashboard__empty">还没有调用记录，用一次 AI 写作或审稿后再刷新。</p>

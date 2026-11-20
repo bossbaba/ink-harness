@@ -24,6 +24,7 @@ const {
   issues,
   error,
   busy,
+  checking,
   draft,
   filterOptions,
   filteredElements,
@@ -54,8 +55,13 @@ const {
         </p>
       </div>
       <NSpace>
-        <NButton size="small" :disabled="busy || !projectTitle" @click="checkConsistency">
-          {{ busy ? "检查中…" : "一致性检查" }}
+        <NButton
+          size="small"
+          :loading="checking"
+          :disabled="busy || !projectTitle"
+          @click="checkConsistency"
+        >
+          一致性检查
         </NButton>
         <NButton size="small" type="primary" :disabled="busy || !projectTitle" @click="startNew">
           新建设定

@@ -2,6 +2,7 @@
 import { NButton, NEmpty, NTag, NTooltip } from "naive-ui";
 import { useRouter } from "vue-router";
 import AppIcon from "@/components/common/AppIcon.vue";
+import LoadingState from "@/components/common/LoadingState.vue";
 import StatCard from "@/components/common/StatCard.vue";
 import NewProjectDialog from "@/components/NewProjectDialog.vue";
 import { useWorkspace } from "@/composables/useWorkspace";
@@ -13,6 +14,7 @@ const {
   app,
   backend,
   projects,
+  projectsLoading,
   dbInfo,
   showNew,
   error,
@@ -87,7 +89,8 @@ function openModels(): void {
         我的作品
         <NTag class="count" size="tiny" round :bordered="false">{{ projects.length }}</NTag>
       </h2>
-      <div v-if="projects.length === 0" class="empty">
+      <LoadingState v-if="projectsLoading" text="正在载入作品…" />
+      <div v-else-if="projects.length === 0" class="empty">
         <NEmpty size="small" description="还没有作品，创建第一部开始创作。" />
         <NButton size="small" type="primary" @click="showNew = true">新建作品</NButton>
       </div>
@@ -145,10 +148,10 @@ function openModels(): void {
             v-if="!ollamaRunning"
             size="small"
             quaternary
-            :disabled="ollamaStarting"
+            :loading="ollamaStarting"
             @click="startOllama"
           >
-            {{ ollamaStarting ? "启动中…" : "启动本地模型 →" }}
+            启动本地模型 →
           </NButton>
           <NButton size="small" quaternary @click="openModels">配置模型 →</NButton>
         </template>

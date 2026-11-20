@@ -68,17 +68,11 @@ const isPdf = computed(() => props.format === "pdf");
     </p>
 
     <div class="export__actions">
-      <NButton
-        v-if="isPdf"
-        size="small"
-        type="primary"
-        :disabled="exporting"
-        @click="emit('print')"
-      >
+      <NButton v-if="isPdf" size="small" type="primary" :loading="exporting" @click="emit('print')">
         打印 / 另存为 PDF
       </NButton>
-      <NButton v-else size="small" type="primary" :disabled="exporting" @click="emit('export')">
-        {{ exporting ? "导出中…" : `导出 ${EXPORT_FORMAT_LABEL[format]}` }}
+      <NButton v-else size="small" type="primary" :loading="exporting" @click="emit('export')">
+        导出 {{ EXPORT_FORMAT_LABEL[format] }}
       </NButton>
     </div>
 

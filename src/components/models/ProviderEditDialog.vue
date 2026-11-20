@@ -124,8 +124,13 @@ function close(): void {
       </div>
 
       <div class="probe">
-        <NButton size="small" :disabled="props.probing || props.busy" @click="emit('probe')">
-          {{ props.probing ? "探测中…" : "测试连接并拉取模型" }}
+        <NButton
+          size="small"
+          :loading="props.probing"
+          :disabled="props.busy"
+          @click="emit('probe')"
+        >
+          测试连接并拉取模型
         </NButton>
         <span class="hint">不会保存配置，只验证地址与密钥是否可用。</span>
       </div>
@@ -185,10 +190,11 @@ function close(): void {
         <NButton
           size="small"
           type="primary"
-          :disabled="props.busy || !draft.name.trim()"
+          :loading="props.busy"
+          :disabled="!draft.name.trim()"
           @click="emit('save')"
         >
-          {{ props.busy ? "保存中…" : "保存" }}
+          保存
         </NButton>
       </NSpace>
     </template>

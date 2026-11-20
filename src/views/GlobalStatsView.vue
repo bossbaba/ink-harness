@@ -130,7 +130,8 @@ onReactivated(() => void load());
       </template>
     </section>
 
-    <section class="stats__card">
+    <!-- 成本面板自身已带卡片外壳，这里只保留间距，避免出现「卡片套卡片」。 -->
+    <section class="stats__panel">
       <CostDashboardPanel
         :stats="usage"
         :providers="providers"
@@ -179,6 +180,16 @@ onReactivated(() => void load());
     @include m.card-surface(var(--bg-surface));
     padding: t.$space-4;
     margin-bottom: t.$space-4;
+  }
+
+  // 自带卡片外壳的子组件（如成本看板）只补间距，不再叠加第二层卡片。
+  &__panel {
+    margin-bottom: t.$space-4;
+
+    // 组件自带 margin-top，去掉后与上一张卡的间距才和其它卡片一致。
+    :deep(.dashboard) {
+      margin-top: 0;
+    }
   }
 
   &__section {

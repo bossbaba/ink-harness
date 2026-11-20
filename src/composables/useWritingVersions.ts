@@ -46,7 +46,9 @@ export interface WritingVersionDeps {
 export function useWritingVersions(deps: WritingVersionDeps) {
   const versions = ref<DraftVersionBrief[]>([]);
   const versionsLoading = ref(false);
-  const versionsBusy = ref(false);
+  // 快照与恢复分开：共用一个 busy 会让「保存快照」在恢复时也转圈，指向错误的操作。
+  const snapshotBusy = ref(false);
+  const restoreBusy = ref(false);
   const previewVersion = ref<DraftVersion | null>(null);
 
   async function loadVersions(chapterId: string): Promise<void> {
@@ -74,7 +76,7 @@ export function useWritingVersions(deps: WritingVersionDeps) {
   async function createSnapshot(): Promise<void> {
     const chapterId = deps.loadedChapterId.value;
     if (!chapterId) return;
-    versionsBusy.value = true;
+    snapshotBusy.value = true;
     deps.error.value = "";
     try {
       // 先等自动保存落完，避免快照与在飞的那次保存互相覆盖。
@@ -110,7 +112,7 @@ export function useWritingVersions(deps: WritingVersionDeps) {
     } catch (err) {
       deps.error.value = `保存快照失败：${String(err)}`;
     } finally {
-      versionsBusy.value = false;
+      snapshotBusy.value = false;
     }
   }
 
@@ -131,7 +133,7 @@ export function useWritingVersions(deps: WritingVersionDeps) {
   async function restoreVersion(versionId: string): Promise<void> {
     const chapterId = deps.loadedChapterId.value;
     if (!chapterId) return;
-    versionsBusy.value = true;
+    restoreBusy.value = true;
     deps.error.value = "";
     try {
       // 恢复会整篇覆盖正文：先把未落库的输入写下去（失败时 flush 已留本地备份），
@@ -153,14 +155,15 @@ export function useWritingVersions(deps: WritingVersionDeps) {
     } catch (err) {
       deps.error.value = `恢复版本失败：${String(err)}`;
     } finally {
-      versionsBusy.value = false;
+      restoreBusy.value = false;
     }
   }
 
   return {
     versions,
     versionsLoading,
-    versionsBusy,
+    snapshotBusy,
+    restoreBusy,
     previewVersion,
     loadVersions,
     clearVersionCache,

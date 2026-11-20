@@ -53,7 +53,8 @@ const {
   editorRevision,
   versions,
   versionsLoading,
-  versionsBusy,
+  snapshotBusy,
+  restoreBusy,
   previewVersion,
   onEditorUpdate,
   patchChapter,
@@ -374,7 +375,8 @@ async function handleRestore(versionId: string): Promise<void> {
       v-model:show="showVersions"
       :versions="versions"
       :loading="versionsLoading"
-      :busy="versionsBusy"
+      :snapshot-busy="snapshotBusy"
+      :restore-busy="restoreBusy"
       :preview="previewVersion"
       @snapshot="createSnapshot"
       @preview="openVersionPreview"

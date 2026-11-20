@@ -84,17 +84,19 @@ const dirty = () => draft.value !== props.summary;
         <NButton
           size="small"
           type="primary"
-          :disabled="generating || saving"
+          :loading="generating"
+          :disabled="saving"
           @click="emit('regenerate')"
         >
-          {{ generating ? "生成中…" : "重新生成" }}
+          重新生成
         </NButton>
         <NButton
           size="small"
-          :disabled="generating || saving || !dirty()"
+          :loading="saving"
+          :disabled="generating || !dirty()"
           @click="emit('save', draft)"
         >
-          {{ saving ? "保存中…" : "保存修改" }}
+          保存修改
         </NButton>
       </div>
 

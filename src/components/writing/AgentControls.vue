@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { NButton, NTag } from "naive-ui";
+import { ref, watch } from "vue";
 import type { AgentPanelState, PendingToolAction } from "@/types";
 
 /**
@@ -23,6 +24,21 @@ const STATUS_LABEL: Record<PendingToolAction["status"], string> = {
   applied: "已应用",
   failed: "失败",
 };
+
+// 通过/驳回共用一个 busyId：记录刚点的那个，让只有它转圈。
+const pendingType = ref<"approve" | "reject" | null>(null);
+
+watch(
+  () => props.agent.busyId,
+  (id) => {
+    if (!id) pendingType.value = null;
+  },
+);
+
+function act(type: "approve" | "reject", id: string): void {
+  pendingType.value = type;
+  void props.agent.onAction({ type, id });
+}
 
 /** 从工具结果里取候选正文（propose_text 返回 JSON 文本），非 JSON 当纯文本。 */
 function candidate(action: PendingToolAction): string {
@@ -69,14 +85,16 @@ function candidate(action: PendingToolAction): string {
           <NButton
             size="tiny"
             type="primary"
-            :disabled="agent.busyId === action.id"
-            @click="agent.onAction({ type: 'approve', id: action.id })"
+            :loading="agent.busyId === action.id && pendingType === 'approve'"
+            :disabled="agent.busyId === action.id && pendingType !== 'approve'"
+            @click="act('approve', action.id)"
             >通过</NButton
           >
           <NButton
             size="tiny"
-            :disabled="agent.busyId === action.id"
-            @click="agent.onAction({ type: 'reject', id: action.id })"
+            :loading="agent.busyId === action.id && pendingType === 'reject'"
+            :disabled="agent.busyId === action.id && pendingType !== 'reject'"
+            @click="act('reject', action.id)"
             >驳回</NButton
           >
         </template>

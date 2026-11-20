@@ -59,7 +59,7 @@ async function copy(): Promise<void> {
 
     <template #footer>
       <NSpace justify="end">
-        <NButton size="small" :disabled="props.busy" @click="emit('refresh')"> 重新生成 </NButton>
+        <NButton size="small" :loading="props.busy" @click="emit('refresh')"> 重新生成 </NButton>
         <NButton size="small" type="primary" :disabled="props.busy || !props.text" @click="copy">
           {{ copied ? "已复制" : "复制全文" }}
         </NButton>

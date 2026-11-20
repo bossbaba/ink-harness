@@ -27,8 +27,8 @@ const includeOutline = defineModel<boolean>("includeOutline", { required: true }
 
 const canApply = computed(() => {
   const value = proposal.value;
-  // 还没生成方案时没有可写入的内容，直接禁用按钮。
-  if (!value || props.applying) return false;
+  // 还没生成方案时没有可写入的内容，直接禁用按钮；写入中由 loading 拦截点击。
+  if (!value) return false;
   return Boolean(selectedTitle.value.trim() || value.premise || value.synopsis);
 });
 
@@ -45,10 +45,11 @@ const needModel = computed(() => props.parseError.includes("模型管理"));
       </div>
       <NButton
         size="small"
-        :disabled="props.generating || props.applying"
+        :loading="props.generating"
+        :disabled="props.applying"
         @click="emit('generate')"
       >
-        {{ props.generating ? "生成中…" : "重新生成" }}
+        重新生成
       </NButton>
     </header>
 
@@ -140,8 +141,14 @@ const needModel = computed(() => props.parseError.includes("模型管理"));
       </section>
 
       <div class="apply">
-        <NButton size="small" type="primary" :disabled="!canApply" @click="emit('apply')">
-          {{ props.applying ? "写入中…" : "写入作品" }}
+        <NButton
+          size="small"
+          type="primary"
+          :loading="props.applying"
+          :disabled="!canApply"
+          @click="emit('apply')"
+        >
+          写入作品
         </NButton>
         <span class="hint">写入会覆盖作品当前的标题、梗概、简介、读者画像与风格。</span>
       </div>

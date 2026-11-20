@@ -28,6 +28,8 @@ const emit = defineEmits<{
 
 const expanded = ref(false);
 const note = ref("");
+// 审批是二选一：记录刚点的那个决定，让只有它转圈，另一个按钮只是禁用。
+const pendingDecision = ref<"approved" | "rejected" | null>(null);
 
 watch(
   () => props.state.artifact,
@@ -35,6 +37,18 @@ watch(
     note.value = "";
   },
 );
+
+watch(
+  () => props.busy,
+  (busy) => {
+    if (!busy) pendingDecision.value = null;
+  },
+);
+
+function decide(decision: "approved" | "rejected"): void {
+  pendingDecision.value = decision;
+  emit("approve", decision, note.value);
+}
 
 function copyArtifact(): void {
   void navigator.clipboard.writeText(props.state.artifact);
@@ -88,19 +102,25 @@ function copyArtifact(): void {
         <NButton
           size="small"
           type="primary"
-          :disabled="busy"
-          @click="emit('approve', 'approved', note)"
+          :loading="busy && pendingDecision === 'approved'"
+          :disabled="busy && pendingDecision !== 'approved'"
+          @click="decide('approved')"
         >
           通过并落地
         </NButton>
-        <NButton size="small" :disabled="busy" @click="emit('approve', 'rejected', note)">
+        <NButton
+          size="small"
+          :loading="busy && pendingDecision === 'rejected'"
+          :disabled="busy && pendingDecision !== 'rejected'"
+          @click="decide('rejected')"
+        >
           打回重做
         </NButton>
       </div>
     </div>
 
     <div v-else class="stage__actions">
-      <NButton size="small" :disabled="running || busy || !unlocked" @click="emit('run')">
+      <NButton size="small" :loading="running" :disabled="busy || !unlocked" @click="emit('run')">
         {{ running ? `生成中… ${received} 字` : state.artifact ? "重新生成" : "运行本阶段" }}
       </NButton>
       <span v-if="!unlocked" class="stage__locked">需先通过上一阶段</span>

@@ -57,10 +57,11 @@ function close(): void {
         <NButton
           size="small"
           type="primary"
-          :disabled="busy || !name.trim()"
+          :loading="busy"
+          :disabled="!name.trim()"
           @click="emit('create')"
         >
-          {{ busy ? "创建中…" : "创建设定" }}
+          创建设定
         </NButton>
       </NSpace>
     </template>

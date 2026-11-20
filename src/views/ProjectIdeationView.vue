@@ -133,10 +133,11 @@ function backWorkspace(): void {
               v-else
               size="small"
               type="primary"
-              :disabled="!canNext || generating"
+              :loading="generating"
+              :disabled="!canNext"
               @click="generate"
             >
-              {{ generating ? "生成中…" : "生成方案" }}
+              生成方案
             </NButton>
           </footer>
         </template>

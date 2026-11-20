@@ -27,8 +27,8 @@ export interface ProjectNavItem {
 /** 全局导航：只放真正有全局页面的功能。 */
 export const GLOBAL_NAV: GlobalNavItem[] = [
   { key: "workspace", label: "工作台", icon: "workspace", path: "/" },
-  { key: "bible", label: "设定库", icon: "bible", path: "/bible" },
   { key: "stats", label: "统计", icon: "stats", path: "/stats" },
+  { key: "bible", label: "设定库", icon: "bible", path: "/bible" },
   { key: "models", label: "模型管理", icon: "models", path: "/models" },
 ];
 

@@ -138,7 +138,14 @@ async function copyReport(): Promise<void> {
         <span class="controls__spacer" />
 
         <NButton v-if="running" size="small" @click="stop">停止</NButton>
-        <NButton v-else size="small" type="primary" :disabled="!canRun" @click="startReview">
+        <NButton
+          v-else
+          size="small"
+          type="primary"
+          :loading="loading"
+          :disabled="!canRun && !loading"
+          @click="startReview"
+        >
           {{ report ? "重新审读" : "开始审读" }}
         </NButton>
       </div>
@@ -183,10 +190,11 @@ async function copyReport(): Promise<void> {
           v-if="report.scope === 'chapter'"
           size="small"
           type="primary"
-          :disabled="applyableCount === 0 || applying"
+          :loading="applying"
+          :disabled="applyableCount === 0"
           @click="applyAccepted"
         >
-          {{ applying ? "写入中…" : `应用 ${applyableCount} 处修改` }}
+          应用 {{ applyableCount }} 处修改
         </NButton>
         <RouterLink
           v-if="report.scope === 'chapter' && chapterId"

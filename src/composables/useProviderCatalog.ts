@@ -30,6 +30,10 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
   const providers = ref<ProviderConfig[]>([]);
   const loading = ref(false);
   const busy = ref(false);
+  /** 正在被「测试连接」的 Provider id；卡片上对应按钮转圈用。 */
+  const testingId = ref("");
+  /** 正在「同步模型」的 Provider id；与全局 busy 分开，避免所有卡片一起转圈。 */
+  const syncingId = ref("");
   /** Provider id → 连接测试结果文案。 */
   const probeMessages = ref<Record<string, string>>({});
 
@@ -37,6 +41,7 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
   const {
     status: ollama,
     starting: ollamaStarting,
+    refreshing: ollamaRefreshing,
     error: ollamaError,
     refresh: refreshOllama,
     start: startOllamaService,
@@ -238,6 +243,8 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
 
   /** 卡片上的「测试连接」：不改变已保存配置。 */
   async function testProvider(provider: ProviderConfig): Promise<void> {
+    if (testingId.value) return;
+    testingId.value = provider.id;
     probeMessages.value = { ...probeMessages.value, [provider.id]: "测试中…" };
     try {
       const ids = await providerService.probe({
@@ -251,6 +258,8 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
       };
     } catch (err) {
       probeMessages.value = { ...probeMessages.value, [provider.id]: String(err) };
+    } finally {
+      testingId.value = "";
     }
   }
 
@@ -259,6 +268,8 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
    * 避免用户为了试一下界面还要手动逐个勾选。
    */
   async function syncModels(provider: ProviderConfig): Promise<void> {
+    if (syncingId.value) return;
+    syncingId.value = provider.id;
     probeMessages.value = { ...probeMessages.value, [provider.id]: "正在拉取模型…" };
     busy.value = true;
     try {
@@ -279,6 +290,7 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
     } catch (err) {
       probeMessages.value = { ...probeMessages.value, [provider.id]: String(err) };
     } finally {
+      syncingId.value = "";
       busy.value = false;
     }
   }
@@ -300,9 +312,12 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
     providers,
     loading,
     busy,
+    testingId,
+    syncingId,
     probeMessages,
     ollama,
     ollamaStarting,
+    ollamaRefreshing,
     ollamaError,
     refreshOllama,
     startOllama,
