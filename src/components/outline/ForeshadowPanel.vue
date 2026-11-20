@@ -13,6 +13,8 @@ const props = defineProps<{
   foreshadows: Foreshadow[];
   chapterOptions: Array<{ label: string; value: string }>;
   busy: boolean;
+  /** 正在删除的伏笔 id，对应行的删除按钮转圈。 */
+  removingId: string;
 }>();
 
 const emit = defineEmits<{
@@ -108,7 +110,15 @@ function isIncomplete(foreshadow: Foreshadow): boolean {
         <div class="foreshadow-item__actions">
           <NPopconfirm @positive-click="emit('remove', item)">
             <template #trigger>
-              <NButton size="tiny" quaternary type="error" :disabled="props.busy">删除</NButton>
+              <NButton
+                size="tiny"
+                quaternary
+                type="error"
+                :loading="props.removingId === item.id"
+                :disabled="props.busy && props.removingId !== item.id"
+              >
+                删除
+              </NButton>
             </template>
             删除这条伏笔记录？
           </NPopconfirm>

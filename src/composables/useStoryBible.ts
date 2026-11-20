@@ -48,9 +48,13 @@ export function useStoryBible(projectIdFromRoute: string) {
   const createSummary = ref("");
   const issues = ref<ConsistencyIssue[]>([]);
   const error = ref("");
-  const busy = ref(false);
-  // 一致性检查是只读操作，单独一个标志：检查期间表单保存不该转圈。
+  // 各操作独立标志：保存、创建、删除、检查只让自己的按钮转圈，
+  // busy 是它们的并集，用来禁用其余入口，避免并发写。
+  const saving = ref(false);
+  const creating = ref(false);
+  const removing = ref(false);
   const checking = ref(false);
+  const busy = computed(() => saving.value || creating.value || removing.value || checking.value);
 
   function emptyDraft(): Draft {
     return {
@@ -185,7 +189,7 @@ export function useStoryBible(projectIdFromRoute: string) {
       return;
     }
     if (!selected.value) return;
-    busy.value = true;
+    saving.value = true;
     error.value = "";
     try {
       const detail = buildDetail();
@@ -200,7 +204,7 @@ export function useStoryBible(projectIdFromRoute: string) {
     } catch (err) {
       error.value = String(err);
     } finally {
-      busy.value = false;
+      saving.value = false;
     }
   }
 
@@ -210,7 +214,7 @@ export function useStoryBible(projectIdFromRoute: string) {
       return;
     }
     if (!projectId.value) return;
-    busy.value = true;
+    creating.value = true;
     error.value = "";
     try {
       const created = await storyElementService.create({
@@ -228,13 +232,13 @@ export function useStoryBible(projectIdFromRoute: string) {
     } catch (err) {
       error.value = String(err);
     } finally {
-      busy.value = false;
+      creating.value = false;
     }
   }
 
   async function removeSelected(): Promise<void> {
     if (!selected.value) return;
-    busy.value = true;
+    removing.value = true;
     try {
       await storyElementService.remove(selected.value.id);
       selectedId.value = "";
@@ -242,7 +246,7 @@ export function useStoryBible(projectIdFromRoute: string) {
     } catch (err) {
       error.value = String(err);
     } finally {
-      busy.value = false;
+      removing.value = false;
     }
   }
 
@@ -322,6 +326,9 @@ export function useStoryBible(projectIdFromRoute: string) {
     issues,
     error,
     busy,
+    saving,
+    creating,
+    removing,
     checking,
     draft,
     filterOptions,

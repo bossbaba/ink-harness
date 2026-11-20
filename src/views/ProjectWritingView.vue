@@ -55,6 +55,7 @@ const {
   versionsLoading,
   snapshotBusy,
   restoreBusy,
+  previewBusy,
   previewVersion,
   onEditorUpdate,
   patchChapter,
@@ -377,6 +378,7 @@ async function handleRestore(versionId: string): Promise<void> {
       :loading="versionsLoading"
       :snapshot-busy="snapshotBusy"
       :restore-busy="restoreBusy"
+      :preview-busy="previewBusy"
       :preview="previewVersion"
       @snapshot="createSnapshot"
       @preview="openVersionPreview"

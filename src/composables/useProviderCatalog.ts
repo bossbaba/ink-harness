@@ -34,6 +34,8 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
   const testingId = ref("");
   /** 正在「同步模型」的 Provider id；与全局 busy 分开，避免所有卡片一起转圈。 */
   const syncingId = ref("");
+  /** 正在删除的 Provider id，对应卡片的删除按钮转圈。 */
+  const removingId = ref("");
   /** Provider id → 连接测试结果文案。 */
   const probeMessages = ref<Record<string, string>>({});
 
@@ -219,6 +221,7 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
   }
 
   async function remove(provider: ProviderConfig): Promise<void> {
+    removingId.value = provider.id;
     busy.value = true;
     shared.error.value = "";
     try {
@@ -237,6 +240,7 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
     } catch (err) {
       shared.error.value = String(err);
     } finally {
+      removingId.value = "";
       busy.value = false;
     }
   }
@@ -314,6 +318,7 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
     busy,
     testingId,
     syncingId,
+    removingId,
     probeMessages,
     ollama,
     ollamaStarting,

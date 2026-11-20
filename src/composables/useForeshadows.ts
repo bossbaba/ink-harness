@@ -14,6 +14,8 @@ export function useForeshadows(deps: {
   chapters: Ref<Chapter[]>;
   error: Ref<string>;
   busy: Ref<boolean>;
+  /** 与大纲共用的删除中 id：让被点的那条伏笔删除按钮转圈。 */
+  removingId: Ref<string>;
   reload: () => Promise<void>;
 }) {
   const foreshadows = ref<Foreshadow[]>([]);
@@ -104,6 +106,7 @@ export function useForeshadows(deps: {
   }
 
   async function removeForeshadow(foreshadow: Foreshadow): Promise<void> {
+    deps.removingId.value = foreshadow.id;
     deps.busy.value = true;
     deps.error.value = "";
     try {
@@ -112,6 +115,7 @@ export function useForeshadows(deps: {
     } catch (err) {
       deps.error.value = String(err);
     } finally {
+      deps.removingId.value = "";
       deps.busy.value = false;
     }
   }

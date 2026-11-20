@@ -24,6 +24,9 @@ const {
   issues,
   error,
   busy,
+  saving,
+  creating,
+  removing,
   checking,
   draft,
   filterOptions,
@@ -58,7 +61,7 @@ const {
         <NButton
           size="small"
           :loading="checking"
-          :disabled="busy || !projectTitle"
+          :disabled="(busy && !checking) || !projectTitle"
           @click="checkConsistency"
         >
           一致性检查
@@ -91,6 +94,8 @@ const {
         :target-options="targetOptions"
         :relation-target-name="relationTargetName"
         :busy="busy"
+        :saving="saving"
+        :removing="removing"
         @save="save"
         @delete="removeSelected"
         @new="startNew"
@@ -112,7 +117,7 @@ const {
         v-model:kind="createKind"
         v-model:name="createName"
         v-model:summary="createSummary"
-        :busy="busy"
+        :creating="creating"
         :error="error"
         @create="submitCreate"
       />

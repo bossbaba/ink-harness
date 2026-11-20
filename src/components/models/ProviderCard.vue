@@ -11,6 +11,8 @@ const props = defineProps<{
   testing: boolean;
   /** 本卡片正在同步模型。 */
   syncing: boolean;
+  /** 本卡片正在删除。 */
+  removing: boolean;
   testMessage: string;
 }>();
 
@@ -103,7 +105,15 @@ const hiddenCount = computed(() => Math.max(0, props.provider.models.length - 6)
       <NButton size="tiny" quaternary :disabled="props.busy" @click="emit('edit')">编辑</NButton>
       <NPopconfirm @positive-click="emit('remove')">
         <template #trigger>
-          <NButton size="tiny" quaternary type="error" :disabled="props.busy">删除</NButton>
+          <NButton
+            size="tiny"
+            quaternary
+            type="error"
+            :loading="props.removing"
+            :disabled="props.busy && !props.removing"
+          >
+            删除
+          </NButton>
         </template>
         删除该 Provider 及其密钥记录？
       </NPopconfirm>

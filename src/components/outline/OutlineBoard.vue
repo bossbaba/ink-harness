@@ -21,6 +21,10 @@ const props = defineProps<{
   activeChapterId: string;
   /** 要渲染的幕数：默认三幕，作者可继续往后新增。 */
   actCount: number;
+  /** 大纲写操作进行中：新增入口禁用，避免与删除/保存交错。 */
+  busy: boolean;
+  /** 正在删除的章节/场景 id，传给卡片让对应删除按钮转圈。 */
+  removingId: string;
 }>();
 
 const emit = defineEmits<{
@@ -184,6 +188,7 @@ function dropOnScene(chapter: Chapter, index: number): void {
               quaternary
               class="act__add-head"
               title="在本幕新增章节"
+              :disabled="props.busy"
               @click="emit('add-chapter', act.value)"
             >
               ＋
@@ -198,6 +203,7 @@ function dropOnScene(chapter: Chapter, index: number): void {
               size="tiny"
               quaternary
               class="act__remove"
+              :disabled="props.busy"
               @click="emit('remove-act', act.value)"
             >
               移除
@@ -214,6 +220,8 @@ function dropOnScene(chapter: Chapter, index: number): void {
             :scenes="scenesByChapter[chapter.id] ?? []"
             :tags="foreshadowTags[chapter.id] ?? []"
             :active="chapter.id === activeChapterId"
+            :busy="props.busy"
+            :removing-id="props.removingId"
             @select="emit('select-chapter', $event.id)"
             @edit="emit('edit-chapter', $event)"
             @remove="emit('remove-chapter', $event)"
@@ -232,6 +240,7 @@ function dropOnScene(chapter: Chapter, index: number): void {
             block
             size="small"
             class="act__add"
+            :disabled="props.busy"
             @click="emit('add-chapter', act.value)"
           >
             + 新增章节
@@ -247,7 +256,9 @@ function dropOnScene(chapter: Chapter, index: number): void {
         </div>
       </section>
 
-      <NButton dashed block class="board__add-act" @click="emit('add-act')"> ＋ 新增一幕 </NButton>
+      <NButton dashed block class="board__add-act" :disabled="props.busy" @click="emit('add-act')">
+        ＋ 新增一幕
+      </NButton>
     </div>
   </div>
 </template>

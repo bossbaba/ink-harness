@@ -16,7 +16,12 @@ const props = defineProps<{
   projectId: string;
   targetOptions: Array<{ label: string; value: string }>;
   relationTargetName: (id: string) => string;
+  /** 任一写操作进行中（含一致性检查），用来禁用另一个按钮。 */
   busy: boolean;
+  /** 保存修改进行中（只让保存按钮转圈）。 */
+  saving: boolean;
+  /** 删除进行中（只让删除按钮转圈）。 */
+  removing: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -51,7 +56,15 @@ function addRelation(): void {
         </div>
         <NPopconfirm @positive-click="emit('delete')">
           <template #trigger>
-            <NButton size="tiny" quaternary type="error">删除</NButton>
+            <NButton
+              size="tiny"
+              quaternary
+              type="error"
+              :loading="props.removing"
+              :disabled="props.busy && !props.removing"
+            >
+              删除
+            </NButton>
           </template>
           删除后不可恢复，确定继续？
         </NPopconfirm>
@@ -142,7 +155,14 @@ function addRelation(): void {
       </div>
 
       <div class="detail-actions">
-        <NButton type="primary" :loading="props.busy" @click="emit('save')">保存修改</NButton>
+        <NButton
+          type="primary"
+          :loading="props.saving"
+          :disabled="props.busy && !props.saving"
+          @click="emit('save')"
+        >
+          保存修改
+        </NButton>
       </div>
     </template>
     <NEmpty

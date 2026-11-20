@@ -49,6 +49,7 @@ export function useWritingVersions(deps: WritingVersionDeps) {
   // 快照与恢复分开：共用一个 busy 会让「保存快照」在恢复时也转圈，指向错误的操作。
   const snapshotBusy = ref(false);
   const restoreBusy = ref(false);
+  const previewBusy = ref(false);
   const previewVersion = ref<DraftVersion | null>(null);
 
   async function loadVersions(chapterId: string): Promise<void> {
@@ -118,10 +119,14 @@ export function useWritingVersions(deps: WritingVersionDeps) {
 
   /** 预览某一版：只取该版正文，不改动当前稿。 */
   async function openVersionPreview(versionId: string): Promise<void> {
+    if (previewBusy.value) return;
+    previewBusy.value = true;
     try {
       previewVersion.value = await writingService.getVersion(versionId);
     } catch (err) {
       deps.error.value = `读取版本失败：${String(err)}`;
+    } finally {
+      previewBusy.value = false;
     }
   }
 
@@ -164,6 +169,7 @@ export function useWritingVersions(deps: WritingVersionDeps) {
     versionsLoading,
     snapshotBusy,
     restoreBusy,
+    previewBusy,
     previewVersion,
     loadVersions,
     clearVersionCache,

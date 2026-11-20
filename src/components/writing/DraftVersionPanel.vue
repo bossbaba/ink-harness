@@ -17,6 +17,8 @@ const props = defineProps<{
   snapshotBusy: boolean;
   /** 恢复版本进行中。 */
   restoreBusy: boolean;
+  /** 读取预览正文进行中。 */
+  previewBusy: boolean;
   preview: DraftVersion | null;
 }>();
 
@@ -66,7 +68,14 @@ const previewText = computed(() =>
         </div>
         <div class="versions__actions">
           <span class="versions__words">{{ formatCount(item.wordCount) }} 字</span>
-          <NButton size="tiny" quaternary @click="emit('preview', item.id)">预览</NButton>
+          <NButton
+            size="tiny"
+            quaternary
+            :loading="props.previewBusy"
+            @click="emit('preview', item.id)"
+          >
+            预览
+          </NButton>
           <NPopconfirm @positive-click="emit('restore', item.id)">
             <template #trigger>
               <NButton

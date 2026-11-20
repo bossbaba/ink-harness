@@ -25,6 +25,7 @@ const {
   busy,
   testingId,
   syncingId,
+  removingId,
   error,
   probeMessages,
   totalModels,
@@ -201,6 +202,7 @@ const routeOptions: SegmentOption[] = [
           :busy="busy"
           :testing="testingId === provider.id"
           :syncing="syncingId === provider.id"
+          :removing="removingId === provider.id"
           :test-message="probeMessages[provider.id] ?? ''"
           @edit="openEdit(provider)"
           @remove="remove(provider)"

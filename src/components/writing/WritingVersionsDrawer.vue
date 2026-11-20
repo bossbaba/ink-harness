@@ -14,6 +14,7 @@ defineProps<{
   loading: boolean;
   snapshotBusy: boolean;
   restoreBusy: boolean;
+  previewBusy: boolean;
   preview: DraftVersion | null;
 }>();
 
@@ -33,6 +34,7 @@ const emit = defineEmits<{
         :loading="loading"
         :snapshot-busy="snapshotBusy"
         :restore-busy="restoreBusy"
+        :preview-busy="previewBusy"
         :preview="preview"
         @snapshot="emit('snapshot')"
         @preview="emit('preview', $event)"

@@ -11,6 +11,10 @@ const props = defineProps<{
   /** 本章关联的伏笔标记。 */
   tags: string[];
   active: boolean;
+  /** 大纲写操作进行中：编辑/新增/删除入口禁用。 */
+  busy: boolean;
+  /** 正在删除的章节/场景 id，对应行的删除按钮转圈。 */
+  removingId: string;
 }>();
 
 const emit = defineEmits<{
@@ -73,6 +77,8 @@ function onSceneDrop(target: Scene): void {
         :key="scene.id"
         :scene="scene"
         :tags="tags"
+        :busy="props.busy"
+        :removing-id="props.removingId"
         @edit="emit('edit-scene', $event)"
         @remove="emit('remove-scene', $event)"
         @dragstart="emit('dragstart-scene', $event)"
@@ -83,13 +89,31 @@ function onSceneDrop(target: Scene): void {
     </div>
 
     <footer class="chapter__footer">
-      <NButton size="tiny" quaternary @click.stop="emit('add-scene', chapter)">+ 场景</NButton>
+      <NButton
+        size="tiny"
+        quaternary
+        :disabled="props.busy"
+        @click.stop="emit('add-scene', chapter)"
+      >
+        + 场景
+      </NButton>
       <span class="chapter__spacer" />
       <div class="chapter__actions">
-        <NButton size="tiny" quaternary @click.stop="emit('edit', chapter)">编辑</NButton>
+        <NButton size="tiny" quaternary :disabled="props.busy" @click.stop="emit('edit', chapter)">
+          编辑
+        </NButton>
         <NPopconfirm @positive-click="emit('remove', chapter)">
           <template #trigger>
-            <NButton size="tiny" quaternary type="error" @click.stop>删除</NButton>
+            <NButton
+              size="tiny"
+              quaternary
+              type="error"
+              :loading="props.removingId === props.chapter.id"
+              :disabled="props.busy && props.removingId !== props.chapter.id"
+              @click.stop
+            >
+              删除
+            </NButton>
           </template>
           删除该章节及其下所有场景？
         </NPopconfirm>

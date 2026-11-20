@@ -119,6 +119,7 @@ onReactivated(() => void load());
           <WorkflowStageCard
             :state="state.stages[item.key]"
             :running="running === item.key"
+            :any-running="running !== null"
             :received="received"
             :unlocked="isUnlocked(item.key)"
             :busy="busy"

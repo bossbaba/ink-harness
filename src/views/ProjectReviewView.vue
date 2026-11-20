@@ -139,14 +139,7 @@ async function copyReport(): Promise<void> {
         <span class="controls__spacer" />
 
         <NButton v-if="running" size="small" @click="stop">停止</NButton>
-        <NButton
-          v-else
-          size="small"
-          type="primary"
-          :loading="loading"
-          :disabled="!canRun && !loading"
-          @click="startReview"
-        >
+        <NButton v-else size="small" type="primary" :disabled="!canRun" @click="startReview">
           {{ report ? "重新审读" : "开始审读" }}
         </NButton>
       </div>

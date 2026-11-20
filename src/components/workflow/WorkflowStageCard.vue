@@ -11,6 +11,8 @@ import { WORKFLOW_DECISION_LABEL } from "@/types";
 const props = defineProps<{
   state: WorkflowStageState;
   running: boolean;
+  /** 任一阶段正在生成：其余阶段的运行按钮禁用，避免点了被静默忽略。 */
+  anyRunning: boolean;
   received: number;
   unlocked: boolean;
   busy: boolean;
@@ -120,7 +122,12 @@ function copyArtifact(): void {
     </div>
 
     <div v-else class="stage__actions">
-      <NButton size="small" :loading="running" :disabled="busy || !unlocked" @click="emit('run')">
+      <NButton
+        size="small"
+        :loading="running"
+        :disabled="busy || !unlocked || (anyRunning && !running)"
+        @click="emit('run')"
+      >
         {{ running ? `生成中… ${received} 字` : state.artifact ? "重新生成" : "运行本阶段" }}
       </NButton>
       <span v-if="!unlocked" class="stage__locked">需先通过上一阶段</span>

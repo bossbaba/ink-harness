@@ -39,6 +39,8 @@ export function useProjectOutline(projectIdFromRoute: string) {
   const activeChapterId = ref("");
   const error = ref("");
   const busy = ref(false);
+  // 正在删除的章节/场景 id：让被点的那行删除按钮转圈，其余按钮只禁用。
+  const removingId = ref("");
   // 看板要渲染的幕数：默认三幕，作者可继续新增（空幕也保留）。
   const actCount = ref(DEFAULT_ACT_COUNT);
 
@@ -56,6 +58,7 @@ export function useProjectOutline(projectIdFromRoute: string) {
     chapters,
     error,
     busy,
+    removingId,
     reload: () => load(),
   });
   const {
@@ -238,6 +241,7 @@ export function useProjectOutline(projectIdFromRoute: string) {
   }
 
   async function removeChapter(chapter: Chapter): Promise<void> {
+    removingId.value = chapter.id;
     busy.value = true;
     error.value = "";
     try {
@@ -247,6 +251,7 @@ export function useProjectOutline(projectIdFromRoute: string) {
     } catch (err) {
       error.value = String(err);
     } finally {
+      removingId.value = "";
       busy.value = false;
     }
   }
@@ -313,6 +318,7 @@ export function useProjectOutline(projectIdFromRoute: string) {
   }
 
   async function removeScene(scene: Scene): Promise<void> {
+    removingId.value = scene.id;
     busy.value = true;
     error.value = "";
     try {
@@ -321,6 +327,7 @@ export function useProjectOutline(projectIdFromRoute: string) {
     } catch (err) {
       error.value = String(err);
     } finally {
+      removingId.value = "";
       busy.value = false;
     }
   }
@@ -409,6 +416,7 @@ export function useProjectOutline(projectIdFromRoute: string) {
     activeChapterId,
     error,
     busy,
+    removingId,
     actCount,
     chapterShow,
     chapterIsNew,

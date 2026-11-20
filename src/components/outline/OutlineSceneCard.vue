@@ -8,6 +8,10 @@ const props = defineProps<{
   scene: Scene;
   /** 该场景所在章节关联的伏笔标记（铺设/回收）。 */
   tags: string[];
+  /** 大纲写操作进行中：编辑/删除入口禁用。 */
+  busy: boolean;
+  /** 正在删除的章节/场景 id，对应行的删除按钮转圈。 */
+  removingId: string;
 }>();
 
 const emit = defineEmits<{
@@ -55,10 +59,21 @@ const meta = computed(() =>
     <p v-if="meta" class="scene__meta">{{ meta }}</p>
     <p v-if="scene.summary" class="scene__summary">{{ scene.summary }}</p>
     <div class="scene__actions">
-      <NButton size="tiny" quaternary @click.stop="emit('edit', scene)">编辑</NButton>
+      <NButton size="tiny" quaternary :disabled="props.busy" @click.stop="emit('edit', scene)">
+        编辑
+      </NButton>
       <NPopconfirm @positive-click="emit('remove', scene)">
         <template #trigger>
-          <NButton size="tiny" quaternary type="error" @click.stop>删除</NButton>
+          <NButton
+            size="tiny"
+            quaternary
+            type="error"
+            :loading="props.removingId === props.scene.id"
+            :disabled="props.busy && props.removingId !== props.scene.id"
+            @click.stop
+          >
+            删除
+          </NButton>
         </template>
         删除这个场景？
       </NPopconfirm>

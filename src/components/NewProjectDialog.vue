@@ -101,7 +101,7 @@ async function submit() {
 
     <template #footer>
       <NSpace justify="end">
-        <NButton @click="close">取消</NButton>
+        <NButton :disabled="busy" @click="close">取消</NButton>
         <NButton type="primary" :loading="busy" @click="submit">创建作品</NButton>
       </NSpace>
     </template>

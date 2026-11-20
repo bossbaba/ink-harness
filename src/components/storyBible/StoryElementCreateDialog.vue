@@ -2,7 +2,7 @@
 import { NButton, NInput, NModal, NSelect, NSpace } from "naive-ui";
 import { STORY_KIND_OPTIONS, type StoryElementKind } from "@/types";
 
-defineProps<{ busy: boolean; error: string }>();
+defineProps<{ creating: boolean; error: string }>();
 
 const emit = defineEmits<(e: "create") => void>();
 
@@ -53,11 +53,11 @@ function close(): void {
 
     <template #footer>
       <NSpace justify="end">
-        <NButton size="small" :disabled="busy" @click="close">取消</NButton>
+        <NButton size="small" :disabled="creating" @click="close">取消</NButton>
         <NButton
           size="small"
           type="primary"
-          :loading="busy"
+          :loading="creating"
           :disabled="!name.trim()"
           @click="emit('create')"
         >

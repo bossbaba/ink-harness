@@ -19,6 +19,7 @@ const {
   activeChapterId,
   error,
   busy,
+  removingId,
   actCount,
   chapterShow,
   chapterIsNew,
@@ -100,6 +101,8 @@ const {
           :chapters="chapters"
           :scenes-by-chapter="scenesByChapter"
           :foreshadow-tags="foreshadowTags"
+          :busy="busy"
+          :removing-id="removingId"
           :active-chapter-id="activeChapterId"
           :act-count="actCount"
           @move-chapter="moveChapter"
@@ -119,6 +122,7 @@ const {
           :foreshadows="foreshadows"
           :chapter-options="chapterOptions"
           :busy="busy"
+          :removing-id="removingId"
           @create="openCreateForeshadow"
           @patch="patchForeshadow"
           @remove="removeForeshadow"
