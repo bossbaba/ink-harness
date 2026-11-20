@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { NButton, NEmpty, NTag, NTooltip } from "naive-ui";
+import { NButton, NTag, NTooltip } from "naive-ui";
 import { useRouter } from "vue-router";
+import AppEmpty from "@/components/common/AppEmpty.vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import LoadingState from "@/components/common/LoadingState.vue";
 import StatCard from "@/components/common/StatCard.vue";
@@ -91,8 +92,13 @@ function openModels(): void {
       </h2>
       <LoadingState v-if="projectsLoading" text="正在载入作品…" />
       <div v-else-if="projects.length === 0" class="empty">
-        <NEmpty size="small" description="还没有作品，创建第一部开始创作。" />
-        <NButton size="small" type="primary" @click="showNew = true">新建作品</NButton>
+        <AppEmpty
+          icon="workspace"
+          title="还没有作品"
+          description="创建第一部作品，构思、大纲与写作都会在这里展开。"
+          action-label="新建作品"
+          @action="showNew = true"
+        />
       </div>
       <div v-else class="project-grid">
         <article v-for="p in projects" :key="p.id" class="project-card">

@@ -74,6 +74,11 @@ export function useGlobalBible() {
     });
   }
 
+  /** 空状态的行动入口：回工作台，从作品卡进入具体作品的设定库。 */
+  function goWorkspace(): void {
+    void router.push("/");
+  }
+
   /**
    * 拉全量设定与作品列表。
    * `keepSelection` 用于从缓存回来时刷新：还停在上次看的那条上，
@@ -138,6 +143,7 @@ export function useGlobalBible() {
     selectElement,
     relationName,
     openProject,
+    goWorkspace,
     kindLabel: (kind: StoryElementKind) => STORY_KIND_LABEL[kind],
   };
 }

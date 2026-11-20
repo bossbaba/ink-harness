@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { NButton, NEmpty, NInput, NSelect, NTag } from "naive-ui";
+import AppEmpty from "@/components/common/AppEmpty.vue";
 import LoadingState from "@/components/common/LoadingState.vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import { useGlobalBible } from "@/composables/useGlobalBible";
@@ -23,6 +24,7 @@ const {
   selectElement,
   relationName,
   openProject,
+  goWorkspace,
   kindLabel,
 } = useGlobalBible();
 </script>
@@ -141,11 +143,14 @@ const {
             </section>
           </div>
         </template>
-        <NEmpty
+        <AppEmpty
           v-else
           class="panel__empty"
-          size="small"
-          description="暂无设定条目。请进入某部作品的设定库添加。"
+          icon="bible"
+          title="还没有设定条目"
+          description="进入某部作品的设定库，登记人物、地点与术语，写作时即可引用。"
+          action-label="去工作台"
+          @action="goWorkspace"
         />
       </section>
     </div>

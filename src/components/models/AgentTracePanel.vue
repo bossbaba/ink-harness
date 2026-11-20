@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { NEmpty, NTag } from "naive-ui";
+import { NTag } from "naive-ui";
 import { computed, ref } from "vue";
+import AppEmpty from "@/components/common/AppEmpty.vue";
 import LoadingState from "@/components/common/LoadingState.vue";
 import type { AgentOutcomeStats, AgentSession, AgentStepRecord, ProviderConfig } from "@/types";
 
@@ -18,7 +19,12 @@ const props = defineProps<{
   /** Provider 列表，按 costPer1kTokens 把步骤 tokens 折算成钱。 */
   providers: ProviderConfig[];
   loading: boolean;
+  /** 空状态的行动按钮文案；不传则只显示说明。 */
+  actionLabel?: string;
 }>();
+
+/** 空状态按钮点击，由父级页面决定跳去哪（组件本身不做路由）。 */
+const emit = defineEmits<{ action: [] }>();
 
 const selectedSession = ref("");
 
@@ -126,11 +132,14 @@ function successTagType(rate: number): "success" | "info" | "warning" {
     </header>
 
     <LoadingState v-if="loading" class="trace__hint" variant="inline" text="正在读取…" />
-    <NEmpty
+    <AppEmpty
       v-else-if="steps.length === 0"
       class="trace__empty"
-      size="small"
-      description="还没有 Agent 运行记录。在写作台的 Copilot 里打开「Agent 模式」并提问后，这里会显示每轮的工具调用与观察。"
+      icon="ideation"
+      title="还没有运行记录"
+      description="在写作台打开「Agent 模式」提问后，这里会回放每轮的工具调用与观察。"
+      :action-label="actionLabel"
+      @action="emit('action')"
     />
 
     <template v-else>

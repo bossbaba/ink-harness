@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { NEmpty } from "naive-ui";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
+import AppEmpty from "@/components/common/AppEmpty.vue";
 import LoadingState from "@/components/common/LoadingState.vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import type { SegmentOption } from "@/components/common/segmentedControl";
@@ -49,6 +50,13 @@ const {
   togglePlatform,
   setEntry,
 } = useProjectPublish(props.projectId);
+
+const router = useRouter();
+
+/** 空状态的行动入口：回写作台补正文，排版才有内容。 */
+function goWrite(): void {
+  void router.push({ name: "project-writing", params: { projectId: props.projectId } });
+}
 
 const tab = ref<Tab>("preview");
 // 标题跟全局作品 store 走：别处改了书名，这里不必等页面刷新。
@@ -142,11 +150,14 @@ function updateBrief(field: keyof PublicationBrief, value: string | string[]): v
       />
       <PlatformPanel v-else :plan="plan" @toggle="togglePlatform" @entry="setEntry" />
     </template>
-    <NEmpty
+    <AppEmpty
       v-else
       class="publish__empty"
-      size="small"
-      description="这部作品还没有正文，先去写作台写一点再来排版。"
+      icon="publish"
+      title="还没有正文"
+      description="先去写作台写一点，再回来排版与导出。"
+      action-label="去写作台"
+      @action="goWrite"
     />
   </div>
 </template>

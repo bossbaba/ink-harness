@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { NEmpty, NTag } from "naive-ui";
 import { computed, onMounted } from "vue";
+import { useRouter } from "vue-router";
+import AppEmpty from "@/components/common/AppEmpty.vue";
 import LoadingState from "@/components/common/LoadingState.vue";
 import PageHeader from "@/components/common/PageHeader.vue";
 import StatCard from "@/components/common/StatCard.vue";
@@ -35,6 +37,12 @@ const {
 } = useGlobalStats();
 
 const totalWorks = computed(() => stats.value?.projects ?? 0);
+const router = useRouter();
+
+/** 空状态的行动入口：回工作台新建作品，统计才有数据可看。 */
+function goWorkspace(): void {
+  void router.push("/");
+}
 
 /**
  * 按给定顺序补全 0 值档位，让状态分布看起来稳定。
@@ -91,11 +99,14 @@ onReactivated(() => void load());
           <StatCard label="场景 / 伏笔" :value="`${stats.scenes} / ${stats.foreshadows}`" />
         </div>
 
-        <NEmpty
+        <AppEmpty
           v-if="totalWorks === 0"
           class="stats__empty"
-          size="small"
-          description="还没有作品。先到工作台新建一部作品，统计会随创作自动更新。"
+          icon="stats"
+          title="还没有作品"
+          description="新建一部作品后，字数、阶段与用量会自动汇总到这里。"
+          action-label="去工作台"
+          @action="goWorkspace"
         />
         <div v-else class="stats__columns">
           <div class="stats__group">
@@ -150,6 +161,8 @@ onReactivated(() => void load());
         :outcomes="agentOutcomes"
         :providers="providers"
         :loading="loading"
+        action-label="去工作台"
+        @action="goWorkspace"
       />
     </section>
   </div>

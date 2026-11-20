@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NButton, NEmpty, NSelect } from "naive-ui";
 import { computed, onMounted, ref, watch } from "vue";
+import AppEmpty from "@/components/common/AppEmpty.vue";
 import LoadingState from "@/components/common/LoadingState.vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import type { SegmentOption } from "@/components/common/segmentedControl";
@@ -220,11 +221,14 @@ async function copyReport(): Promise<void> {
       />
     </template>
 
-    <NEmpty
+    <AppEmpty
       v-else-if="!running"
       class="placeholder"
-      size="small"
-      description="还没有审稿报告。选「本章」可以连语言一起看；选「全书概览」只根据目录与摘要检查结构与一致性，速度快、不读正文。"
+      icon="review"
+      title="还没有审稿报告"
+      description="「本章」连语言一起细看；「全书概览」只查结构与一致性，速度快、不读正文。"
+      action-label="开始审稿"
+      @action="startReview"
     />
   </div>
 </template>
