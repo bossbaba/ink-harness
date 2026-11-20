@@ -1,4 +1,4 @@
-import { computed, ref, type Ref } from "vue";
+import { computed, type Ref, ref } from "vue";
 import { outlineService } from "@/services/outlineService";
 import { actLabel, type Chapter, type Foreshadow, type ForeshadowDraft } from "@/types";
 

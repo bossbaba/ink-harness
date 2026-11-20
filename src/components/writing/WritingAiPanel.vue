@@ -5,8 +5,8 @@ import AgentControls from "@/components/writing/AgentControls.vue";
 import CopilotReferencePicker from "@/components/writing/CopilotReferencePicker.vue";
 import WritingAssistCard from "@/components/writing/WritingAssistCard.vue";
 import {
-  type AssistCardState,
   type AgentPanelState,
+  type AssistCardState,
   COPILOT_QUICK_PROMPTS,
   COPILOT_REF_KIND_LABEL,
   type CopilotMessage,

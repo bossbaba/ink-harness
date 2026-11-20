@@ -55,6 +55,29 @@ function toolNames(step: AgentStepRecord): string[] {
 function observations(step: AgentStepRecord): string[] {
   return readableList(step.observations, "content");
 }
+
+/**
+ * 轨迹聚合：会话数、轮次、调用次数、token 合计与平均延迟。
+ * tokens/延迟为 0 的老记录显示「—」，避免把「没记账」当成「零成本」。
+ */
+const summary = computed(() => {
+  const steps = props.steps;
+  const calls = steps.reduce((sum, step) => sum + toolNames(step).length, 0);
+  const tokens = steps.reduce((sum, step) => sum + (step.tokens || 0), 0);
+  const latency = steps.reduce((sum, step) => sum + (step.latencyMs || 0), 0);
+  // Loop 在空转终止时留下「有调用、无观察」的轮次，这是最常见的异常信号，单独计数告警。
+  const idle = steps.filter(
+    (step) => toolNames(step).length > 0 && observations(step).length === 0,
+  ).length;
+  return {
+    sessions: props.sessions.length,
+    rounds: steps.length,
+    calls,
+    tokens,
+    avgLatency: steps.length ? Math.round(latency / steps.length) : 0,
+    idle,
+  };
+});
 </script>
 
 <template>
@@ -73,6 +96,18 @@ function observations(step: AgentStepRecord): string[] {
     />
 
     <template v-else>
+      <div class="trace__summary">
+        <NTag size="small" :bordered="false">{{ summary.sessions }} 个会话</NTag>
+        <NTag size="small" :bordered="false"
+          >{{ summary.rounds }} 轮 · {{ summary.calls }} 次调用</NTag
+        >
+        <NTag size="small" :bordered="false">tokens {{ summary.tokens || "—" }}</NTag>
+        <NTag size="small" :bordered="false">平均 {{ summary.avgLatency || "—" }} ms</NTag>
+        <NTag v-if="summary.idle" size="small" :bordered="false" type="warning">
+          空转告警：{{ summary.idle }} 轮未执行
+        </NTag>
+      </div>
+
       <div class="trace__filter">
         <button
           type="button"
@@ -144,6 +179,12 @@ function observations(step: AgentStepRecord): string[] {
 
   &__empty {
     padding: t.$space-4 0;
+  }
+
+  &__summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: t.$space-2;
   }
 
   &__filter {

@@ -1,14 +1,14 @@
-import { runChat } from "@/services/aiChat";
 import { executeCalls } from "@/services/actionExecutor";
 import { toToolDefinitions } from "@/services/agentTools";
+import { runChat } from "@/services/aiChat";
 import type {
   ChatMessage,
   CollectedToolCall,
+  PrivacyScope,
   TaskKind,
   ToolContext,
   ToolObservation,
 } from "@/types";
-import type { PrivacyScope } from "@/types";
 import { parseLooseJson } from "@/utils/looseJson";
 
 /**
@@ -28,6 +28,10 @@ export interface AgentStep {
   text: string;
   calls: CollectedToolCall[];
   observations: ToolObservation[];
+  /** 本轮消耗的 token 总数；上游没报用量时为 0。 */
+  tokens: number;
+  /** 本轮从发请求到收到完整回复的毫秒数，含工具执行前的模型耗时。 */
+  latencyMs: number;
 }
 
 /** 循环结束原因，便于 UI 给出不同文案与评估统计。 */
@@ -137,6 +141,7 @@ export async function runAgentLoop(
       return { answer: "", reason: "stopped", steps, failure: "" };
     }
 
+    const startedAt = Date.now();
     const result = await chatRunner(
       {
         task: input.task,
@@ -146,6 +151,9 @@ export async function runAgentLoop(
       },
       messages,
     );
+    // 本轮的记账口径：tokens 取上游流末尾的用量（可能没有），耗时从发请求算到回复收齐。
+    const tokens = result.usage?.totalTokens ?? 0;
+    const latencyMs = Date.now() - startedAt;
     if (result.failure) {
       return { answer: result.raw, reason: "error", steps, failure: result.failure };
     }
@@ -153,7 +161,14 @@ export async function runAgentLoop(
     // 标准轨从流式分片拼调用；降级轨从文本里抠约定 JSON。
     const calls = input.supportsTools ? result.toolCalls : parseFallbackCalls(result.raw);
     if (calls.length === 0) {
-      const step: AgentStep = { iteration, text: result.raw, calls: [], observations: [] };
+      const step: AgentStep = {
+        iteration,
+        text: result.raw,
+        calls: [],
+        observations: [],
+        tokens,
+        latencyMs,
+      };
       steps.push(step);
       input.onStep?.(step);
       return { answer: result.raw, reason: "no-tools", steps, failure: "" };
@@ -164,7 +179,14 @@ export async function runAgentLoop(
     idleRounds = current === lastSignature ? idleRounds + 1 : 0;
     lastSignature = current;
     if (idleRounds >= 1) {
-      const step: AgentStep = { iteration, text: result.raw, calls, observations: [] };
+      const step: AgentStep = {
+        iteration,
+        text: result.raw,
+        calls,
+        observations: [],
+        tokens,
+        latencyMs,
+      };
       steps.push(step);
       input.onStep?.(step);
       return {
@@ -176,7 +198,14 @@ export async function runAgentLoop(
     }
 
     const observations = await executeCalls(calls, input.ctx);
-    const step: AgentStep = { iteration, text: result.raw, calls, observations };
+    const step: AgentStep = {
+      iteration,
+      text: result.raw,
+      calls,
+      observations,
+      tokens,
+      latencyMs,
+    };
     steps.push(step);
     input.onStep?.(step);
 

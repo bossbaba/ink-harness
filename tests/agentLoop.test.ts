@@ -11,7 +11,7 @@ vi.mock("@/services/agentTools", () => ({
   toToolDefinitions: vi.fn().mockReturnValue([]),
 }));
 
-import { runAgentLoop, type AgentLoopInput } from "@/services/agentLoop";
+import { type AgentLoopInput, runAgentLoop } from "@/services/agentLoop";
 import type { ChatRunResult } from "@/services/aiChat";
 
 const base: AgentLoopInput = {
@@ -129,5 +129,37 @@ describe("runAgentLoop", () => {
     const result = await runAgentLoop(base, runner);
     expect(result.reason).toBe("error");
     expect(result.failure).toBe("没有可用模型");
+  });
+
+  it("每轮把上游用量记成 steps 的 tokens，没报用量时记 0", async () => {
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce({
+        raw: "",
+        toolCalls: [
+          {
+            id: "c1",
+            name: "get_project",
+            arguments: {},
+            rawArguments: "{}",
+            parseError: "",
+          },
+        ],
+        failure: "",
+        usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+      } satisfies ChatRunResult)
+      .mockResolvedValueOnce({
+        raw: "回答",
+        toolCalls: [],
+        failure: "",
+        // 上游没给用量的第二轮：tokens 应为 0，而不是 undefined。
+      } satisfies ChatRunResult);
+    const result = await runAgentLoop(base, runner);
+    expect(result.steps).toHaveLength(2);
+    expect(result.steps[0].tokens).toBe(30);
+    expect(result.steps[1].tokens).toBe(0);
+    // 耗时是本地测量的非负毫秒数，恒有值。
+    expect(result.steps[0].latencyMs).toBeGreaterThanOrEqual(0);
+    expect(result.steps[1].latencyMs).toBeGreaterThanOrEqual(0);
   });
 });

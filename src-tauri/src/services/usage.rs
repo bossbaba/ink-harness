@@ -126,7 +126,9 @@ pub fn stats(state: &DbState) -> Result<UsageStats, AppError> {
 mod tests {
     use super::*;
     use crate::infrastructure::db;
-    use crate::models::ChatMessage;
+    // ChatMessage 没有被 models 顶层再导出（它只在这里的测试用到，再导出会触发 unused 警告），
+    // 所以按模块全路径引入，与 gateway.rs 的测试保持一致。
+    use crate::models::chat::ChatMessage;
 
     fn temp_state(tag: &str) -> (DbState, std::path::PathBuf) {
         let dir = std::env::temp_dir().join(format!("ih-usage-{tag}-{}", std::process::id()));

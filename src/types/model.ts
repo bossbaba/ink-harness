@@ -93,12 +93,21 @@ export interface ToolCallChunk {
   arguments: string;
 }
 
+/** 流式返回的 token 用量；上游不一定给，Agent 轨迹记账用它。 */
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
 /** 流式输出的单个数据块。 */
 export interface ChatChunk {
   delta: string;
   done: boolean;
   /** 工具调用分片；普通文本块没有此字段或为空数组。 */
   toolCalls?: ToolCallChunk[];
+  /** 流末尾的 token 用量；上游没给就没有此字段。 */
+  usage?: TokenUsage;
 }
 
 /**

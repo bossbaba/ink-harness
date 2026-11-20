@@ -149,7 +149,14 @@ where
                         return Err(AppError::internal("对话已被取消"));
                     }
                 }
-                SseEvent::Usage(found) => usage = Some(found),
+                SseEvent::Usage(found) => {
+                    // 用量除记进返回值（供 agent_run 落库）外，还要作为独立块推给前端：
+                    // 轨迹里的每步 tokens 靠它记账，只写 agent_run 的话看板聚合没有数据源。
+                    usage = Some(found.clone());
+                    if !on_chunk(ChatChunk::usage(found)) {
+                        return Err(AppError::internal("对话已被取消"));
+                    }
+                }
             }
         }
     }

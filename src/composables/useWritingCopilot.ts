@@ -1,8 +1,8 @@
 import { computed, ref } from "vue";
 import { useAgentActions } from "@/composables/useAgentActions";
-import { contextCharCount } from "@/services/aiContext";
-import { agentSessionService } from "@/services/agentSessionService";
 import { runAgentLoop } from "@/services/agentLoop";
+import { agentSessionService } from "@/services/agentSessionService";
+import { contextCharCount } from "@/services/aiContext";
 import {
   buildCopilotMessages,
   buildCopilotSystem,
@@ -95,6 +95,32 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
     return sessionPromise;
   }
 
+  /**
+   * 打开面板时恢复最近一次会话的历史消息：作者关掉应用再回来还能接着聊。
+   * 恢复失败只记日志不打断——记忆是锦上添花，对话本身不依赖它。
+   */
+  async function restoreSession(): Promise<void> {
+    try {
+      const sessions = await agentSessionService.list(options.projectId);
+      const latest = sessions[0];
+      if (!latest) return;
+      const records = await agentSessionService.listMessages(latest.id);
+      // 等待期间作者可能已经开聊：ensureSession 建了新会话、消息也进了列表，不能覆盖现场。
+      if (sessionId || messages.value.length > 0) return;
+      sessionId = latest.id;
+      if (records.length === 0) return;
+      messages.value = records.map((record) => ({
+        id: record.id,
+        role: record.role === "user" ? "user" : "assistant",
+        content: record.content,
+        references: [],
+      }));
+    } catch (err) {
+      console.warn("恢复 Copilot 会话失败：", err);
+    }
+  }
+  void restoreSession();
+
   /** 生成一条落库消息 id，避免同一毫秒内两条消息撞 id。 */
   let persistSeq = 0;
   function nextPersistId(): string {
@@ -102,11 +128,13 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
     return `persist-${Date.now()}-${persistSeq}`;
   }
 
-  /** 一轮持久化步骤的类型（轨迹落库用）。 */
+  /** 一轮持久化步骤的类型（轨迹落库用）；tokens/latencyMs 来自 Loop 的真实记账。 */
   interface StepToPersist {
     iteration: number;
     calls: Array<{ name: string; arguments: Record<string, unknown> }>;
     observations: Array<{ toolName: string; content: string; isError: boolean }>;
+    tokens: number;
+    latencyMs: number;
   }
 
   /**
@@ -138,6 +166,8 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
           iteration: step.iteration,
           toolCalls: JSON.stringify(step.calls),
           observations: JSON.stringify(step.observations),
+          tokens: step.tokens,
+          latencyMs: step.latencyMs,
         });
       }
     } catch (err) {
@@ -415,6 +445,8 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
     retrievedCount.value = 0;
     error.value = "";
     agentProgress.value = "";
+    // 清空即视为开新会话：下次发送时 ensureSession 另建一条，历史不再混在一起。
+    sessionId = "";
   }
 
   return {

@@ -4,6 +4,7 @@ import type {
   CollectedToolCall,
   PrivacyScope,
   TaskKind,
+  TokenUsage,
   ToolCallChunk,
   ToolDefinition,
 } from "@/types";
@@ -38,6 +39,8 @@ export interface ChatRunResult {
   toolCalls: CollectedToolCall[];
   /** 失败原因；为空表示流正常结束。 */
   failure: string;
+  /** 流末尾上游给的 token 用量；上游没给就是 undefined。 */
+  usage?: TokenUsage;
 }
 
 /**
@@ -105,6 +108,7 @@ export async function runChat(
 
   let raw = "";
   let failure = "";
+  let usage: TokenUsage | undefined;
   const fragments: ToolCallChunk[] = [];
   const handle = modelRouter.chat(
     route,
@@ -115,6 +119,8 @@ export async function runChat(
         onProgress?.(raw.length);
       }
       if (chunk.toolCalls?.length) fragments.push(...chunk.toolCalls);
+      // 用量只在流末尾出现一次，取最后一块即可。
+      if (chunk.usage) usage = chunk.usage;
     },
     (message) => {
       failure = message;
@@ -122,5 +128,5 @@ export async function runChat(
     route.tools,
   );
   await handle.done.catch(() => undefined);
-  return { raw, toolCalls: collectToolCalls(fragments), failure };
+  return { raw, toolCalls: collectToolCalls(fragments), failure, usage };
 }

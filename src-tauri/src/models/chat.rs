@@ -85,6 +85,10 @@ pub struct ChatChunk {
     /// 工具调用片段；普通文本块为空数组。
     #[serde(default)]
     pub tool_calls: Vec<ToolCallChunk>,
+    /// 上游返回的 token 用量；只在流末尾出现一次，其余块不带此字段。
+    /// 前端据此给 Agent 轨迹记账（成本聚合），没有它轨迹里的 tokens 只能写 0。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<TokenUsage>,
 }
 
 impl ChatChunk {
@@ -93,6 +97,7 @@ impl ChatChunk {
             delta: text.into(),
             done: false,
             tool_calls: Vec::new(),
+            usage: None,
         }
     }
 
@@ -102,6 +107,17 @@ impl ChatChunk {
             delta: String::new(),
             done: false,
             tool_calls: vec![call],
+            usage: None,
+        }
+    }
+
+    /// 把流末尾的 token 用量单独发一块给前端；在 done 之前到达。
+    pub fn usage(usage: TokenUsage) -> Self {
+        Self {
+            delta: String::new(),
+            done: false,
+            tool_calls: Vec::new(),
+            usage: Some(usage),
         }
     }
 
@@ -110,6 +126,7 @@ impl ChatChunk {
             delta: String::new(),
             done: true,
             tool_calls: Vec::new(),
+            usage: None,
         }
     }
 }

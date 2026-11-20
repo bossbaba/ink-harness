@@ -1,5 +1,5 @@
 import { storeToRefs } from "pinia";
-import { computed, ref, type Ref } from "vue";
+import { computed, type Ref, ref } from "vue";
 import { loadActCount, resolveActCount } from "@/services/outlineActService";
 import { outlineService } from "@/services/outlineService";
 import { projectService } from "@/services/projectService";
