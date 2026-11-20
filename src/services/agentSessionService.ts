@@ -1,6 +1,7 @@
 import { tauriApi } from "@/api/tauri";
 import type {
   AgentMessageRecord,
+  AgentOutcomeStats,
   AgentSession,
   AgentStepRecord,
   NewAgentMessage,
@@ -20,4 +21,6 @@ export const agentSessionService = {
     tauriApi.listAgentMessages(sessionId),
   appendStep: (input: NewAgentStep): Promise<void> => tauriApi.appendAgentStep(input),
   listSteps: (projectId: string): Promise<AgentStepRecord[]> => tauriApi.listAgentSteps(projectId),
+  /** 全局的成功率聚合（不分作品），看板头部展示用。 */
+  outcomeStats: (): Promise<AgentOutcomeStats> => tauriApi.agentOutcomeStats(),
 };

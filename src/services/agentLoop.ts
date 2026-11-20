@@ -32,6 +32,8 @@ export interface AgentStep {
   tokens: number;
   /** 本轮从发请求到收到完整回复的毫秒数，含工具执行前的模型耗时。 */
   latencyMs: number;
+  /** 本轮实际使用的模型（providerId:modelId）；失败未选到模型时为空串。 */
+  model: string;
 }
 
 /** 循环结束原因，便于 UI 给出不同文案与评估统计。 */
@@ -73,7 +75,7 @@ const JSON_FALLBACK_RULE = [
   "【工具调用】",
   "如需读取作品信息或设定，可输出如下 JSON（只输出 JSON，不要其它文字）：",
   '{"tool_calls":[{"name":"工具名","arguments":{参数对象}}]}',
-  "可用工具：get_project()、list_elements(kind?)、read_chapter(chapterId?,withContent?)、search_notes(query,limit?)、inspect_element(id)、propose_text(content,label?)。",
+  "可用工具：get_project()、list_elements(kind?)、read_chapter(chapterId?,withContent?)、search_notes(query,limit?)、inspect_element(id)、propose_review(chapterId?)、propose_text(content,label?)。",
   "不需要调用工具时，直接正常回答，不要输出上述 JSON。",
 ].join("\n");
 
@@ -154,6 +156,7 @@ export async function runAgentLoop(
     // 本轮的记账口径：tokens 取上游流末尾的用量（可能没有），耗时从发请求算到回复收齐。
     const tokens = result.usage?.totalTokens ?? 0;
     const latencyMs = Date.now() - startedAt;
+    const model = result.model ?? "";
     if (result.failure) {
       return { answer: result.raw, reason: "error", steps, failure: result.failure };
     }
@@ -168,6 +171,7 @@ export async function runAgentLoop(
         observations: [],
         tokens,
         latencyMs,
+        model,
       };
       steps.push(step);
       input.onStep?.(step);
@@ -186,6 +190,7 @@ export async function runAgentLoop(
         observations: [],
         tokens,
         latencyMs,
+        model,
       };
       steps.push(step);
       input.onStep?.(step);
@@ -205,6 +210,7 @@ export async function runAgentLoop(
       observations,
       tokens,
       latencyMs,
+      model,
     };
     steps.push(step);
     input.onStep?.(step);

@@ -1,9 +1,12 @@
+import { runChat } from "@/services/aiChat";
 import { outlineService } from "@/services/outlineService";
 import { projectService } from "@/services/projectService";
 import { ragService } from "@/services/ragService";
+import { buildReviewMessages, parseReviewIssues } from "@/services/reviewService";
 import { storyElementService } from "@/services/storyElementService";
 import { writingService } from "@/services/writingService";
 import type { AgentTool, ToolContext } from "@/types";
+import { REVIEW_LAYER_LABEL, REVIEW_SEVERITY_LABEL, type ReviewIssue } from "@/types/review";
 
 /**
  * Agent 工具注册表：把现有 service 包装成模型可调用的工具。
@@ -150,6 +153,75 @@ const inspectElement: AgentTool = {
   },
 };
 
+/** 把审稿条目压成模型易读的清单；层级与级别标签复用审稿页的中文映射，避免两套叫法。 */
+function formatIssues(issues: ReviewIssue[]): string {
+  return issues
+    .map((issue, index) => {
+      const head = `${index + 1}. [${REVIEW_SEVERITY_LABEL[issue.severity]}·${REVIEW_LAYER_LABEL[issue.layer]}] ${issue.title}`;
+      const parts = [
+        issue.quote ? `原文：「${issue.quote}」` : "",
+        issue.detail,
+        issue.suggestion ? `建议：${issue.suggestion}` : "",
+      ].filter(Boolean);
+      return parts.length ? `${head}\n${parts.join("\n")}` : head;
+    })
+    .join("\n");
+}
+
+/**
+ * 生成审稿建议：跑一次完整的审稿请求并把条目回填给模型。
+ * risk=read——审稿只产出建议、不改作品，作者要动手时再由模型用 propose_text 走审批。
+ * 隐私范围直接读作品配置，漏传参数也不会把本地作品发去云端模型。
+ */
+const proposeReview: AgentTool = {
+  name: "propose_review",
+  description:
+    "调用审稿模型审读当前章节（或指定 chapterId 的章节），返回按严重程度排序的结构化修改建议。只读不改，耗时较长，慎用于多章连审。",
+  parameters: {
+    type: "object",
+    properties: {
+      chapterId: { type: "string", description: "章节 id；省略表示当前章节" },
+    },
+    additionalProperties: false,
+  },
+  risk: "read",
+  async run(args, ctx) {
+    const chapterId =
+      typeof args.chapterId === "string" && args.chapterId ? args.chapterId : ctx.chapterId;
+    if (!chapterId) return "尚未选择章节，且未提供 chapterId";
+    const project = await projectService.get(ctx.projectId);
+    if (!project) return "当前作品不存在";
+    const snapshot = await outlineService.snapshot(ctx.projectId);
+    const chapter = snapshot.chapters.find((item) => item.id === chapterId);
+    if (!chapter) return `章节 ${chapterId} 不存在`;
+    const [body, context] = await Promise.all([
+      writingService.getContent(chapterId),
+      outlineService.buildContext(ctx.projectId),
+    ]);
+    const content = body.content;
+    if (!content.trim()) return "这一章还没有正文，先写一点再来审。";
+
+    const result = await runChat(
+      { task: "review", privacy: project.privacy, projectId: ctx.projectId },
+      buildReviewMessages({
+        project,
+        scope: "chapter",
+        chapterTitle: chapter.title,
+        chapterSummary: chapter.summary,
+        chapterText: content,
+        chapters: snapshot.chapters,
+        context,
+      }),
+    );
+    if (result.failure) return `审稿调用失败：${result.failure}`;
+    if (!result.raw.trim()) return "审稿模型没有返回内容";
+    const issues = parseReviewIssues(result.raw);
+    // 解析不出条目时回传原文：模型说的话作者至少能看到，而不是一个空清单。
+    if (!issues.length) return `模型输出未能解析成条目，原文如下：\n${result.raw}`;
+    return `共 ${issues.length} 条建议：\n${formatIssues(issues)}`;
+  },
+};
+
 /** 注册表：顺序即工具列表顺序，模型看到的描述也按这个顺序。 */
 export const AGENT_TOOLS: AgentTool[] = [
   getProject,
@@ -157,6 +229,7 @@ export const AGENT_TOOLS: AgentTool[] = [
   readChapter,
   searchNotes,
   inspectElement,
+  proposeReview,
   proposeText,
 ];
 

@@ -9,6 +9,7 @@ import {
   setTokenBudget,
 } from "@/services/usageService";
 import type {
+  AgentOutcomeStats,
   AgentSession,
   AgentStepRecord,
   ProviderConfig,
@@ -30,6 +31,8 @@ export function useGlobalStats() {
   /** Agent 会话与轨迹：全局视角传空 projectId 拉全部。 */
   const agentSessions = ref<AgentSession[]>([]);
   const agentSteps = ref<AgentStepRecord[]>([]);
+  /** 循环停止原因聚合（成功率分子分母），与轨迹分开拉：聚合在 Rust 侧做，避免把全部消息搬回前端。 */
+  const agentOutcomes = ref<AgentOutcomeStats | null>(null);
 
   // 费用是 usage + providers 的纯派生值，放在 composable 里算好，
   // 展示组件只收款项，不自行调用 service（遵循「组件只收 props / emit」的分层约定）。
@@ -42,38 +45,44 @@ export function useGlobalStats() {
     // 看板显示 0 与「真的没有数据」无法区分，所以把失败项收集起来统一提示。
     const failures: string[] = [];
     try {
-      const [workspace, usageStats, list, tokenBudget, sessions, steps] = await Promise.all([
-        statsService.workspace().catch((err: unknown) => {
-          failures.push(`作品统计（${String(err)}）`);
-          return null;
-        }),
-        getUsageStats().catch((err: unknown) => {
-          failures.push(`token 用量（${String(err)}）`);
-          return null;
-        }),
-        providerService.list().catch((err: unknown) => {
-          failures.push(`模型配置（${String(err)}）`);
-          return [] as ProviderConfig[];
-        }),
-        getTokenBudget().catch((err: unknown) => {
-          failures.push(`预算设置（${String(err)}）`);
-          return 0;
-        }),
-        agentSessionService.list("").catch((err: unknown) => {
-          failures.push(`Agent 会话（${String(err)}）`);
-          return [] as AgentSession[];
-        }),
-        agentSessionService.listSteps("").catch((err: unknown) => {
-          failures.push(`Agent 轨迹（${String(err)}）`);
-          return [] as AgentStepRecord[];
-        }),
-      ]);
+      const [workspace, usageStats, list, tokenBudget, sessions, steps, outcomes] =
+        await Promise.all([
+          statsService.workspace().catch((err: unknown) => {
+            failures.push(`作品统计（${String(err)}）`);
+            return null;
+          }),
+          getUsageStats().catch((err: unknown) => {
+            failures.push(`token 用量（${String(err)}）`);
+            return null;
+          }),
+          providerService.list().catch((err: unknown) => {
+            failures.push(`模型配置（${String(err)}）`);
+            return [] as ProviderConfig[];
+          }),
+          getTokenBudget().catch((err: unknown) => {
+            failures.push(`预算设置（${String(err)}）`);
+            return 0;
+          }),
+          agentSessionService.list("").catch((err: unknown) => {
+            failures.push(`Agent 会话（${String(err)}）`);
+            return [] as AgentSession[];
+          }),
+          agentSessionService.listSteps("").catch((err: unknown) => {
+            failures.push(`Agent 轨迹（${String(err)}）`);
+            return [] as AgentStepRecord[];
+          }),
+          agentSessionService.outcomeStats().catch((err: unknown) => {
+            failures.push(`Agent 成功率（${String(err)}）`);
+            return null;
+          }),
+        ]);
       stats.value = workspace;
       usage.value = usageStats;
       providers.value = list;
       budget.value = tokenBudget;
       agentSessions.value = sessions;
       agentSteps.value = steps;
+      agentOutcomes.value = outcomes;
       if (failures.length > 0) {
         error.value = `部分数据读取失败，页面数字可能不完整：${failures.join("、")}`;
       }
@@ -106,6 +115,7 @@ export function useGlobalStats() {
     error,
     agentSessions,
     agentSteps,
+    agentOutcomes,
     load,
     updateBudget,
   };

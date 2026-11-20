@@ -89,6 +89,7 @@ pub fn run() {
             commands::agent::list_agent_messages,
             commands::agent::append_agent_step,
             commands::agent::list_agent_steps,
+            commands::agent::agent_outcome_stats,
         ])
         .build(tauri::generate_context!());
 

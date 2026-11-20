@@ -29,6 +29,7 @@ const {
   error,
   agentSessions,
   agentSteps,
+  agentOutcomes,
   load,
   updateBudget,
 } = useGlobalStats();
@@ -142,7 +143,13 @@ onReactivated(() => void load());
     </section>
 
     <section class="stats__card">
-      <AgentTracePanel :sessions="agentSessions" :steps="agentSteps" :loading="loading" />
+      <AgentTracePanel
+        :sessions="agentSessions"
+        :steps="agentSteps"
+        :outcomes="agentOutcomes"
+        :providers="providers"
+        :loading="loading"
+      />
     </section>
   </div>
 </template>

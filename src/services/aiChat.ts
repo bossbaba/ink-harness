@@ -41,6 +41,8 @@ export interface ChatRunResult {
   failure: string;
   /** 流末尾上游给的 token 用量；上游没给就是 undefined。 */
   usage?: TokenUsage;
+  /** 本次实际选中的模型（providerId:modelId）；没选到可用模型时为空。 */
+  model?: string;
 }
 
 /**
@@ -102,9 +104,12 @@ export async function runChat(
   onProgress?: (received: number) => void,
 ): Promise<ChatRunResult> {
   await modelRouter.refresh();
-  if (!modelRouter.select(route)) {
+  const selected = modelRouter.select(route);
+  if (!selected) {
     return { raw: "", toolCalls: [], failure: NO_MODEL_MESSAGE };
   }
+  // 选中的模型要带回给调用方：Agent 轨迹按它折算成本、排查「换了模型效果变了」。
+  const model = `${selected.provider}:${selected.id}`;
 
   let raw = "";
   let failure = "";
@@ -128,5 +133,5 @@ export async function runChat(
     route.tools,
   );
   await handle.done.catch(() => undefined);
-  return { raw, toolCalls: collectToolCalls(fragments), failure, usage };
+  return { raw, toolCalls: collectToolCalls(fragments), failure, usage, model };
 }

@@ -128,23 +128,26 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
     return `persist-${Date.now()}-${persistSeq}`;
   }
 
-  /** 一轮持久化步骤的类型（轨迹落库用）；tokens/latencyMs 来自 Loop 的真实记账。 */
+  /** 一轮持久化步骤的类型（轨迹落库用）；tokens/latencyMs/model 来自 Loop 的真实记账。 */
   interface StepToPersist {
     iteration: number;
     calls: Array<{ name: string; arguments: Record<string, unknown> }>;
     observations: Array<{ toolName: string; content: string; isError: boolean }>;
     tokens: number;
     latencyMs: number;
+    model: string;
   }
 
   /**
    * 把一次问答（用户消息 + 助手回答 + Agent 轨迹）顺序落库。
+   * reason 是本轮循环的停止原因，看板用它算成功率；普通聊天不传。
    * 全部异常都吞掉并记日志：记忆写入是锦上添花，失败不该打断正在进行的对话。
    */
   async function persistExchange(
     question: string,
     answer: string,
     steps: StepToPersist[] = [],
+    reason?: string,
   ): Promise<void> {
     try {
       const sid = await ensureSession();
@@ -159,6 +162,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
         sessionId: sid,
         role: "assistant",
         content: answer,
+        stopReason: reason,
       });
       for (const step of steps) {
         await agentSessionService.appendStep({
@@ -168,6 +172,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
           observations: JSON.stringify(step.observations),
           tokens: step.tokens,
           latencyMs: step.latencyMs,
+          model: step.model,
         });
       }
     } catch (err) {
@@ -405,8 +410,8 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
       } else if (!messages.value[answerIndex].content) {
         messages.value[answerIndex].content = result.answer || "（没有拿到结果）";
       }
-      // 会话记忆与轨迹落库：失败不影响对话展示。
-      void persistExchange(text, messages.value[answerIndex].content, result.steps);
+      // 会话记忆与轨迹落库：失败不影响对话展示；停止原因给看板算成功率。
+      void persistExchange(text, messages.value[answerIndex].content, result.steps, result.reason);
       agentProgress.value = "";
     } catch (err) {
       if (seq !== requestSeq) return;

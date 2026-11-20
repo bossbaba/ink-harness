@@ -7,7 +7,8 @@ use crate::error::AppError;
 use crate::infrastructure::db::DbState;
 use crate::infrastructure::id::gen_id;
 use crate::models::{
-    AgentMessage, AgentSession, AgentStepRecord, NewAgentMessage, NewAgentSession, NewAgentStep,
+    AgentMessage, AgentOutcomeStats, AgentSession, AgentStepRecord, NewAgentMessage,
+    NewAgentSession, NewAgentStep,
 };
 
 /// 时间戳 SQL 片段，与 agent_run 同口径（SQLite 生成 UTC 毫秒），便于按时间排序。
@@ -72,8 +73,8 @@ pub fn list_sessions(state: &DbState, project_id: &str) -> Result<Vec<AgentSessi
 pub fn append_message(state: &DbState, input: &NewAgentMessage) -> Result<(), AppError> {
     let conn = state.biz();
     let sql = format!(
-        "insert into agent_message(id, session_id, role, content, tool_calls, created_at)
-         values (?1, ?2, ?3, ?4, ?5, {NOW})"
+        "insert into agent_message(id, session_id, role, content, tool_calls, stop_reason, created_at)
+         values (?1, ?2, ?3, ?4, ?5, ?6, {NOW})"
     );
     conn.execute(
         &sql,
@@ -82,7 +83,8 @@ pub fn append_message(state: &DbState, input: &NewAgentMessage) -> Result<(), Ap
             input.session_id,
             input.role,
             input.content,
-            input.tool_calls
+            input.tool_calls,
+            input.stop_reason
         ],
     )
     .map_err(AppError::from)?;
@@ -95,7 +97,7 @@ pub fn list_messages(state: &DbState, session_id: &str) -> Result<Vec<AgentMessa
     let conn = state.biz();
     let mut stmt = conn
         .prepare(
-            "select id, session_id, role, content, tool_calls, created_at
+            "select id, session_id, role, content, tool_calls, stop_reason, created_at
                from agent_message where session_id = ?1 order by created_at asc, rowid asc",
         )
         .map_err(AppError::from)?;
@@ -107,7 +109,8 @@ pub fn list_messages(state: &DbState, session_id: &str) -> Result<Vec<AgentMessa
                 role: row.get(2)?,
                 content: row.get(3)?,
                 tool_calls: row.get(4)?,
-                created_at: row.get(5)?,
+                stop_reason: row.get(5)?,
+                created_at: row.get(6)?,
             })
         })
         .map_err(AppError::from)?;
@@ -129,8 +132,8 @@ pub fn append_step(state: &DbState, input: &NewAgentStep) -> Result<(), AppError
         return Ok(());
     }
     let sql = format!(
-        "insert into agent_step(id, session_id, iteration, tool_calls, observations, tokens, latency_ms, created_at)
-         values (?1, ?2, ?3, ?4, ?5, ?6, ?7, {NOW})"
+        "insert into agent_step(id, session_id, iteration, tool_calls, observations, tokens, latency_ms, model, created_at)
+         values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, {NOW})"
     );
     conn.execute(
         &sql,
@@ -141,7 +144,8 @@ pub fn append_step(state: &DbState, input: &NewAgentStep) -> Result<(), AppError
             input.tool_calls,
             input.observations,
             input.tokens,
-            input.latency_ms
+            input.latency_ms,
+            input.model
         ],
     )
     .map_err(AppError::from)?;
@@ -153,7 +157,7 @@ pub fn append_step(state: &DbState, input: &NewAgentStep) -> Result<(), AppError
 pub fn list_steps(state: &DbState, project_id: &str) -> Result<Vec<AgentStepRecord>, AppError> {
     let conn = state.biz();
     const ROW: &str = "select s.id, s.session_id, s.iteration, s.tool_calls, s.observations,
-                              s.tokens, s.latency_ms, s.created_at
+                              s.tokens, s.latency_ms, s.model, s.created_at
                          from agent_step s
                          join agent_session sess on sess.id = s.session_id";
     let (sql, params_ref): (&str, Vec<&str>) = if project_id.is_empty() {
@@ -161,7 +165,7 @@ pub fn list_steps(state: &DbState, project_id: &str) -> Result<Vec<AgentStepReco
     } else {
         (
             "select s.id, s.session_id, s.iteration, s.tool_calls, s.observations,
-                    s.tokens, s.latency_ms, s.created_at
+                    s.tokens, s.latency_ms, s.model, s.created_at
                from agent_step s
                join agent_session sess on sess.id = s.session_id
               where sess.project_id = ?1",
@@ -180,11 +184,42 @@ pub fn list_steps(state: &DbState, project_id: &str) -> Result<Vec<AgentStepReco
                 observations: row.get(4)?,
                 tokens: row.get(5)?,
                 latency_ms: row.get(6)?,
-                created_at: row.get(7)?,
+                model: row.get(7)?,
+                created_at: row.get(8)?,
             })
         })
         .map_err(AppError::from)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+}
+
+/// 按停止原因统计已完成的循环次数，看板用它算成功率。
+/// 只数 `role=assistant` 且 stop_reason 非空的行：普通聊天与半途中止的消息不计入分母。
+pub fn outcome_stats(state: &DbState) -> Result<AgentOutcomeStats, AppError> {
+    let conn = state.biz();
+    let mut stats = AgentOutcomeStats::default();
+    let mut stmt = conn
+        .prepare(
+            "select stop_reason, count(*) from agent_message
+              where role = 'assistant' and stop_reason != ''
+              group by stop_reason",
+        )
+        .map_err(AppError::from)?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    for row in rows {
+        let (reason, count) = row.map_err(AppError::from)?;
+        stats.runs += count;
+        match reason.as_str() {
+            "no-tools" => stats.succeeded += count,
+            "max-iterations" => stats.max_iterations += count,
+            "idle-loop" => stats.idle += count,
+            "error" => stats.errors += count,
+            // 未知原因只计入总数不归类：以后新增枚举不会被误算成失败。
+            _ => {}
+        }
+    }
+    Ok(stats)
 }
 
 /// 更新会话的最后活跃时间。
@@ -235,12 +270,26 @@ mod tests {
                 role: "user".into(),
                 content: "检查第三章".into(),
                 tool_calls: String::new(),
+                stop_reason: String::new(),
+            },
+        )
+        .unwrap();
+        append_message(
+            &state,
+            &NewAgentMessage {
+                id: "m2".into(),
+                session_id: session.id.clone(),
+                role: "assistant".into(),
+                content: "第三章有三处问题".into(),
+                tool_calls: String::new(),
+                stop_reason: "no-tools".into(),
             },
         )
         .unwrap();
         let messages = list_messages(&state, &session.id).unwrap();
-        assert_eq!(messages.len(), 1);
+        assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].content, "检查第三章");
+        assert_eq!(messages[1].stop_reason, "no-tools");
 
         append_step(
             &state,
@@ -251,12 +300,45 @@ mod tests {
                 observations: "[]".into(),
                 tokens: 100,
                 latency_ms: 250,
+                model: "ollama-local:qwen3.5:4b".into(),
             },
         )
         .unwrap();
         let steps = list_steps(&state, "p1").unwrap();
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].tokens, 100);
+        assert_eq!(steps[0].model, "ollama-local:qwen3.5:4b");
+
+        // 成功率聚合：两次 no-tools + 一次 idle-loop 应分别归类。
+        append_message(
+            &state,
+            &NewAgentMessage {
+                id: "m3".into(),
+                session_id: session.id.clone(),
+                role: "assistant".into(),
+                content: "重复调用被掐停".into(),
+                tool_calls: String::new(),
+                stop_reason: "idle-loop".into(),
+            },
+        )
+        .unwrap();
+        append_message(
+            &state,
+            &NewAgentMessage {
+                id: "m4".into(),
+                session_id: session.id.clone(),
+                role: "assistant".into(),
+                content: "又答完一次".into(),
+                tool_calls: String::new(),
+                stop_reason: "no-tools".into(),
+            },
+        )
+        .unwrap();
+        let stats = outcome_stats(&state).unwrap();
+        assert_eq!(stats.runs, 3);
+        assert_eq!(stats.succeeded, 2);
+        assert_eq!(stats.idle, 1);
+        assert_eq!(stats.errors, 0);
 
         let sessions = list_sessions(&state, "p1").unwrap();
         assert_eq!(sessions.len(), 1);

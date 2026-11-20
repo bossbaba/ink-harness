@@ -3,7 +3,8 @@
 use crate::commands::blocking;
 use crate::error::AppError;
 use crate::models::{
-    AgentMessage, AgentSession, AgentStepRecord, NewAgentMessage, NewAgentSession, NewAgentStep,
+    AgentMessage, AgentOutcomeStats, AgentSession, AgentStepRecord, NewAgentMessage,
+    NewAgentSession, NewAgentStep,
 };
 use crate::services::agent;
 
@@ -53,4 +54,9 @@ pub async fn list_agent_steps(
     project_id: String,
 ) -> Result<Vec<AgentStepRecord>, AppError> {
     blocking(app, move |state| agent::list_steps(state, &project_id)).await
+}
+
+#[tauri::command]
+pub async fn agent_outcome_stats(app: tauri::AppHandle) -> Result<AgentOutcomeStats, AppError> {
+    blocking(app, |state| agent::outcome_stats(state)).await
 }

@@ -1,6 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   AgentMessageRecord,
+  AgentOutcomeStats,
   AgentSession,
   AgentStepRecord,
   Chapter,
@@ -157,6 +158,7 @@ export const tauriApi = {
     call<AgentMessageRecord[]>("list_agent_messages", { sessionId }),
   appendAgentStep: (input: NewAgentStep) => call<void>("append_agent_step", { input }),
   listAgentSteps: (projectId: string) => call<AgentStepRecord[]>("list_agent_steps", { projectId }),
+  agentOutcomeStats: () => call<AgentOutcomeStats>("agent_outcome_stats"),
 
   // RAG 检索：索引按作品维护，检索按问题取最近片段。
   ragStatus: (projectId: string) => call<RagStatus>("rag_status", { projectId }),

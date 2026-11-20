@@ -107,6 +107,8 @@ export interface AgentMessageRecord {
   role: string;
   content: string;
   toolCalls: string;
+  /** 循环停止原因（no-tools/error/…）；普通消息与老记录为空串。 */
+  stopReason: string;
   createdAt: string;
 }
 
@@ -119,6 +121,8 @@ export interface AgentStepRecord {
   observations: string;
   tokens: number;
   latencyMs: number;
+  /** 本轮模型（providerId:modelId）；老记录为空串，成本折算自动跳过。 */
+  model: string;
   createdAt: string;
 }
 
@@ -135,6 +139,8 @@ export interface NewAgentMessage {
   role: string;
   content: string;
   toolCalls?: string;
+  /** Agent 循环的停止原因；普通聊天不传。 */
+  stopReason?: string;
 }
 
 /** 追加轨迹入参。 */
@@ -145,4 +151,19 @@ export interface NewAgentStep {
   observations?: string;
   tokens?: number;
   latencyMs?: number;
+  model?: string;
+}
+
+/** Agent 运行结果统计（对应 Rust AgentOutcomeStats），看板算成功率用。 */
+export interface AgentOutcomeStats {
+  /** 完整跑完的循环次数（有助手停止原因的消息数）。 */
+  runs: number;
+  /** 正常答完（no-tools）的次数。 */
+  succeeded: number;
+  /** 到轮次上限仍未收敛的次数。 */
+  maxIterations: number;
+  /** 空转保护掐停的次数。 */
+  idle: number;
+  /** 请求失败的次数。 */
+  errors: number;
 }

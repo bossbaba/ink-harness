@@ -2,7 +2,7 @@
 import { NEmpty, NTag } from "naive-ui";
 import { computed, ref } from "vue";
 import LoadingState from "@/components/common/LoadingState.vue";
-import type { AgentSession, AgentStepRecord } from "@/types";
+import type { AgentOutcomeStats, AgentSession, AgentStepRecord, ProviderConfig } from "@/types";
 
 /**
  * Agent 运行轨迹面板：只读展示会话列表与每轮「工具→观察」记录。
@@ -13,6 +13,10 @@ import type { AgentSession, AgentStepRecord } from "@/types";
 const props = defineProps<{
   sessions: AgentSession[];
   steps: AgentStepRecord[];
+  /** 循环停止原因聚合；为 null 表示统计接口失败，成功率标签不显示。 */
+  outcomes: AgentOutcomeStats | null;
+  /** Provider 列表，按 costPer1kTokens 把步骤 tokens 折算成钱。 */
+  providers: ProviderConfig[];
   loading: boolean;
 }>();
 
@@ -58,7 +62,26 @@ function observations(step: AgentStepRecord): string[] {
 }
 
 /**
- * 轨迹聚合：会话数、轮次、调用次数、token 合计与平均延迟。
+ * 按各模型当时单价折算步骤成本。
+ * 单价是配置项，改价不回头改历史，所以只做展示估算；老记录没有模型或单价缺失时跳过。
+ */
+function estimateStepsCost(steps: AgentStepRecord[]): number {
+  let cost = 0;
+  for (const step of steps) {
+    if (!step.model || !step.tokens) continue;
+    const separator = step.model.indexOf(":");
+    if (separator < 0) continue;
+    const rate = props.providers
+      .find((provider) => provider.id === step.model.slice(0, separator))
+      ?.models.find((model) => model.id === step.model.slice(separator + 1))?.costPer1kTokens;
+    if (!rate) continue;
+    cost += (rate * step.tokens) / 1000;
+  }
+  return cost;
+}
+
+/**
+ * 轨迹聚合：会话数、轮次、调用次数、token 合计、平均延迟、成功率与成本。
  * tokens/延迟为 0 的老记录显示「—」，避免把「没记账」当成「零成本」。
  */
 const summary = computed(() => {
@@ -70,6 +93,9 @@ const summary = computed(() => {
   const idle = steps.filter(
     (step) => toolNames(step).length > 0 && observations(step).length === 0,
   ).length;
+  const outcomes = props.outcomes;
+  const successRate =
+    outcomes && outcomes.runs > 0 ? Math.round((outcomes.succeeded / outcomes.runs) * 100) : null;
   return {
     sessions: props.sessions.length,
     rounds: steps.length,
@@ -77,8 +103,19 @@ const summary = computed(() => {
     tokens,
     avgLatency: steps.length ? Math.round(latency / steps.length) : 0,
     idle,
+    successRate,
+    succeeded: outcomes?.succeeded ?? 0,
+    runs: outcomes?.runs ?? 0,
+    cost: estimateStepsCost(steps),
   };
 });
+
+/** 成功率标签的语义色：八成以上算健康，过半算可用，再低就该警惕。 */
+function successTagType(rate: number): "success" | "info" | "warning" {
+  if (rate >= 80) return "success";
+  if (rate >= 50) return "info";
+  return "warning";
+}
 </script>
 
 <template>
@@ -104,6 +141,17 @@ const summary = computed(() => {
         >
         <NTag size="small" :bordered="false">tokens {{ summary.tokens || "—" }}</NTag>
         <NTag size="small" :bordered="false">平均 {{ summary.avgLatency || "—" }} ms</NTag>
+        <NTag
+          v-if="summary.successRate !== null"
+          size="small"
+          :bordered="false"
+          :type="successTagType(summary.successRate)"
+        >
+          成功率 {{ summary.successRate }}%（{{ summary.succeeded }}/{{ summary.runs }}）
+        </NTag>
+        <NTag v-if="summary.cost > 0" size="small" :bordered="false">
+          ≈ ¥{{ summary.cost.toFixed(2) }}
+        </NTag>
         <NTag v-if="summary.idle" size="small" :bordered="false" type="warning">
           空转告警：{{ summary.idle }} 轮未执行
         </NTag>
@@ -134,7 +182,10 @@ const summary = computed(() => {
         <div class="trace__step-head">
           <NTag size="small" :bordered="false" type="info">第 {{ step.iteration }} 轮</NTag>
           <span class="trace__session">{{ sessionTitle(step.sessionId) }}</span>
-          <span class="trace__meta">{{ step.tokens }} tokens · {{ step.latencyMs }} ms</span>
+          <span class="trace__meta">
+            <template v-if="step.model">{{ step.model }} · </template>{{ step.tokens }} tokens ·
+            {{ step.latencyMs }} ms
+          </span>
         </div>
         <p v-if="toolNames(step).length" class="trace__line">
           工具：{{ toolNames(step).join("、") }}
