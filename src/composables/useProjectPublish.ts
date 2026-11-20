@@ -147,25 +147,32 @@ export function useProjectPublish(projectId: string) {
 
   /** 打印走系统对话框，由用户在里面选「另存为 PDF」，避免前端手搓中文字体嵌入。 */
   async function printPdf(): Promise<void> {
-    const document = await refreshDocument();
-    if (!document) return;
-    const frame = window.document.createElement("iframe");
-    frame.setAttribute("aria-hidden", "true");
-    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
-    window.document.body.appendChild(frame);
-    const win = frame.contentWindow;
-    if (!win) {
-      frame.remove();
-      return;
+    // 与导出共用 exporting：读正文 + 起 iframe 期间按钮要转圈，也顺带挡住重复点击。
+    if (exporting.value) return;
+    exporting.value = true;
+    try {
+      const document = await refreshDocument();
+      if (!document) return;
+      const frame = window.document.createElement("iframe");
+      frame.setAttribute("aria-hidden", "true");
+      frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+      window.document.body.appendChild(frame);
+      const win = frame.contentWindow;
+      if (!win) {
+        frame.remove();
+        return;
+      }
+      win.document.open();
+      win.document.write(renderHtml(document, template.value));
+      win.document.close();
+      win.onload = () => {
+        win.focus();
+        win.print();
+        window.setTimeout(() => frame.remove(), 1000);
+      };
+    } finally {
+      exporting.value = false;
     }
-    win.document.open();
-    win.document.write(renderHtml(document, template.value));
-    win.document.close();
-    win.onload = () => {
-      win.focus();
-      win.print();
-      window.setTimeout(() => frame.remove(), 1000);
-    };
   }
 
   async function generateBrief(): Promise<void> {

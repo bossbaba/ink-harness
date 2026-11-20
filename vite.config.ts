@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [
     vue(),
     biome({
-      mode: "format",
+      mode: "check",
       files: "./src",
       hotUpdateMode: "changed",
       applyFixes: true,
