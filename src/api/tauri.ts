@@ -16,6 +16,8 @@ import type {
   DraftVersionBrief,
   ExportResult,
   Foreshadow,
+  IdeationDraftRow,
+  IdeationDraftRowInput,
   MoveChapterInput,
   MoveSceneInput,
   NewAgentEvalRun,
@@ -177,6 +179,12 @@ export const tauriApi = {
   saveAgentEvalRun: (input: NewAgentEvalRun) =>
     call<AgentEvalRun>("save_agent_eval_run", { input }),
   listAgentEvalRuns: (limit = 20) => call<AgentEvalRun[]>("list_agent_eval_runs", { limit }),
+
+  // 构思向导草稿：按作品存一份，答案与方案以 JSON 字符串传输。
+  loadIdeationDraft: (projectId: string) =>
+    call<IdeationDraftRow | null>("load_ideation_draft", { projectId }),
+  saveIdeationDraft: (input: IdeationDraftRowInput) =>
+    call<IdeationDraftRow>("save_ideation_draft", { input }),
 
   // RAG 检索：索引按作品维护，检索按问题取最近片段。
   ragStatus: (projectId: string) => call<RagStatus>("rag_status", { projectId }),

@@ -97,6 +97,8 @@ pub fn run() {
             commands::agent::delete_agent_role,
             commands::agent::save_agent_eval_run,
             commands::agent::list_agent_eval_runs,
+            commands::ideation::load_ideation_draft,
+            commands::ideation::save_ideation_draft,
         ])
         .build(tauri::generate_context!());
 

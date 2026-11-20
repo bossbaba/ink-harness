@@ -13,7 +13,8 @@ use super::init_schema;
 /// 4：Agent 会话与运行轨迹——会话/消息/步骤三张表，支撑 Copilot 跨会话记忆与轨迹回放。
 /// 5：Agent 消息记停止原因、步骤记模型——看板算成功率与成本折算要用。
 /// 6：Agent 角色（prompt + 工具白名单）与评测结果表——补齐「角色管理」与「回归评估」。
-pub(super) const SCHEMA_VERSION: i64 = 6;
+/// 7：构思向导草稿表——访谈答案与生成方案落库，切页/关应用不再丢。
+pub(super) const SCHEMA_VERSION: i64 = 7;
 
 /// 顺序迁移：从 `pragma user_version` 记录的位置往后执行。
 ///
@@ -139,6 +140,39 @@ pub(super) fn migrate(conn: &Connection) -> Result<(), AppError> {
             .map_err(AppError::from)?;
     }
 
+    if current < 7 {
+        // 构思向导草稿：一个作品一条，存访谈答案与生成方案。
+        create_ideation_table(conn)?;
+        conn.pragma_update(None, "user_version", 7)
+            .map_err(AppError::from)?;
+    }
+
+    Ok(())
+}
+
+/// 构思向导草稿表。
+///
+/// `project_id` 直接做主键：一个作品只有一份正在编辑的构思，读写都是按作品查，
+/// 不需要额外的自增 id。`answers_json` / `proposal_json` 存原始 JSON 文本，
+/// 结构随访谈问卷演进时不用改表；解析交给前端，解析失败按「没填过」处理。
+fn create_ideation_table(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(
+        r#"
+        create table if not exists ideation_draft (
+            project_id       text primary key,
+            answers_json     text not null default '',
+            proposal_json    text not null default '',
+            step             integer not null default 0,
+            max_step         integer not null default 0,
+            selected_title   text not null default '',
+            include_outline  integer not null default 1,
+            applied          integer not null default 0,
+            outline_created  integer not null default 0,
+            updated_at       text not null
+        );
+        "#,
+    )
+    .map_err(AppError::from)?;
     Ok(())
 }
 

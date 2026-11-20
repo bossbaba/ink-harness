@@ -2,11 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [ main, master ]
     # 推 v 开头的 tag 时自动构建并发布 Release，任何人无需登录即可下载安装包。
-    tags: ["v*"]
-  pull_request:
-  # 支持在 Actions 页面手动触发。填 release_tag 会创建 Release，留空只产出 Actions Artifacts。
+    tags: [ "v*" ]
+  pull_request: # 支持在 Actions 页面手动触发。填 release_tag 会创建 Release，留空只产出 Actions Artifacts。
+
   workflow_dispatch:
     inputs:
       release_tag:
@@ -19,20 +19,20 @@ jobs:
     name: 前端检查（类型 / lint / 规范 / 单测 / 构建）
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 12
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm lint
-      - run: pnpm check:conventions
-      - run: pnpm test
-      - run: pnpm build
+    - uses: actions/checkout@v4
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 12
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+    - run: pnpm install --frozen-lockfile
+    - run: pnpm typecheck
+    - run: pnpm lint
+    - run: pnpm check:conventions
+    - run: pnpm test
+    - run: pnpm build
 
   backend:
     # 门禁只放「单测 / 编译」这种当前全绿的检查。存量代码尚未通过 rustfmt 与
@@ -41,97 +41,95 @@ jobs:
     name: Rust 检查（编译 / 单测）
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      # Tauri 在 Linux 编译 wry/tauri 依赖这些系统库，缺失会直接编译失败。
-      # 脚本内容必须比 run: 缩进更深，否则不被识别为块标量、这一步形同虚设。
-      - name: 安装 Linux 系统依赖
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev \
-            patchelf
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-      - run: cargo check --all-targets
-        working-directory: src-tauri
-      - run: cargo test
-        working-directory: src-tauri
+    - uses: actions/checkout@v4
+    # Tauri 在 Linux 编译 wry/tauri 依赖这些系统库，缺失会直接编译失败。
+    - name: 安装 Linux 系统依赖
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libgtk-3-dev \
+          libwebkit2gtk-4.1-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
+          libsoup-3.0-dev \
+          libjavascriptcoregtk-4.1-dev \
+          patchelf
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: src-tauri
+    - run: cargo check --all-targets
+      working-directory: src-tauri
+    - run: cargo test
+      working-directory: src-tauri
 
   desktop:
     name: 桌面安装包（${{ matrix.name }}）
-    # 安装包构建较重，只在推送到主分支或手动触发时跑；PR 不打包。
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    # 【重要修改】只在打 v 开头的 tag 或手动触发时打包。日常 push 到 main 不再触发。
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     strategy:
       # 某个平台失败不影响其他平台出包。
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            name: Windows
-            artifact: windows
-            # msi 适合企业分发，nsis exe 双击即装。
-            bundles: msi,nsis
-          - os: ubuntu-22.04
-            name: Linux
-            artifact: linux
-            # 用 22.04 而不是 latest：AppImage 依赖较老的 glibc，兼容性更好。
-            # 不打包 rpm，省去 runner 上额外安装 rpmbuild。
-            bundles: deb,appimage
-          - os: macos-latest
-            name: macOS
-            artifact: macos
-            bundles: app,dmg
+        - os: windows-latest
+          name: Windows
+          artifact: windows
+          # msi 适合企业分发，nsis exe 双击即装。
+          bundles: msi,nsis
+        - os: ubuntu-22.04
+          name: Linux
+          artifact: linux
+          # 用 22.04 而不是 latest：AppImage 依赖较老的 glibc，兼容性更好。
+          # 不打包 rpm，省去 runner 上额外安装 rpmbuild。
+          bundles: deb,appimage
+        - os: macos-latest
+          name: macOS
+          artifact: macos
+          bundles: app,dmg
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 12
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-      # Tauri 在 Linux 编译 wry/tauri 依赖这些系统库，缺失会直接编译失败。
-      # 脚本内容必须比 run: 缩进更深，否则不被识别为块标量、这一步形同虚设。
-      - name: 安装 Linux 系统依赖
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev \
-            patchelf
-      - run: pnpm install --frozen-lockfile
-      # tauri build 会先跑 beforeBuildCommand（pnpm build），再编译 Rust 并按 --bundles 产出安装包。
-      - run: pnpm tauri build --bundles ${{ matrix.bundles }}
-      - name: 上传安装包
-        uses: actions/upload-artifact@v4
-        with:
-          name: ink-harness-${{ matrix.artifact }}
-          # 一次性覆盖三平台产物；各平台只会匹配到自己的那几条 glob。
-          path: |
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/deb/*.deb
-            src-tauri/target/release/bundle/appimage/*.AppImage
-            src-tauri/target/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/macos/*.app
-          if-no-files-found: error
+    - uses: actions/checkout@v4
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 12
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: src-tauri
+    # Tauri 在 Linux 编译 wry/tauri 依赖这些系统库，缺失会直接编译失败。
+    - name: 安装 Linux 系统依赖
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libgtk-3-dev \
+          libwebkit2gtk-4.1-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
+          libsoup-3.0-dev \
+          libjavascriptcoregtk-4.1-dev \
+          patchelf
+    - run: pnpm install --frozen-lockfile
+    # tauri build 会先跑 beforeBuildCommand（pnpm build），再编译 Rust 并按 --bundles 产出安装包。
+    - run: pnpm tauri build --bundles ${{ matrix.bundles }}
+    - name: 上传安装包
+      uses: actions/upload-artifact@v4
+      with:
+        name: ink-harness-${{ matrix.artifact }}
+        # 一次性覆盖三平台产物；各平台只会匹配到自己的那几条 glob。
+        path: |
+          src-tauri/target/release/bundle/msi/*.msi
+          src-tauri/target/release/bundle/nsis/*.exe
+          src-tauri/target/release/bundle/deb/*.deb
+          src-tauri/target/release/bundle/appimage/*.AppImage
+          src-tauri/target/release/bundle/dmg/*.dmg
+          src-tauri/target/release/bundle/macos/*.app
+        if-no-files-found: error
 
   release:
     name: 发布 Release（公开下载）
@@ -143,23 +141,23 @@ jobs:
       # 创建 Release 与上传资产需要写权限；仓库的 Workflow 权限也要允许写。
       contents: write
     steps:
-      - name: 下载三平台构建产物
-        uses: actions/download-artifact@v4
-        with:
-          path: release-assets
-          # 三个 artifact 解到同一目录，后续按扩展名统一匹配。
-          merge-multiple: true
-      - name: 创建或更新 Release
-        uses: softprops/action-gh-release@v2
-        with:
-          # 打 tag 时用 tag 名；手动触发时用输入值（两者都是公开可访问的版本号）。
-          tag_name: ${{ inputs.release_tag || github.ref_name }}
-          name: INK-HARNESS ${{ inputs.release_tag || github.ref_name }}
-          generate_release_notes: true
-          # 只发布安装包本体；.app 是目录，已包含在 dmg 里，不作为单独资产上传。
-          files: |
-            release-assets/**/*.msi
-            release-assets/**/*.exe
-            release-assets/**/*.deb
-            release-assets/**/*.AppImage
-            release-assets/**/*.dmg
+    - name: 下载三平台构建产物
+      uses: actions/download-artifact@v4
+      with:
+        path: release-assets
+        # 三个 artifact 解到同一目录，后续按扩展名统一匹配。
+        merge-multiple: true
+    - name: 创建或更新 Release
+      uses: softprops/action-gh-release@v2
+      with:
+        # 打 tag 时用 tag 名；手动触发时用输入值（两者都是公开可访问的版本号）。
+        tag_name: ${{ inputs.release_tag || github.ref_name }}
+        name: INK-HARNESS ${{ inputs.release_tag || github.ref_name }}
+        generate_release_notes: true
+        # 只发布安装包本体；.app 是目录，已包含在 dmg 里，不作为单独资产上传。
+        files: |
+          release-assets/**/*.msi
+          release-assets/**/*.exe
+          release-assets/**/*.deb
+          release-assets/**/*.AppImage
+          release-assets/**/*.dmg

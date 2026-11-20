@@ -8,6 +8,7 @@ pub mod gateway;
 pub mod gateway_resolve;
 pub mod gateway_sse;
 pub mod guardrails;
+pub mod ideation_draft;
 pub mod ollama;
 pub mod outline;
 pub mod outline_context;

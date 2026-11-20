@@ -52,7 +52,7 @@ fn migrate_records_schema_version_and_is_idempotent() {
     assert_eq!(again, SCHEMA_VERSION);
 }
 
-/// v4/v6 迁移要建出 Agent 会话、轨迹、角色与评测表。
+/// v4/v6/v7 迁移要建出 Agent 会话、轨迹、角色、评测表与构思草稿表。
 #[test]
 fn migrate_creates_agent_tables() {
     let conn = Connection::open_in_memory().unwrap();
@@ -63,6 +63,7 @@ fn migrate_creates_agent_tables() {
         "agent_step",
         "agent_role",
         "agent_eval_run",
+        "ideation_draft",
     ] {
         let exists: bool = conn
             .query_row(

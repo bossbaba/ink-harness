@@ -48,6 +48,53 @@ export interface IdeaProposal {
   outline: ProposalAct[];
 }
 
+/**
+ * 构思草稿：一个作品一份，切页/关应用后按它恢复现场。
+ * `answers` / `proposal` 已由 service 解析成对象；解析失败时为 null，交给调用方忽略。
+ */
+export interface IdeationDraft {
+  projectId: string;
+  answers: IdeationAnswers | null;
+  proposal: IdeaProposal | null;
+  step: number;
+  maxStep: number;
+  selectedTitle: string;
+  includeOutline: boolean;
+  applied: boolean;
+  outlineCreated: boolean;
+  updatedAt: string;
+}
+
+/** 保存草稿的业务入参；JSON 序列化在 service 层完成。 */
+export interface IdeationDraftInput {
+  projectId: string;
+  answers: IdeationAnswers;
+  proposal: IdeaProposal | null;
+  step: number;
+  maxStep: number;
+  selectedTitle: string;
+  includeOutline: boolean;
+  applied: boolean;
+  outlineCreated: boolean;
+}
+
+/** IPC 原始结构：答案与方案以 JSON 字符串传输，避免后端为问卷结构建模。 */
+export interface IdeationDraftRow {
+  projectId: string;
+  answersJson: string;
+  proposalJson: string;
+  step: number;
+  maxStep: number;
+  selectedTitle: string;
+  includeOutline: boolean;
+  applied: boolean;
+  outlineCreated: boolean;
+  updatedAt: string;
+}
+
+/** 写入草稿的 IPC 入参：时间戳由后端生成。 */
+export type IdeationDraftRowInput = Omit<IdeationDraftRow, "updatedAt">;
+
 /** 左侧步骤条的数据；最后一步同时承担生成与写入。 */
 export const IDEATION_STEPS: Array<{ label: string; hint: string }> = [
   { label: "灵感", hint: "一句话说清你想写什么" },

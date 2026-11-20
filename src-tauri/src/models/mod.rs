@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod chat;
 pub mod draft;
+pub mod ideation;
 pub mod outline;
 pub mod project;
 pub mod provider;
@@ -16,6 +17,7 @@ pub use agent::{
 };
 pub use chat::{ChatChunk, ChatParams, TokenUsage, ToolCallChunk};
 pub use draft::{ChapterContent, DraftVersion, DraftVersionBrief, SaveContentInput};
+pub use ideation::{IdeationDraft, IdeationDraftInput};
 pub use outline::{
     Chapter, Foreshadow, MoveChapter, MoveScene, NewChapter, NewForeshadow, NewScene,
     OutlineSnapshot, Scene,

@@ -1,5 +1,6 @@
 import { storeToRefs } from "pinia";
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { ideationDraftService } from "@/services/ideationDraftService";
 import {
   buildIdeationMessages,
   createEmptyProposal,
@@ -10,7 +11,7 @@ import { modelRouter } from "@/services/modelRouter";
 import { outlineService } from "@/services/outlineService";
 import { projectService } from "@/services/projectService";
 import { useProjectStore } from "@/stores/project";
-import type { IdeaProposal, IdeationAnswers, Project } from "@/types";
+import type { IdeaProposal, IdeationAnswers, IdeationDraftInput, Project } from "@/types";
 
 /**
  * 构思向导：四步访谈 → AI 生成方案 → 写入作品（可选三幕骨架）。
@@ -35,6 +36,14 @@ export function useIdeationWizard(projectId: string) {
   const parseError = ref("");
   const modelLabel = ref("");
   const error = ref("");
+  /** 草稿最近一次落库时间；空串表示还没保存过，界面据此显示「已自动保存 / 未保存」。 */
+  const draftSavedAt = ref("");
+  /** 草稿读写失败单独提示：它不影响向导主流程，不该覆盖主错误区。 */
+  const draftError = ref("");
+
+  // 草稿恢复完成前不写库：恢复本身会改一堆 ref，不拦住会立刻把旧值原样写回去。
+  let draftReady = false;
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   const canNext = computed(() => {
     if (step.value === 0) return answers.value.inspiration.trim().length > 0;
@@ -74,6 +83,94 @@ export function useIdeationWizard(projectId: string) {
     if (applying.value || generating.value) return;
     step.value = Math.max(0, step.value - 1);
   }
+
+  /** 组装当前草稿；projectId 缺失时不写库（向导本来就打不开）。 */
+  function buildDraftInput(): IdeationDraftInput | null {
+    if (!projectId) return null;
+    return {
+      projectId,
+      answers: answers.value,
+      proposal: proposal.value,
+      step: step.value,
+      maxStep: maxStep.value,
+      selectedTitle: selectedTitle.value,
+      includeOutline: includeOutline.value,
+      applied: applied.value,
+      outlineCreated: outlineCreated.value,
+    };
+  }
+
+  /** 真正写库；失败只提示，不打断作者继续填写。 */
+  async function persistDraft(): Promise<void> {
+    const input = buildDraftInput();
+    if (!input || !draftReady) return;
+    try {
+      draftSavedAt.value = await ideationDraftService.save(input);
+      draftError.value = "";
+    } catch (err) {
+      draftError.value = `草稿保存失败：${String(err)}`;
+    }
+  }
+
+  /** 防抖 600ms：连续敲字时不至于每个按键都发一次 IPC。 */
+  function scheduleSave(): void {
+    if (!draftReady) return;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      void persistDraft();
+    }, 600);
+  }
+
+  /** 立即落库（离开页面时调用）：让「切页不丢」真正成立，而不是等下一次防抖。 */
+  function flushDraft(): void {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    void persistDraft();
+  }
+
+  /**
+   * 恢复上次的访谈答案、方案与步骤。
+   * 答案用默认结构兜底后再合并：旧草稿可能缺字段（问卷加过题），直接覆盖会写出 undefined。
+   */
+  async function restoreDraft(): Promise<void> {
+    try {
+      const draft = await ideationDraftService.load(projectId);
+      if (!draft) return;
+      if (draft.answers) {
+        const base = createIdeationAnswers({
+          genre: draft.answers.genre ?? "",
+          audience: draft.answers.audience ?? "",
+        });
+        answers.value = { ...base, ...draft.answers };
+      }
+      proposal.value = draft.proposal;
+      step.value = Math.min(3, Math.max(0, draft.step));
+      // 有方案时「方案确认」这一步必须可达，否则恢复后步骤条点不回去。
+      maxStep.value = Math.min(
+        3,
+        Math.max(draft.maxStep, draft.step, draft.proposal ? 3 : 0),
+      );
+      selectedTitle.value = draft.selectedTitle;
+      includeOutline.value = draft.includeOutline;
+      applied.value = draft.applied;
+      outlineCreated.value = draft.outlineCreated;
+      draftSavedAt.value = draft.updatedAt;
+      draftError.value = "";
+    } catch (err) {
+      draftError.value = `草稿读取失败：${String(err)}`;
+    }
+  }
+
+  // 访谈、步骤、方案、写入状态任何一项变化都排队保存；恢复期间 draftReady=false 自动跳过。
+  watch(
+    [answers, step, maxStep, proposal, selectedTitle, includeOutline, applied, outlineCreated],
+    scheduleSave,
+    { deep: true },
+  );
+  onBeforeUnmount(flushDraft);
 
   /** 清空生成结果，允许重新构思；作品已写入的内容不会被回滚。 */
   function resetProposal(): void {
@@ -228,6 +325,9 @@ export function useIdeationWizard(projectId: string) {
         genre: found.genre,
         audience: found.audience,
       });
+      // 先恢复草稿再开门闩：恢复本身会改一堆 ref，不拦住会立刻把旧值原样写回去。
+      await restoreDraft();
+      draftReady = true;
       await modelRouter.refresh().catch(() => undefined);
     } catch (err) {
       error.value = `读取作品失败：${String(err)}`;
@@ -250,6 +350,8 @@ export function useIdeationWizard(projectId: string) {
     parseError,
     modelLabel,
     error,
+    draftSavedAt,
+    draftError,
     canNext,
     canApply,
     outlineSummary,

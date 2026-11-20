@@ -27,6 +27,8 @@ const {
   parseError,
   modelLabel,
   error,
+  draftSavedAt,
+  draftError,
   canNext,
   outlineSummary,
   goStep,
@@ -54,6 +56,20 @@ function openModels(): void {
 function backWorkspace(): void {
   void router.push({ name: "workspace" });
 }
+
+/**
+ * 草稿状态文案：让作者知道「刚才填的已经存下来了」。
+ * 后端时间是 UTC ISO，转成本地时分显示；只显示时间不显示日期，避免在页头占一行。
+ */
+function draftLabel(): string {
+  if (draftError.value) return draftError.value;
+  if (!draftSavedAt.value) return "填写内容会自动保存，切页或关应用都不会丢";
+  const time = new Date(draftSavedAt.value);
+  const label = Number.isNaN(time.getTime())
+    ? ""
+    : time.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  return label ? `草稿已自动保存 · ${label}` : "草稿已自动保存";
+}
 </script>
 
 <template>
@@ -65,6 +81,10 @@ function backWorkspace(): void {
         </h1>
         <p class="ideation__subtitle">
           分步回答几个问题，AI 会整理成书名、梗概、简介、读者画像与三幕骨架；每一步都可以回头修改。
+        </p>
+        <!-- 草稿状态就贴在说明下面：作者最关心「填的东西会不会丢」，这里直接给答案。 -->
+        <p class="ideation__draft" :class="{ 'ideation__draft--error': draftError }">
+          {{ draftLabel() }}
         </p>
       </div>
       <NButton size="small" :disabled="!project" @click="openOutline">打开大纲</NButton>
@@ -176,6 +196,18 @@ function backWorkspace(): void {
     font-size: 12px;
     line-height: 1.7;
     color: var(--text-soft, #{t.$ink-soft});
+  }
+
+  // 草稿状态比正文说明更次要：11px、faint，只在保存失败时转成错误色。
+  &__draft {
+    margin: t.$space-1 0 0;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--text-faint, #{t.$ink-faint});
+
+    &--error {
+      color: var(--error, #{t.$error});
+    }
   }
 
   &__error {

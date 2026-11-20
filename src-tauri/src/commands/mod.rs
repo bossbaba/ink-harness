@@ -6,6 +6,7 @@
 
 pub mod agent;
 pub mod draft;
+pub mod ideation;
 pub mod keychain;
 pub mod model;
 pub mod ollama;
