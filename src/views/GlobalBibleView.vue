@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { NButton, NEmpty, NInput, NSelect, NTag } from "naive-ui";
+import LoadingState from "@/components/common/LoadingState.vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import { useGlobalBible } from "@/composables/useGlobalBible";
 import type { KindFilter } from "@/composables/useStoryBible";
@@ -76,12 +77,18 @@ const {
             </span>
             <span class="item__project">{{ item.projectTitle }}</span>
           </NButton>
+          <LoadingState
+            v-if="busy && filtered.length === 0"
+            class="item-list__empty"
+            variant="inline"
+            text="正在载入设定…"
+          />
           <NEmpty
-            v-if="filtered.length === 0"
+            v-else-if="filtered.length === 0"
             class="item-list__empty"
             size="small"
             :show-icon="false"
-            :description="busy ? '加载中…' : '没有匹配的设定条目。'"
+            description="没有匹配的设定条目。"
           />
         </div>
       </aside>

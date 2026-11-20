@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NEmpty, NTag } from "naive-ui";
 import { computed, ref } from "vue";
+import LoadingState from "@/components/common/LoadingState.vue";
 import type { AgentSession, AgentStepRecord } from "@/types";
 
 /**
@@ -87,7 +88,7 @@ const summary = computed(() => {
       <span class="trace__hint">共 {{ sessions.length }} 个会话 · {{ steps.length }} 轮记录</span>
     </header>
 
-    <p v-if="loading" class="trace__hint">正在读取…</p>
+    <LoadingState v-if="loading" class="trace__hint" variant="inline" text="正在读取…" />
     <NEmpty
       v-else-if="steps.length === 0"
       class="trace__empty"

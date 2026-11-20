@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NStep, NSteps, NTag } from "naive-ui";
 import { computed, onMounted } from "vue";
+import LoadingState from "@/components/common/LoadingState.vue";
 import WorkflowStageCard from "@/components/workflow/WorkflowStageCard.vue";
 import { useProjectWorkflow } from "@/composables/useProjectWorkflow";
 import type { WorkflowDecision, WorkflowStage, WorkflowState } from "@/types";
@@ -101,7 +102,7 @@ onReactivated(() => void load());
       </NTag>
     </header>
 
-    <p v-if="loading" class="workflow__status">正在载入工作流…</p>
+    <LoadingState v-if="loading" variant="inline" text="正在载入工作流…" />
     <p v-else-if="loadError" class="workflow__status workflow__status--error">{{ loadError }}</p>
     <template v-else-if="state">
       <p v-if="error" class="workflow__status workflow__status--error">{{ error }}</p>

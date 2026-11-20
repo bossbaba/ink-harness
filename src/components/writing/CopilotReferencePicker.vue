@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { NButton, NInput, NPopover, NSpin } from "naive-ui";
+import { NButton, NInput, NPopover } from "naive-ui";
 import { computed, ref } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
+import LoadingState from "@/components/common/LoadingState.vue";
 import { type CopilotReference, STORY_KIND_LABEL, type StoryElement } from "@/types";
 
 /**
@@ -108,10 +109,12 @@ const isEmpty = computed(
     <div class="picker">
       <NInput v-model:value="keyword" size="small" clearable placeholder="搜索设定名或章节名" />
 
-      <div v-if="props.loading" class="picker__state">
-        <NSpin size="small" />
-        <span>正在载入本作品的设定与章节…</span>
-      </div>
+      <LoadingState
+        v-if="props.loading"
+        class="picker__state"
+        variant="inline"
+        text="正在载入本作品的设定与章节…"
+      />
       <p v-else-if="props.error" class="picker__state picker__state--error">{{ props.error }}</p>
       <p v-else-if="isEmpty" class="picker__state">没有匹配的设定或章节。</p>
 

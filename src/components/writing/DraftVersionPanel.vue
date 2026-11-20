@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { NButton, NEmpty, NModal, NPopconfirm, NSpin } from "naive-ui";
+import { NButton, NEmpty, NModal, NPopconfirm } from "naive-ui";
 import { computed } from "vue";
+import LoadingState from "@/components/common/LoadingState.vue";
 import type { DraftVersion, DraftVersionBrief } from "@/types";
 import { formatCount, formatDateTime } from "@/utils/text";
 import { documentToPlainText } from "@/utils/tiptap";
@@ -38,7 +39,7 @@ const previewText = computed(() =>
 
     <p class="versions__hint">自动保存会在字数大幅变化时留版；想固定一个节点时点「保存快照」。</p>
 
-    <NSpin v-if="loading" size="small" />
+    <LoadingState v-if="loading" variant="inline" text="正在载入版本…" />
     <NEmpty
       v-else-if="versions.length === 0"
       class="versions__empty"

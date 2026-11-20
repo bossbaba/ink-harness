@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { NButton, NEmpty, NSelect, NSpin } from "naive-ui";
+import { NButton, NEmpty, NSelect } from "naive-ui";
 import { computed, onMounted, ref, watch } from "vue";
+import LoadingState from "@/components/common/LoadingState.vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import type { SegmentOption } from "@/components/common/segmentedControl";
 import ReviewLayerSection from "@/components/review/ReviewLayerSection.vue";
@@ -146,10 +147,12 @@ async function copyReport(): Promise<void> {
         {{ progress || "准备中…" }}
         <template v-if="received">已收到 {{ received }} 字</template>
       </p>
-      <div v-else-if="loading" class="controls__hint">
-        <NSpin size="small" />
-        <span>正在读取作品与章节…</span>
-      </div>
+      <LoadingState
+        v-else-if="loading"
+        class="controls__hint"
+        variant="inline"
+        text="正在读取作品与章节…"
+      />
       <NEmpty
         v-else-if="scope === 'chapter' && chapterOptions.length === 0"
         class="controls__hint"

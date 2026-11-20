@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NEmpty, NTag } from "naive-ui";
 import { computed, onMounted } from "vue";
+import LoadingState from "@/components/common/LoadingState.vue";
 import PageHeader from "@/components/common/PageHeader.vue";
 import StatCard from "@/components/common/StatCard.vue";
 import AgentTracePanel from "@/components/models/AgentTracePanel.vue";
@@ -79,7 +80,7 @@ onReactivated(() => void load());
 
     <section class="stats__card">
       <h2 class="stats__section">作品与正文</h2>
-      <p v-if="loading && !stats" class="stats__loading">正在统计…</p>
+      <LoadingState v-if="loading && !stats" variant="inline" text="正在统计…" />
       <template v-else-if="stats">
         <div class="stats__metrics">
           <StatCard label="作品数" :value="stats.projects" emphasis />
@@ -160,15 +161,10 @@ onReactivated(() => void load());
     margin-bottom: t.$space-5;
   }
 
-  &__loading,
   &__error {
     margin: 0;
     font-size: 12px;
     line-height: 1.7;
-    color: var(--text-faint, #{t.$ink-faint});
-  }
-
-  &__error {
     color: var(--error, #{t.$error});
   }
 

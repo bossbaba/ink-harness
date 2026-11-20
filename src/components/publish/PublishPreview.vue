@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NButton } from "naive-ui";
 import { ref } from "vue";
+import LoadingState from "@/components/common/LoadingState.vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import type { SegmentOption } from "@/components/common/segmentedControl";
 import { PUBLISH_TEMPLATE_HINT, PUBLISH_TEMPLATE_LABEL, type PublishTemplate } from "@/types";
@@ -51,9 +52,8 @@ const sourceOptions: SegmentOption[] = [
       <NButton size="small" :disabled="!markdown" @click="emit('copy')">复制 Markdown</NButton>
     </div>
 
-    <p class="preview__status">
-      {{ loading ? "正在读取正文…" : `已有正文 ${readyCount} 章，空章在导出里保留占位。` }}
-    </p>
+    <LoadingState v-if="loading" class="preview__status" variant="inline" text="正在读取正文…" />
+    <p v-else class="preview__status">已有正文 {{ readyCount }} 章，空章在导出里保留占位。</p>
 
     <div class="preview__paper">
       <iframe v-if="source === 'html'" class="preview__frame" :srcdoc="html" title="排版预览" />

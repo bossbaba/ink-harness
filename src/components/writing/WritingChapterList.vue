@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { NButton, NEmpty, NSpin, NTag } from "naive-ui";
+import { NButton, NEmpty, NTag } from "naive-ui";
 import { computed } from "vue";
+import LoadingState from "@/components/common/LoadingState.vue";
 import {
   type Act,
   actLabel,
@@ -53,10 +54,7 @@ const activeAct = computed(
       </div>
     </div>
 
-    <div v-if="loading" class="chapter-list__hint">
-      <NSpin size="small" />
-      <span>正在载入章节…</span>
-    </div>
+    <LoadingState v-if="loading" class="chapter-list__hint" variant="inline" text="正在载入章节…" />
     <NEmpty
       v-else-if="groups.every((group) => group.chapters.length === 0)"
       class="chapter-list__hint"

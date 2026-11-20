@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { NButton, NSpin } from "naive-ui";
+import { NButton } from "naive-ui";
 import { useRouter } from "vue-router";
+import LoadingState from "@/components/common/LoadingState.vue";
 import IdeationForm from "@/components/ideation/IdeationForm.vue";
 import IdeationProposal from "@/components/ideation/IdeationProposal.vue";
 import IdeationStepList from "@/components/ideation/IdeationStepList.vue";
@@ -71,10 +72,7 @@ function backWorkspace(): void {
 
     <p v-if="error" class="ideation__error">{{ error }}</p>
 
-    <div v-if="!project && !error" class="ideation__loading">
-      <NSpin size="small" />
-      <span>正在载入作品…</span>
-    </div>
+    <LoadingState v-if="!project && !error" text="正在载入作品…" />
 
     <div v-else-if="project" class="ideation__body">
       <IdeationStepList :current="step" :max-reachable="maxStep" @select="goStep" />
@@ -181,20 +179,6 @@ function backWorkspace(): void {
 
   &__error {
     color: var(--error, #{t.$error});
-  }
-
-  &__loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: t.$space-2;
-    margin-top: t.$space-6;
-    padding: t.$space-8;
-    text-align: center;
-    border: 1px dashed var(--divider, #{t.$divider});
-    border-radius: t.$radius-lg;
-    font-size: 13px;
-    color: var(--text-faint, #{t.$ink-faint});
   }
 
   &__body {

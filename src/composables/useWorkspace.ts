@@ -14,6 +14,8 @@ export function useWorkspace() {
   const app = useAppStore();
   const backend = ref("检测中…");
   const projects = ref<Project[]>([]);
+  // 首屏与切回时先显示载入态，避免「还没有作品」在列表回来前误闪。
+  const projectsLoading = ref(true);
   const dbInfo = ref<DatabaseInfo | null>(null);
   const showNew = ref(false);
   const error = ref("");
@@ -30,10 +32,13 @@ export function useWorkspace() {
   const ollamaModels = computed(() => ollama.value?.models ?? []);
 
   async function loadProjects(): Promise<void> {
+    projectsLoading.value = true;
     try {
       projects.value = await projectService.list();
     } catch (err) {
       error.value = `读取作品失败：${String(err)}`;
+    } finally {
+      projectsLoading.value = false;
     }
   }
 

@@ -3,9 +3,16 @@ name: CI
 on:
   push:
     branches: [main, master]
+    # 推 v 开头的 tag 时自动构建并发布 Release，任何人无需登录即可下载安装包。
+    tags: ["v*"]
   pull_request:
-  # 支持在 Actions 页面手动触发，用于单独打一次 Windows 安装包。
+  # 支持在 Actions 页面手动触发。填 release_tag 会创建 Release，留空只产出 Actions Artifacts。
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "填了则按该 tag 创建/更新 Release（如 v0.1.0）；留空只出 Actions Artifacts"
+        required: false
+        type: string
 
 jobs:
   frontend:
@@ -125,3 +132,34 @@ jobs:
             src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/bundle/macos/*.app
           if-no-files-found: error
+
+  release:
+    name: 发布 Release（公开下载）
+    needs: desktop
+    # 打 tag 推送，或手动触发并填了 release_tag 时才发版。
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    runs-on: ubuntu-latest
+    permissions:
+      # 创建 Release 与上传资产需要写权限；仓库的 Workflow 权限也要允许写。
+      contents: write
+    steps:
+      - name: 下载三平台构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          # 三个 artifact 解到同一目录，后续按扩展名统一匹配。
+          merge-multiple: true
+      - name: 创建或更新 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          # 打 tag 时用 tag 名；手动触发时用输入值（两者都是公开可访问的版本号）。
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          name: INK-HARNESS ${{ inputs.release_tag || github.ref_name }}
+          generate_release_notes: true
+          # 只发布安装包本体；.app 是目录，已包含在 dmg 里，不作为单独资产上传。
+          files: |
+            release-assets/**/*.msi
+            release-assets/**/*.exe
+            release-assets/**/*.deb
+            release-assets/**/*.AppImage
+            release-assets/**/*.dmg

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { NButton, NInput, NModal, NSpace, NSpin } from "naive-ui";
+import { NButton, NInput, NModal, NSpace } from "naive-ui";
 import { ref } from "vue";
+import LoadingState from "@/components/common/LoadingState.vue";
 
 // 上下文预览：把「作品信息 + 设定库 + 大纲 + 伏笔」的纯文本展示出来，可直接复制给模型。
 const props = defineProps<{
@@ -43,7 +44,7 @@ async function copy(): Promise<void> {
 
     <div class="body">
       <div v-if="props.busy" class="body__loading">
-        <NSpin size="small" />
+        <LoadingState variant="inline" text="正在汇总作品上下文…" />
       </div>
       <NInput
         v-else

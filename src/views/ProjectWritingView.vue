@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { onBeforeRouteLeave, useRouter } from "vue-router";
+import LoadingState from "@/components/common/LoadingState.vue";
 import ChapterEditDialog from "@/components/outline/ChapterEditDialog.vue";
 import WritingAiPanel from "@/components/writing/WritingAiPanel.vue";
 import WritingChapterList from "@/components/writing/WritingChapterList.vue";
@@ -306,7 +307,7 @@ async function handleRestore(versionId: string): Promise<void> {
       />
 
       <div class="writing__main">
-        <p v-if="contentLoading" class="writing__hint">正在载入正文…</p>
+        <LoadingState v-if="contentLoading" variant="inline" text="正在载入正文…" />
         <WritingEmptyState
           v-else-if="!activeChapterId"
           title="还没有选择章节。"
@@ -450,13 +451,6 @@ async function handleRestore(versionId: string): Promise<void> {
     border-left: 1px solid var(--divider, #{t.$divider});
     background: var(--bg-surface);
   }
-
-  &__hint {
-    margin: t.$space-6;
-    font-size: 12px;
-    color: var(--text-faint);
-  }
-
 }
 
 @container (max-width: 1000px) {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { NButton, NSpace, NSpin } from "naive-ui";
+import { NButton, NSpace } from "naive-ui";
+import LoadingState from "@/components/common/LoadingState.vue";
 import StoryBibleList from "@/components/storyBible/StoryBibleList.vue";
 import StoryElementCreateDialog from "@/components/storyBible/StoryElementCreateDialog.vue";
 import StoryElementForm from "@/components/storyBible/StoryElementForm.vue";
@@ -64,10 +65,7 @@ const {
 
     <p v-if="error" class="project-bible__error">{{ error }}</p>
 
-    <div v-if="!projectTitle && !error" class="project-bible__empty">
-      <NSpin size="small" />
-      <span>正在载入作品设定库…</span>
-    </div>
+    <LoadingState v-if="!projectTitle && !error" text="正在载入作品设定库…" />
 
     <div v-else-if="projectTitle" class="bible-grid">
       <StoryBibleList
@@ -148,20 +146,6 @@ const {
 
   &__error {
     color: var(--error, #{t.$error});
-  }
-
-  &__empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: t.$space-2;
-    margin-top: t.$space-6;
-    padding: t.$space-8;
-    text-align: center;
-    border: 1px dashed var(--divider, #{t.$divider});
-    border-radius: t.$radius-lg;
-    color: var(--text-faint, #{t.$ink-faint});
-    font-size: 13px;
   }
 }
 

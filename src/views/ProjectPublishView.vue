@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { NEmpty, NSpin } from "naive-ui";
+import { NEmpty } from "naive-ui";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
+import LoadingState from "@/components/common/LoadingState.vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import type { SegmentOption } from "@/components/common/segmentedControl";
 import BriefPanel from "@/components/publish/BriefPanel.vue";
@@ -103,10 +104,7 @@ function updateBrief(field: keyof PublicationBrief, value: string | string[]): v
       @update:model-value="(value: string) => (tab = value as Tab)"
     />
 
-    <div v-if="loading && !doc" class="publish__empty">
-      <NSpin size="small" />
-      <span>正在读取作品与章节…</span>
-    </div>
+    <LoadingState v-if="loading && !doc" text="正在读取作品与章节…" />
     <template v-else-if="doc">
       <PublishPreview
         v-if="tab === 'preview'"
