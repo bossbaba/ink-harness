@@ -2,6 +2,7 @@
 import { NButton, NInput, NModal, NSelect, NSpace } from "naive-ui";
 import { ref } from "vue";
 import type { NewProject } from "@/types";
+import { modalStyle } from "@/utils/modal";
 
 /**
  * 新建作品弹窗：只负责收集表单与展示错误，真正的落库由父级注入的 create 回调完成，
@@ -73,7 +74,7 @@ async function submit() {
     :show="props.show"
     preset="card"
     title="新建作品"
-    :style="{ width: '560px', maxWidth: 'calc(100vw - 48px)' }"
+    :style="modalStyle(560)"
     :bordered="false"
     @update:show="(v: boolean) => emit('update:show', v)"
   >

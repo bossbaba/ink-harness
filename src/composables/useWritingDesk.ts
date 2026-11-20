@@ -1,3 +1,4 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { computed, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { projectService } from "@/services/projectService";
@@ -248,6 +249,29 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
       if (inFlight === run) inFlight = null;
     }
   }
+
+  /**
+   * 关窗守卫（审计 D-34）：关窗瞬间只有 `void flush()`，进程可能在 IPC 返回前结束，
+   * 正文既没落库也没备份。这里拦截关闭请求：有未保存内容就先等 flush 成为真屏障，
+   * 完成后再销毁窗口；没有未保存内容直接放行。
+   * flush 失败也不拦着关——saveOnce 的错误路径已把内容写进本地草稿备份。
+   * 仅 Tauri 环境注册；浏览器 dev 下没有窗口 API。
+   */
+  let closeUnlisten: (() => void) | null = null;
+  if ("__TAURI_INTERNALS__" in window) {
+    void (async () => {
+      const win = getCurrentWindow();
+      closeUnlisten = await win.onCloseRequested(async (event) => {
+        const unsaved =
+          pending !== null || saveState.value === "dirty" || saveState.value === "saving";
+        if (!unsaved) return;
+        event.preventDefault();
+        await flush();
+        await win.destroy();
+      });
+    })();
+  }
+  onBeforeUnmount(() => closeUnlisten?.());
 
   /**
    * 写一次库，返回是否成功。

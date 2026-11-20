@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { NButton, NTag } from "naive-ui";
-import { ref, watch } from "vue";
+import { NButton, NSelect, NTag } from "naive-ui";
+import { computed, ref, watch } from "vue";
 import type { AgentPanelState, PendingToolAction } from "@/types";
 
 /**
@@ -28,6 +28,16 @@ const STATUS_LABEL: Record<PendingToolAction["status"], string> = {
 // 通过/驳回共用一个 busyId：记录刚点的那个，让只有它转圈。
 const pendingType = ref<"approve" | "reject" | null>(null);
 
+/** 角色下拉：默认角色不追加 prompt、放开全部工具；自定义角色按配置裁剪。 */
+const roleOptions = computed(() => [
+  { label: "默认角色（全部工具）", value: "" },
+  ...props.agent.roles.map((role) => ({ label: role.name, value: role.id })),
+]);
+
+function switchRole(id: string): void {
+  void props.agent.onAction({ type: "role", id });
+}
+
 watch(
   () => props.agent.busyId,
   (id) => {
@@ -40,9 +50,12 @@ function act(type: "approve" | "reject", id: string): void {
   void props.agent.onAction({ type, id });
 }
 
-/** 从工具结果里取候选正文（propose_text 返回 JSON 文本），非 JSON 当纯文本。 */
+/**
+ * 从工具结果里取候选正文（propose_text 返回 JSON 文本），非 JSON 当纯文本。
+ * 只对 propose_text 生效：apply_edits 等工具的结果是执行回执，不该被插进正文。
+ */
 function candidate(action: PendingToolAction): string {
-  if (action.status !== "applied") return "";
+  if (action.status !== "applied" || action.toolName !== "propose_text") return "";
   try {
     const value: unknown = JSON.parse(action.label);
     if (value && typeof value === "object" && "content" in value) {
@@ -67,6 +80,16 @@ function candidate(action: PendingToolAction): string {
       {{ agent.mode ? "Agent 模式·开" : "Agent 模式·关" }}
     </button>
     <span v-if="agent.progress" class="controls__progress">{{ agent.progress }}</span>
+
+    <!-- 角色只在 Agent 模式下有意义：它影响系统提示与工具白名单，普通聊天用不到。 -->
+    <NSelect
+      v-if="agent.mode"
+      class="controls__role"
+      size="small"
+      :value="agent.roleId"
+      :options="roleOptions"
+      @update:value="switchRole"
+    />
 
     <div v-for="action in visible()" :key="action.id" class="controls__action">
       <div class="controls__row">
@@ -153,6 +176,12 @@ function candidate(action: PendingToolAction): string {
   &__clear {
     font-size: 11px;
     color: var(--text-faint, #{t.$ink-faint});
+  }
+
+  // 面板最窄 320px：下拉必须撑满可用宽度，否则选项文字会被截到只剩两个字。
+  &__role {
+    width: 100%;
+    min-width: 0;
   }
 
   &__clear {

@@ -74,6 +74,37 @@ fn crud_and_relation_validation() {
 }
 
 #[test]
+fn update_rejects_stale_baseline_with_conflict() {
+    let (state, project_id) = temp_state("stale");
+    let created = create(
+        &state,
+        NewStoryElement {
+            project_id,
+            kind: "character".into(),
+            name: "沈夜".into(),
+            summary: "".into(),
+            detail: json!({}),
+        },
+    )
+    .unwrap();
+
+    // 模拟另一个窗口先保存：库里的 updated_at 前进，而调用方还拿着旧基准。
+    let mut stale = created.clone();
+    stale.summary = "窗口A的修改".into();
+    stale.updated_at = "2020-01-01T00:00:00.000Z".into();
+    let err = update(&state, &stale).expect_err("旧基准必须被拒绝");
+    assert_eq!(err.code, crate::error::ErrorCode::Conflict);
+
+    // 带库里最新基准再存，应通过；随后旧基准再次提交仍被拒。
+    let fresh = get(&state, &created.id).unwrap().expect("条目仍在");
+    let mut ok = fresh.clone();
+    ok.summary = "窗口B的修改".into();
+    update(&state, &ok).expect("最新基准可以保存");
+    let err = update(&state, &stale).expect_err("已被顶掉的基准继续拒绝");
+    assert_eq!(err.code, crate::error::ErrorCode::Conflict);
+}
+
+#[test]
 fn deleting_project_cascades_story_elements() {
     let (state, project_id) = temp_state("cascade");
     let element = create(

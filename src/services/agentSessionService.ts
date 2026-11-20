@@ -23,4 +23,8 @@ export const agentSessionService = {
   listSteps: (projectId: string): Promise<AgentStepRecord[]> => tauriApi.listAgentSteps(projectId),
   /** 全局的成功率聚合（不分作品），看板头部展示用。 */
   outcomeStats: (): Promise<AgentOutcomeStats> => tauriApi.agentOutcomeStats(),
+  /** 重命名会话：只改标题，作者可用它把「新对话」改成有辨识度的名字。 */
+  rename: (id: string, title: string): Promise<void> => tauriApi.renameAgentSession(id, title),
+  /** 删除会话：消息与轨迹一起删，删除前必须由界面二次确认。 */
+  remove: (id: string): Promise<void> => tauriApi.deleteAgentSession(id),
 };

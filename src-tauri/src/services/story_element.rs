@@ -213,6 +213,28 @@ pub fn update(state: &DbState, element: &StoryElement) -> Result<(), AppError> {
     )?;
     let detail = serde_json::to_string(&element.detail).map_err(AppError::from)?;
     let tx = conn.unchecked_transaction().map_err(AppError::from)?;
+    // 乐观锁：element.updated_at 是前端加载时的版本，库里已变说明别的窗口先保存了。
+    // 返回 conflict 让作者决定覆盖还是放弃，避免 last-writer-wins 静默吃掉对方的修改；
+    // 与正文的 content_revision 同一心智，这里直接拿时间戳本身当版本号。
+    // 基准为空（旧调用方没带）时跳过校验，保持兼容。
+    let baseline = element.updated_at.trim();
+    if !baseline.is_empty() {
+        let current: Option<String> = tx
+            .query_row(
+                "select updated_at from story_element where id = ?1",
+                params![element.id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(AppError::from)?;
+        match current {
+            None => return Err(AppError::not_found("设定条目不存在")),
+            Some(ts) if ts != baseline => {
+                return Err(AppError::conflict("该设定已在其它窗口被修改"));
+            }
+            Some(_) => {}
+        }
+    }
     let changed = tx
         .execute(
             r#"update story_element set kind=?2, name=?3, summary=?4, detail_json=?5,

@@ -94,13 +94,24 @@ export function useProjectReview(projectId: string) {
       ).length ?? 0,
   );
 
-  /** 章节下拉的选项：幕次写进标签，避免同名章节分不清。 */
-  const chapterOptions = computed(() =>
-    chapters.value.map((chapter) => ({
-      label: `第${chapter.act}幕 · ${chapter.title}`,
+  /**
+   * 章节下拉的选项：默认只显示章节名。
+   * 标题本身多含「第X章」，再拼「第N幕」会让标签过长被下拉框截断成「第1幕 · 第一章：零号废…」；
+   * 只有出现同名章节时才补幕次，保证两个「第一章」能分清。
+   */
+  const chapterOptions = computed(() => {
+    const titleCount = new Map<string, number>();
+    for (const chapter of chapters.value) {
+      titleCount.set(chapter.title, (titleCount.get(chapter.title) ?? 0) + 1);
+    }
+    return chapters.value.map((chapter) => ({
+      label:
+        (titleCount.get(chapter.title) ?? 0) > 1
+          ? `第${chapter.act}幕 · ${chapter.title}`
+          : chapter.title,
       value: chapter.id,
-    })),
-  );
+    }));
+  });
 
   async function load(): Promise<void> {
     if (!projectId) {

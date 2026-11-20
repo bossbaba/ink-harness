@@ -52,12 +52,18 @@ fn migrate_records_schema_version_and_is_idempotent() {
     assert_eq!(again, SCHEMA_VERSION);
 }
 
-/// v4 迁移要建出 Agent 会话/消息/步骤三张表，供会话记忆与轨迹回放使用。
+/// v4/v6 迁移要建出 Agent 会话、轨迹、角色与评测表。
 #[test]
 fn migrate_creates_agent_tables() {
     let conn = Connection::open_in_memory().unwrap();
     migrate(&conn).unwrap();
-    for table in ["agent_session", "agent_message", "agent_step"] {
+    for table in [
+        "agent_session",
+        "agent_message",
+        "agent_step",
+        "agent_role",
+        "agent_eval_run",
+    ] {
         let exists: bool = conn
             .query_row(
                 "select exists(select 1 from sqlite_master where type = 'table' and name = ?1)",

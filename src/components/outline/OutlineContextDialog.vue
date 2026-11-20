@@ -2,6 +2,7 @@
 import { NButton, NInput, NModal, NSpace } from "naive-ui";
 import { ref } from "vue";
 import LoadingState from "@/components/common/LoadingState.vue";
+import { MODAL_WIDTH, modalStyle } from "@/utils/modal";
 
 // 上下文预览：把「作品信息 + 设定库 + 大纲 + 伏笔」的纯文本展示出来，可直接复制给模型。
 const props = defineProps<{
@@ -35,7 +36,7 @@ async function copy(): Promise<void> {
     v-model:show="show"
     preset="card"
     title="作品上下文（可引用）"
-    :style="{ width: '760px', maxWidth: 'calc(100vw - 48px)' }"
+    :style="modalStyle(MODAL_WIDTH.xl)"
     :bordered="false"
   >
     <p class="hint">

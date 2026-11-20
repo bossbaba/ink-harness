@@ -275,9 +275,11 @@ function dropOnScene(chapter: Chapter, index: number): void {
 }
 
 // 目录常驻左侧，跟着页面滚（sticky），长页面里靠它直接跳到某一幕或某一章。
+// 宽度用 clamp 而不是写死 168px：168px 下章节名只放得下 10 个字，几乎每条都被截断；
+// 下限 184 保证可读，上限 216 避免宽屏时目录喧宾夺主。
 .board__toc {
   position: sticky;
-  flex: 0 0 168px;
+  flex: 0 0 clamp(184px, 17%, 216px);
   top: t.$space-6;
   min-width: 0;
 }

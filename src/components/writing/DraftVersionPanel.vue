@@ -3,6 +3,7 @@ import { NButton, NEmpty, NModal, NPopconfirm } from "naive-ui";
 import { computed } from "vue";
 import LoadingState from "@/components/common/LoadingState.vue";
 import type { DraftVersion, DraftVersionBrief } from "@/types";
+import { modalStyle } from "@/utils/modal";
 import { formatCount, formatDateTime } from "@/utils/text";
 import { documentToPlainText } from "@/utils/tiptap";
 
@@ -99,7 +100,7 @@ const previewText = computed(() =>
       preset="card"
       class="version-preview"
       :title="preview ? `第 ${preview.version} 版 · ${formatCount(preview.wordCount)} 字` : ''"
-      style="width: 720px; max-width: 92vw"
+      :style="modalStyle(720)"
       @update:show="emit('close-preview')"
     >
       <pre class="version-preview__text">{{ previewText }}</pre>

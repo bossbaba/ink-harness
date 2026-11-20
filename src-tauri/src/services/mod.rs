@@ -1,10 +1,13 @@
 pub mod agent;
+pub mod agent_eval;
+pub mod agent_role;
 pub mod chat;
 pub mod draft;
 pub mod embed;
 pub mod gateway;
 pub mod gateway_resolve;
 pub mod gateway_sse;
+pub mod guardrails;
 pub mod ollama;
 pub mod outline;
 pub mod outline_context;

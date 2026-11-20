@@ -121,6 +121,7 @@ const {
   addReference: addCopilotReference,
   removeReference: removeCopilotReference,
   agentPanel,
+  sessionBar,
 } = useWritingCopilot({
   projectId: props.projectId,
   project: () => project.value,
@@ -357,6 +358,7 @@ async function handleRestore(versionId: string): Promise<void> {
         :retrieved-count="copilotRetrieved"
         :assist="assistCard"
         :agent="agentPanel"
+        :session="sessionBar"
         @reindex="reindexRag"
         @send="(text: string) => sendCopilot(text)"
         @stop="stopCopilot"

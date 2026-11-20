@@ -38,6 +38,20 @@ const router = createRouter({
       meta: { title: "全局统计" },
     },
     {
+      // Agent 角色：全局配置，只定义 prompt 与工具白名单，不绑定模型。
+      path: "/agent-roles",
+      name: "agent-roles",
+      component: () => import("@/views/AgentRolesView.vue"),
+      meta: { title: "Agent 角色" },
+    },
+    {
+      // Agent 评测：全局页，选作品跑固定任务集，结果按时间累积。
+      path: "/agent-eval",
+      name: "agent-eval",
+      component: () => import("@/views/AgentEvalView.vue"),
+      meta: { title: "Agent 评测" },
+    },
+    {
       // 作品作用域的父路由：ProjectShellView 校验 projectId 并加载作品，
       // 校验通过后才渲染下面的子页面，避免无 ID 时回退到全局数据。
       // 父路由刻意不取名：它唯一的空路径子路由只做重定向，带 name 会触发

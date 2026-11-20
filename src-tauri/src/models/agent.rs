@@ -90,6 +90,78 @@ pub struct NewAgentStep {
     pub model: String,
 }
 
+/// Agent 角色：只定义 prompt 与可用工具，不绑定具体模型。
+/// tools 存 JSON 数组字符串；空串表示「全部工具」，便于新增工具自动对老角色生效。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRole {
+    pub id: String,
+    pub name: String,
+    pub prompt: String,
+    pub tools: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// 新建/更新角色的入参：id 为空表示新建，非空表示按 id 更新。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewAgentRole {
+    #[serde(default)]
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub prompt: String,
+    #[serde(default)]
+    pub tools: String,
+}
+
+/// 一次评测跑分的汇总：total/passed 算通过率，rounds/tokens/duration 看效率与成本。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentEvalRun {
+    pub id: String,
+    /// 评测所用作品；用例都基于该作品的数据，空串表示未指定。
+    pub project_id: String,
+    pub role_id: String,
+    pub role_name: String,
+    pub model: String,
+    pub total: i64,
+    pub passed: i64,
+    pub rounds: i64,
+    pub tokens: i64,
+    pub duration_ms: i64,
+    /// 逐例判定明细（JSON 数组），供历史回放与定位失败用例。
+    pub details: String,
+    pub created_at: String,
+}
+
+/// 追加一次评测结果；id 与 created_at 由后端生成。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewAgentEvalRun {
+    #[serde(default)]
+    pub project_id: String,
+    #[serde(default)]
+    pub role_id: String,
+    #[serde(default)]
+    pub role_name: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub total: i64,
+    #[serde(default)]
+    pub passed: i64,
+    #[serde(default)]
+    pub rounds: i64,
+    #[serde(default)]
+    pub tokens: i64,
+    #[serde(default)]
+    pub duration_ms: i64,
+    #[serde(default)]
+    pub details: String,
+}
+
 /// Agent 运行结果统计（看板成功率聚合）：按停止原因分组的轮次计数。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

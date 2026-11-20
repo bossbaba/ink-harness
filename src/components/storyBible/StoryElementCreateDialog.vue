@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NButton, NInput, NModal, NSelect, NSpace } from "naive-ui";
 import { STORY_KIND_OPTIONS, type StoryElementKind } from "@/types";
+import { MODAL_WIDTH, modalStyle } from "@/utils/modal";
 
 defineProps<{ creating: boolean; error: string }>();
 
@@ -23,7 +24,7 @@ function close(): void {
     v-model:show="show"
     preset="card"
     title="新建设定"
-    :style="{ width: '520px', maxWidth: 'calc(100vw - 48px)' }"
+    :style="modalStyle(MODAL_WIDTH.md)"
     :bordered="false"
   >
     <div class="form">

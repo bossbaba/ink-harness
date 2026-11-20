@@ -3,10 +3,10 @@
 use crate::commands::blocking;
 use crate::error::AppError;
 use crate::models::{
-    AgentMessage, AgentOutcomeStats, AgentSession, AgentStepRecord, NewAgentMessage,
-    NewAgentSession, NewAgentStep,
+    AgentEvalRun, AgentMessage, AgentOutcomeStats, AgentRole, AgentSession, AgentStepRecord,
+    NewAgentEvalRun, NewAgentMessage, NewAgentRole, NewAgentSession, NewAgentStep,
 };
-use crate::services::agent;
+use crate::services::{agent, agent_eval, agent_role};
 
 #[tauri::command]
 pub async fn create_agent_session(
@@ -59,4 +59,52 @@ pub async fn list_agent_steps(
 #[tauri::command]
 pub async fn agent_outcome_stats(app: tauri::AppHandle) -> Result<AgentOutcomeStats, AppError> {
     blocking(app, |state| agent::outcome_stats(state)).await
+}
+
+#[tauri::command]
+pub async fn rename_agent_session(
+    app: tauri::AppHandle,
+    id: String,
+    title: String,
+) -> Result<(), AppError> {
+    blocking(app, move |state| agent::rename_session(state, &id, &title)).await
+}
+
+#[tauri::command]
+pub async fn delete_agent_session(app: tauri::AppHandle, id: String) -> Result<(), AppError> {
+    blocking(app, move |state| agent::delete_session(state, &id)).await
+}
+
+#[tauri::command]
+pub async fn list_agent_roles(app: tauri::AppHandle) -> Result<Vec<AgentRole>, AppError> {
+    blocking(app, agent_role::list_roles).await
+}
+
+#[tauri::command]
+pub async fn save_agent_role(
+    app: tauri::AppHandle,
+    input: NewAgentRole,
+) -> Result<AgentRole, AppError> {
+    blocking(app, move |state| agent_role::save_role(state, &input)).await
+}
+
+#[tauri::command]
+pub async fn delete_agent_role(app: tauri::AppHandle, id: String) -> Result<(), AppError> {
+    blocking(app, move |state| agent_role::delete_role(state, &id)).await
+}
+
+#[tauri::command]
+pub async fn save_agent_eval_run(
+    app: tauri::AppHandle,
+    input: NewAgentEvalRun,
+) -> Result<AgentEvalRun, AppError> {
+    blocking(app, move |state| agent_eval::save_run(state, &input)).await
+}
+
+#[tauri::command]
+pub async fn list_agent_eval_runs(
+    app: tauri::AppHandle,
+    limit: i64,
+) -> Result<Vec<AgentEvalRun>, AppError> {
+    blocking(app, move |state| agent_eval::list_runs(state, limit)).await
 }

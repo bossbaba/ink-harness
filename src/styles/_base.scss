@@ -47,3 +47,9 @@ select {
 .serif {
   font-family: t.$font-serif;
 }
+
+// 弹窗兜底：NModal 默认没有宽度上限，漏写尺寸时会撑满整个窗口。
+// 各弹窗仍要用 utils/modal.ts 的 modalStyle 指定宽度，这里只保证永不超出视口。
+.n-modal {
+  max-width: calc(100vw - 48px);
+}

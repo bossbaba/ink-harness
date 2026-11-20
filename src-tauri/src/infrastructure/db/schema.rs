@@ -12,7 +12,8 @@ use super::init_schema;
 /// 3：修复「user_version 已到 2、`chapter.content_revision` 却没补上」的库。
 /// 4：Agent 会话与运行轨迹——会话/消息/步骤三张表，支撑 Copilot 跨会话记忆与轨迹回放。
 /// 5：Agent 消息记停止原因、步骤记模型——看板算成功率与成本折算要用。
-pub(super) const SCHEMA_VERSION: i64 = 5;
+/// 6：Agent 角色（prompt + 工具白名单）与评测结果表——补齐「角色管理」与「回归评估」。
+pub(super) const SCHEMA_VERSION: i64 = 6;
 
 /// 顺序迁移：从 `pragma user_version` 记录的位置往后执行。
 ///
@@ -130,6 +131,14 @@ pub(super) fn migrate(conn: &Connection) -> Result<(), AppError> {
             .map_err(AppError::from)?;
     }
 
+    if current < 6 {
+        // 角色表存「prompt + 工具白名单」，评测表存每次跑分的汇总与逐例明细。
+        // 两者都靠 create_agent_tables 的 if not exists 建，重复升级不会报错。
+        create_agent_tables(conn)?;
+        conn.pragma_update(None, "user_version", 6)
+            .map_err(AppError::from)?;
+    }
+
     Ok(())
 }
 
@@ -173,6 +182,36 @@ fn create_agent_tables(conn: &Connection) -> Result<(), AppError> {
 
         create index if not exists idx_agent_step_session
             on agent_step(session_id, iteration);
+
+        -- Agent 角色：只定义 prompt 与可用工具，不绑定具体模型（模型仍由任务路由决定）。
+        -- tools 存 JSON 数组（如 ["get_project","read_chapter"]），空数组表示「全部工具」。
+        create table if not exists agent_role (
+            id          text primary key,
+            name        text not null,
+            prompt      text not null default '',
+            tools       text not null default '',
+            created_at  text not null,
+            updated_at  text not null
+        );
+
+        -- 评测结果：一次跑分一行，details 存逐例判定明细（JSON），供历史对比与回放。
+        create table if not exists agent_eval_run (
+            id          text primary key,
+            project_id  text not null default '',
+            role_id     text not null default '',
+            role_name   text not null default '',
+            model       text not null default '',
+            total       integer not null default 0,
+            passed      integer not null default 0,
+            rounds      integer not null default 0,
+            tokens      integer not null default 0,
+            duration_ms integer not null default 0,
+            details     text not null default '',
+            created_at  text not null
+        );
+
+        create index if not exists idx_agent_eval_run_created
+            on agent_eval_run(created_at);
         "#,
     )
     .map_err(AppError::from)

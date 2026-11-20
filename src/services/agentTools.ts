@@ -2,6 +2,7 @@ import { runChat } from "@/services/aiChat";
 import { outlineService } from "@/services/outlineService";
 import { projectService } from "@/services/projectService";
 import { ragService } from "@/services/ragService";
+import { applyReviewEdits, type ReviewEdit } from "@/services/reviewApply";
 import { buildReviewMessages, parseReviewIssues } from "@/services/reviewService";
 import { storyElementService } from "@/services/storyElementService";
 import { writingService } from "@/services/writingService";
@@ -137,6 +138,79 @@ const proposeText: AgentTool = {
   },
 };
 
+/** 单次应用修改的条数上限：一次改几十处既超上下文，也让作者无从逐条核对。 */
+const MAX_EDITS = 50;
+
+/**
+ * 把「原文 → 替换」的修改真正写到章节正文里，是当前唯一的落库型写工具。
+ *
+ * 复用 reviewApply.applyReviewEdits：只在单个段落内按 quote 定位，
+ * 找不到就跳过（不猜位置），返回哪些成功、哪些失败，由作者回写作台手工补。
+ * 保存带 expectedContentRevision 乐观锁——审批期间正文被别的页面改过就失败，
+ * 不会把作者刚写的内容盖掉；snapshot=true 让本次修改在版本历史里留得下痕。
+ */
+const applyEdits: AgentTool = {
+  name: "apply_edits",
+  description:
+    "把若干处「原文→替换」修改应用到章节正文，提交作者审批。审批通过后才写入正文并留版本快照；找不到原文的条目会跳过。",
+  parameters: {
+    type: "object",
+    properties: {
+      chapterId: { type: "string", description: "章节 id；省略表示当前章节" },
+      label: { type: "string", description: "一句话说明这批修改的用途" },
+      edits: {
+        type: "array",
+        description: `修改条目，最多 ${MAX_EDITS} 条；quote 必须是正文里的原文片段`,
+        items: {
+          type: "object",
+          properties: {
+            quote: { type: "string", description: "要替换的原文片段" },
+            replacement: { type: "string", description: "替换后的文字" },
+          },
+          required: ["quote", "replacement"],
+        },
+      },
+    },
+    required: ["edits"],
+    additionalProperties: false,
+  },
+  risk: "write",
+  async run(args, ctx) {
+    const chapterId =
+      typeof args.chapterId === "string" && args.chapterId ? args.chapterId : ctx.chapterId;
+    if (!chapterId) return "尚未选择章节，且未提供 chapterId";
+    const raw = Array.isArray(args.edits) ? args.edits : [];
+    const edits: ReviewEdit[] = [];
+    for (const [index, item] of raw.entries()) {
+      if (!item || typeof item !== "object") continue;
+      const { quote, replacement } = item as { quote?: unknown; replacement?: unknown };
+      if (typeof quote !== "string" || !quote.trim()) continue;
+      if (typeof replacement !== "string") continue;
+      edits.push({ id: `edit-${index}`, quote, replacement });
+    }
+    if (edits.length === 0) return "没有可应用的修改（edits 为空或格式不对）";
+    if (edits.length > MAX_EDITS) return `一次最多应用 ${MAX_EDITS} 处修改，请拆成多批`;
+
+    const current = await writingService.getContent(chapterId);
+    const result = applyReviewEdits(current.content, edits);
+    if (result.appliedIds.length === 0) {
+      return `没有在正文里找到要替换的原文，未做任何改动（${result.failedIds.length} 条定位失败）`;
+    }
+    await writingService.saveContent({
+      chapterId,
+      content: result.content,
+      wordCount: result.wordCount,
+      // 留一版快照，作者在版本历史里能回到这次修改之后的状态再手工调整。
+      snapshot: true,
+      // 乐观锁：审批期间正文若被改动，这里会抛冲突，执行器把它标成失败。
+      expectedContentRevision: current.contentRevision,
+    });
+    return `已应用 ${result.appliedIds.length} 处修改${
+      result.failedIds.length ? `，${result.failedIds.length} 处未匹配原文已跳过` : ""
+    }`;
+  },
+};
+
 /** 用 id 引用一条设定，属于写操作的准备动作：返回设定内容，是否修改仍由作者决定。 */
 const inspectElement: AgentTool = {
   name: "inspect_element",
@@ -231,6 +305,7 @@ export const AGENT_TOOLS: AgentTool[] = [
   inspectElement,
   proposeReview,
   proposeText,
+  applyEdits,
 ];
 
 /** 按名字找工具；未注册的名字返回 undefined，由执行器转成错误观察。 */

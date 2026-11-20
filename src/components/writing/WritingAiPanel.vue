@@ -3,6 +3,7 @@ import { NButton, NInput, NTag } from "naive-ui";
 import { computed, nextTick, ref, watch } from "vue";
 import AgentControls from "@/components/writing/AgentControls.vue";
 import CopilotReferencePicker from "@/components/writing/CopilotReferencePicker.vue";
+import CopilotSessionBar from "@/components/writing/CopilotSessionBar.vue";
 import WritingAssistCard from "@/components/writing/WritingAssistCard.vue";
 import {
   type AgentPanelState,
@@ -11,6 +12,7 @@ import {
   COPILOT_REF_KIND_LABEL,
   type CopilotMessage,
   type CopilotReference,
+  type CopilotSessionBarState,
   type StoryElement,
 } from "@/types";
 
@@ -45,6 +47,8 @@ const props = defineProps<{
   /** 当前这次写作辅助（续写/改写等）的结果卡片；visible 为假时不渲染。 */
   assist: AssistCardState;
   agent: AgentPanelState;
+  /** 会话条状态：会话列表、当前会话与角色选择。 */
+  session: CopilotSessionBarState;
 }>();
 
 const emit = defineEmits<{
@@ -149,6 +153,9 @@ function isLive(message: CopilotMessage): boolean {
       </NButton>
     </p>
     <p v-if="ragError" class="chat__rag-error">{{ ragError }}</p>
+
+    <!-- 会话条固定在消息列表之上：切换会话不该被长对话顶到看不见的位置。 -->
+    <CopilotSessionBar :state="session" />
 
     <div ref="listRef" class="chat__list">
       <div v-if="showQuickPrompts" class="chat__empty">

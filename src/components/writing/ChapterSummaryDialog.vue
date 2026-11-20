@@ -2,6 +2,7 @@
 import { NButton, NInput, NInputNumber, NModal, NSwitch } from "naive-ui";
 import { ref, watch } from "vue";
 import type { SummaryMeta } from "@/services/summaryService";
+import { MODAL_WIDTH, modalStyle } from "@/utils/modal";
 
 /**
  * 章节摘要弹窗：既能看/改摘要，也能调上下文预算与自动更新开关。
@@ -49,7 +50,7 @@ const dirty = () => draft.value !== props.summary;
     preset="card"
     title="章节摘要 · 长期记忆"
     class="summary-dialog"
-    :style="{ width: '640px', maxWidth: 'calc(100vw - 48px)' }"
+    :style="modalStyle(MODAL_WIDTH.lg)"
     @update:show="(value: boolean) => emit('update:show', value)"
   >
     <div class="summary">

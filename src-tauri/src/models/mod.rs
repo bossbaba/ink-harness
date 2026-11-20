@@ -11,8 +11,8 @@ pub mod story_element;
 pub mod usage;
 
 pub use agent::{
-    AgentMessage, AgentOutcomeStats, AgentSession, AgentStepRecord, NewAgentMessage,
-    NewAgentSession, NewAgentStep,
+    AgentEvalRun, AgentMessage, AgentOutcomeStats, AgentRole, AgentSession, AgentStepRecord,
+    NewAgentEvalRun, NewAgentMessage, NewAgentRole, NewAgentSession, NewAgentStep,
 };
 pub use chat::{ChatChunk, ChatParams, TokenUsage, ToolCallChunk};
 pub use draft::{ChapterContent, DraftVersion, DraftVersionBrief, SaveContentInput};

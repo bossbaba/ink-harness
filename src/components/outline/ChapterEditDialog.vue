@@ -2,6 +2,7 @@
 import { NButton, NInput, NModal, NSelect, NSpace } from "naive-ui";
 import { computed } from "vue";
 import { actOptions, CHAPTER_STATUS_OPTIONS, type ChapterDraft, DEFAULT_ACT_COUNT } from "@/types";
+import { MODAL_WIDTH, modalStyle } from "@/utils/modal";
 
 // 章节弹窗：只编辑草稿，提交动作 emit save 交给页面/composable 发请求。
 const props = withDefaults(
@@ -32,7 +33,7 @@ function close(): void {
     v-model:show="show"
     preset="card"
     :title="props.isNew ? '新增章节' : '编辑章节'"
-    :style="{ width: '520px', maxWidth: 'calc(100vw - 48px)' }"
+    :style="modalStyle(MODAL_WIDTH.md)"
     :bordered="false"
   >
     <div class="form">

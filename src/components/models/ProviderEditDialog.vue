@@ -13,6 +13,7 @@ import {
 } from "naive-ui";
 import { computed } from "vue";
 import { DEFAULT_CONTEXT_WINDOW, type ProviderConfig } from "@/types";
+import { MODAL_WIDTH, modalStyle } from "@/utils/modal";
 
 // Provider 编辑弹窗：字段全部双向绑定到 composable 的草稿，
 // 探测与保存通过 emit 交给父组件，弹窗自身不发请求。
@@ -76,7 +77,7 @@ function close(): void {
     v-model:show="show"
     preset="card"
     :title="props.isNew ? '新增 Provider' : '编辑 Provider'"
-    :style="{ width: '640px', maxWidth: 'calc(100vw - 48px)' }"
+    :style="modalStyle(MODAL_WIDTH.lg)"
     :bordered="false"
   >
     <div class="form">

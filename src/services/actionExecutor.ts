@@ -1,4 +1,5 @@
 import { findTool } from "@/services/agentTools";
+import { scrubText } from "@/services/guardrails";
 import type {
   AgentTool,
   CollectedToolCall,
@@ -83,7 +84,8 @@ async function executeOne(call: CollectedToolCall, ctx: ToolContext): Promise<To
     return { ...base, content: approvalPrompt(action), isError: false };
   }
   try {
-    const content = await tool.run(call.arguments, ctx);
+    // 工具结果会进下一轮提示词与界面气泡，先脱敏再回填（原因见 guardrails.ts）。
+    const content = scrubText(await tool.run(call.arguments, ctx));
     return { ...base, content, isError: false };
   } catch (err) {
     return { ...base, content: `工具执行失败：${String(err)}`, isError: true };
@@ -109,7 +111,8 @@ export async function approveAction(
   const action = pending.find((item) => item.id === id);
   if (action?.status !== "pending") return null;
   try {
-    const result = await action.tool.run(action.args, ctx);
+    // 审批通过后返回的结果会展示到卡片上，同样要脱敏。
+    const result = scrubText(await action.tool.run(action.args, ctx));
     action.status = "applied";
     action.error = "";
     return { ...action, label: result };

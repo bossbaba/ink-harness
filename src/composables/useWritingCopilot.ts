@@ -1,7 +1,8 @@
 import { computed, ref } from "vue";
 import { useAgentActions } from "@/composables/useAgentActions";
+import { useCopilotSession } from "@/composables/useCopilotSession";
 import { runAgentLoop } from "@/services/agentLoop";
-import { agentSessionService } from "@/services/agentSessionService";
+import { agentRoleService, parseRoleTools } from "@/services/agentRoleService";
 import { contextCharCount } from "@/services/aiContext";
 import {
   buildCopilotMessages,
@@ -13,7 +14,16 @@ import { outlineService } from "@/services/outlineService";
 import { loadRelatedNotes } from "@/services/ragService";
 import { storyElementService } from "@/services/storyElementService";
 import { getContextBudget } from "@/services/summaryService";
-import type { CopilotMessage, CopilotReference, Project, StoryElement } from "@/types";
+import type {
+  AgentMessageRecord,
+  AgentRole,
+  CopilotMessage,
+  CopilotReference,
+  CopilotSessionAction,
+  CopilotSessionBarState,
+  Project,
+  StoryElement,
+} from "@/types";
 
 export interface WritingCopilotOptions {
   projectId: string;
@@ -36,12 +46,25 @@ function nextMessageId(): string {
   return `copilot-${messageSeq}`;
 }
 
+/** 把落库消息映射成界面消息；引用关系不持久化，恢复后不带 @ 标记。 */
+function toMessages(records: AgentMessageRecord[]): CopilotMessage[] {
+  return records.map((record) => ({
+    id: record.id,
+    role: record.role === "user" ? "user" : "assistant",
+    content: record.content,
+    references: [],
+  }));
+}
+
 /**
  * 写作台 Copilot：多轮对话 + @引用设定/章节，流式收字。
  *
  * 与「AI 辅助」的区别：辅助是一次性的改写任务、结果直接回写正文；
  * Copilot 是聊天，结果只做展示，作者确认后才点「插入到正文」。
  * 因此这里不碰编辑器，插入动作由页面转交编辑器实例执行。
+ *
+ * 会话记忆、切换与落库在 useCopilotSession 里；角色（prompt + 工具白名单）
+ * 在这里解析后传给 Agent Loop，让同一份模型配置能切换写作/审稿等身份。
  */
 export function useWritingCopilot(options: WritingCopilotOptions) {
   const messages = ref<CopilotMessage[]>([]);
@@ -57,6 +80,12 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
     projectId: options.projectId,
     chapterId: options.chapterId?.() || undefined,
   }));
+  /** 会话记忆：列表、切换、重命名、删除与落库。 */
+  const session = useCopilotSession(options.projectId);
+  /** 角色列表与当前选择；空 roleId 表示「默认角色」（全部工具、无额外 prompt）。 */
+  const roles = ref<AgentRole[]>([]);
+  const roleId = ref("");
+  const rolesError = ref("");
   /** 下一条消息要携带的引用；发送后清空，避免每条都重复注入同一批资料。 */
   const references = ref<CopilotReference[]>([]);
   /** 最近一次提问检索到的片段数，用于在界面上说明「资料从哪来」。 */
@@ -67,118 +96,33 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
   const referenceChapters = ref<Array<{ id: string; act: number; title: string }>>([]);
   const referenceLoading = ref(false);
   const referenceError = ref("");
-  /** 记住已加载的作品，切作品后重取，同作品反复展开不重复请求。 */
-  let referencesLoadedFor = "";
 
   // 作品上下文在会话内只拼一次：写作过程中设定/大纲变了，重新打开页面即可刷新。
   let contextCache: string | null = null;
   // 每次发送自增：停止或新问题到来后，旧请求迟到的分片直接丢弃。
   let requestSeq = 0;
-  /** 当前会话 id；首次发送时惰性创建，失败不阻塞对话（持久化是锦上添花）。 */
-  let sessionId = "";
+  /** 记住已加载的作品，切作品后重取，同作品反复展开不重复请求。 */
+  let referencesLoadedFor = "";
 
-  /** 确保会话存在，返回会话 id；并发调用复用同一个 promise，避免建出多个会话。 */
-  let sessionPromise: Promise<string> | null = null;
-  function ensureSession(): Promise<string> {
-    if (sessionId) return Promise.resolve(sessionId);
-    if (!sessionPromise) {
-      sessionPromise = agentSessionService
-        .create({ projectId: options.projectId })
-        .then((session) => {
-          sessionId = session.id;
-          return session.id;
-        })
-        .finally(() => {
-          sessionPromise = null;
-        });
-    }
-    return sessionPromise;
+  /** 打开面板时恢复最近一次会话：关掉应用再回来还能接着聊。 */
+  async function restore(): Promise<void> {
+    const records = await session.restoreLatest();
+    // 等待期间作者可能已经开聊，不能覆盖现场。
+    if (records.length === 0 || messages.value.length > 0) return;
+    messages.value = toMessages(records);
   }
 
-  /**
-   * 打开面板时恢复最近一次会话的历史消息：作者关掉应用再回来还能接着聊。
-   * 恢复失败只记日志不打断——记忆是锦上添花，对话本身不依赖它。
-   */
-  async function restoreSession(): Promise<void> {
+  /** 加载角色列表；失败只提示，不影响默认角色的使用。 */
+  async function loadRoles(): Promise<void> {
     try {
-      const sessions = await agentSessionService.list(options.projectId);
-      const latest = sessions[0];
-      if (!latest) return;
-      const records = await agentSessionService.listMessages(latest.id);
-      // 等待期间作者可能已经开聊：ensureSession 建了新会话、消息也进了列表，不能覆盖现场。
-      if (sessionId || messages.value.length > 0) return;
-      sessionId = latest.id;
-      if (records.length === 0) return;
-      messages.value = records.map((record) => ({
-        id: record.id,
-        role: record.role === "user" ? "user" : "assistant",
-        content: record.content,
-        references: [],
-      }));
+      roles.value = await agentRoleService.list();
     } catch (err) {
-      console.warn("恢复 Copilot 会话失败：", err);
+      rolesError.value = `读取角色失败：${String(err)}`;
     }
   }
-  void restoreSession();
 
-  /** 生成一条落库消息 id，避免同一毫秒内两条消息撞 id。 */
-  let persistSeq = 0;
-  function nextPersistId(): string {
-    persistSeq += 1;
-    return `persist-${Date.now()}-${persistSeq}`;
-  }
-
-  /** 一轮持久化步骤的类型（轨迹落库用）；tokens/latencyMs/model 来自 Loop 的真实记账。 */
-  interface StepToPersist {
-    iteration: number;
-    calls: Array<{ name: string; arguments: Record<string, unknown> }>;
-    observations: Array<{ toolName: string; content: string; isError: boolean }>;
-    tokens: number;
-    latencyMs: number;
-    model: string;
-  }
-
-  /**
-   * 把一次问答（用户消息 + 助手回答 + Agent 轨迹）顺序落库。
-   * reason 是本轮循环的停止原因，看板用它算成功率；普通聊天不传。
-   * 全部异常都吞掉并记日志：记忆写入是锦上添花，失败不该打断正在进行的对话。
-   */
-  async function persistExchange(
-    question: string,
-    answer: string,
-    steps: StepToPersist[] = [],
-    reason?: string,
-  ): Promise<void> {
-    try {
-      const sid = await ensureSession();
-      await agentSessionService.appendMessage({
-        id: nextPersistId(),
-        sessionId: sid,
-        role: "user",
-        content: question,
-      });
-      await agentSessionService.appendMessage({
-        id: nextPersistId(),
-        sessionId: sid,
-        role: "assistant",
-        content: answer,
-        stopReason: reason,
-      });
-      for (const step of steps) {
-        await agentSessionService.appendStep({
-          sessionId: sid,
-          iteration: step.iteration,
-          toolCalls: JSON.stringify(step.calls),
-          observations: JSON.stringify(step.observations),
-          tokens: step.tokens,
-          latencyMs: step.latencyMs,
-          model: step.model,
-        });
-      }
-    } catch (err) {
-      console.warn("保存 Copilot 会话失败：", err);
-    }
-  }
+  void restore();
+  void loadRoles();
 
   /** 首次展开 @引用 面板时加载候选：设定全量 + 大纲快照，失败给出可见错误。 */
   async function loadReferences(): Promise<void> {
@@ -305,7 +249,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
       );
       await handle.done.catch(() => undefined);
       // 对话落库：失败不阻塞，作者仍能正常看到与使用回答。
-      void persistExchange(text, messages.value[answerIndex].content);
+      void session.persist(text, messages.value[answerIndex].content);
     } catch (err) {
       if (seq !== requestSeq) return;
       error.value = err instanceof Error ? err.message : String(err);
@@ -318,6 +262,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
   /**
    * Agent 模式发送：跑「思考→行动→观察」循环，每轮结果追加到同一条助手消息里展示。
    * 与普通模式共用作品上下文/引用/检索口径，只是把一次性回答换成多轮循环。
+   * 角色只裁剪工具与追加 prompt，不改变模型路由。
    */
   async function sendAgent(question: string): Promise<void> {
     const text = question.trim();
@@ -360,6 +305,9 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
       if (seq !== requestSeq) return;
       const selected = modelRouter.select({ task: "copilot", privacy: project.privacy });
       const supportsTools = selected?.capabilities.tools === true;
+      // 角色白名单为空表示全部工具；角色 prompt 作为附加要求拼在 system 末尾。
+      const role = roles.value.find((item) => item.id === roleId.value) ?? null;
+      const toolNames = parseRoleTools(role);
 
       const system = buildCopilotSystem({
         project,
@@ -387,6 +335,8 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
         history: chatMessages.filter((message) => message.role !== "system").slice(0, -1),
         question: chatMessages[chatMessages.length - 1]?.content ?? text,
         supportsTools,
+        toolNames,
+        extraPrompt: role?.prompt ?? "",
         shouldStop: () => seq !== requestSeq,
         onStep: (step) => {
           if (seq !== requestSeq) return;
@@ -411,7 +361,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
         messages.value[answerIndex].content = result.answer || "（没有拿到结果）";
       }
       // 会话记忆与轨迹落库：失败不影响对话展示；停止原因给看板算成功率。
-      void persistExchange(text, messages.value[answerIndex].content, result.steps, result.reason);
+      void session.persist(text, messages.value[answerIndex].content, result.steps, result.reason);
       agentProgress.value = "";
     } catch (err) {
       if (seq !== requestSeq) return;
@@ -438,10 +388,44 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
     else if (action.type === "reject") agentActions.reject(action.id);
     else if (action.type === "insert") options.insertAtCursor?.(action.text);
     else if (action.type === "clear") agentActions.clear();
+    else if (action.type === "role") roleId.value = action.id;
     else agentMode.value = !agentMode.value;
   }
 
-  /** 清空对话：换作品或想重新开始时用，连同引用一起清掉。 */
+  /**
+   * 会话条动作：新建/切换/重命名/删除会话。
+   * 切换会话会整屏替换消息，正在流式生成时拒绝切换，避免半截回答丢进别的会话。
+   */
+  async function handleSessionAction(action: CopilotSessionAction): Promise<void> {
+    if (streaming.value) {
+      error.value = "正在生成回答，先停止再切换会话。";
+      return;
+    }
+    if (action.type === "new") {
+      // 已经停在一个空的「新对话」里就不重复建，否则连点几下会堆出一排空标签。
+      const current = session.sessions.value.find((item) => item.id === session.currentId.value);
+      if (current && current.title === "新对话" && messages.value.length === 0) return;
+      messages.value = [];
+      agentProgress.value = "";
+      await session.createNew();
+      return;
+    }
+    if (action.type === "switch") {
+      const records = await session.open(action.id);
+      messages.value = toMessages(records);
+      return;
+    }
+    if (action.type === "rename") {
+      await session.rename(action.id, action.title);
+      return;
+    }
+    // 删除当前会话时清空界面，避免消息悬在一个已不存在的会话 id 上。
+    const removingCurrent = action.id === session.currentId.value;
+    await session.remove(action.id);
+    if (removingCurrent) messages.value = [];
+  }
+
+  /** 清空对话：换作品或想重新开始时用，连同引用一起清掉，并开一条新会话。 */
   function clear(): void {
     requestSeq += 1;
     streaming.value = false;
@@ -450,8 +434,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
     retrievedCount.value = 0;
     error.value = "";
     agentProgress.value = "";
-    // 清空即视为开新会话：下次发送时 ensureSession 另建一条，历史不再混在一起。
-    sessionId = "";
+    session.startNew();
   }
 
   return {
@@ -466,7 +449,18 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
       error: agentActions.error.value,
       mode: agentMode.value,
       progress: agentProgress.value,
+      // 角色只影响 Agent 模式，所以跟着 Agent 面板走，不占会话条的空间。
+      roles: roles.value,
+      roleId: roleId.value,
       onAction: handleAgentAction,
+    })),
+    // 会话条同样打包：只放会话列表与当前会话，窄面板里不会挤成三行按钮。
+    sessionBar: computed<CopilotSessionBarState>(() => ({
+      sessions: session.sessions.value,
+      currentId: session.currentId.value,
+      loading: session.loading.value,
+      error: rolesError.value || session.error.value,
+      onAction: handleSessionAction,
     })),
     references,
     retrievedCount,

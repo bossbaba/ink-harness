@@ -17,15 +17,19 @@ export interface AgentPanelState {
   error: string;
   mode: boolean;
   progress: string;
+  /** 可选角色列表；空 roleId 表示默认角色（全部工具、无额外 prompt）。 */
+  roles: AgentRole[];
+  roleId: string;
   /** 统一的动作处理函数，由 composable 绑定好编辑器插入回调。 */
   onAction: (action: AgentPanelAction) => Promise<void>;
 }
 
-/** Agent 面板发出的动作，用共用事件收敛 approve/reject/insert/clear/toggle。 */
+/** Agent 面板发出的动作，用共用事件收敛 approve/reject/insert/clear/toggle/role。 */
 export type AgentPanelAction =
   | { type: "approve" | "reject"; id: string }
   | { type: "insert"; text: string }
-  | { type: "clear" | "toggle" };
+  | { type: "clear" | "toggle" }
+  | { type: "role"; id: string };
 
 /** 工具执行上下文：由调用方（Agent Loop / Copilot）注入，工具本身不直接读全局状态。 */
 export interface ToolContext {
@@ -153,6 +157,91 @@ export interface NewAgentStep {
   latencyMs?: number;
   model?: string;
 }
+
+/**
+ * Agent 角色：只定义 prompt 与工具白名单，不绑定模型。
+ * tools 是 JSON 数组字符串；空串表示「全部工具」，新增工具对老角色自动生效。
+ */
+export interface AgentRole {
+  id: string;
+  name: string;
+  prompt: string;
+  tools: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 新建/更新角色入参：id 为空表示新建。 */
+export interface NewAgentRole {
+  id?: string;
+  name: string;
+  prompt?: string;
+  tools?: string;
+}
+
+/** 评测里单个用例的结果，落库时序列化成 details。 */
+export interface AgentEvalCaseResult {
+  caseId: string;
+  title: string;
+  /** 是否通过：期望工具命中 + 无错误观察 + 有最终回答才算通过。 */
+  ok: boolean;
+  /** 未通过原因，界面直接展示，便于定位是模型能力还是用例本身的问题。 */
+  reason: string;
+  rounds: number;
+  /** 本用例实际调到的工具名，按轮次顺序。 */
+  calls: string[];
+  tokens: number;
+}
+
+/** 一次评测跑分（对应 Rust agent_eval_run）。 */
+export interface AgentEvalRun {
+  id: string;
+  projectId: string;
+  roleId: string;
+  roleName: string;
+  model: string;
+  total: number;
+  passed: number;
+  rounds: number;
+  tokens: number;
+  durationMs: number;
+  /** 逐例明细 JSON 字符串。 */
+  details: string;
+  createdAt: string;
+}
+
+/** 追加评测结果入参（id/createdAt 由后端生成）。 */
+export interface NewAgentEvalRun {
+  projectId?: string;
+  roleId?: string;
+  roleName?: string;
+  model?: string;
+  total?: number;
+  passed?: number;
+  rounds?: number;
+  tokens?: number;
+  durationMs?: number;
+  details?: string;
+}
+
+/**
+ * Copilot 面板顶部会话条的状态（打包成一个 prop 减少父子接口行数）。
+ * 角色选择不在这里：它只影响 Agent 模式，放在 Agent 控制区（AgentControls）更贴近语义。
+ */
+export interface CopilotSessionBarState {
+  sessions: AgentSession[];
+  currentId: string;
+  loading: boolean;
+  error: string;
+  onAction: (action: CopilotSessionAction) => void | Promise<void>;
+}
+
+/** 会话条动作：新建/切换/重命名/删除会话。 */
+export type CopilotSessionAction =
+  | { type: "new" }
+  | { type: "switch"; id: string }
+  | { type: "rename"; id: string; title: string }
+  | { type: "delete"; id: string };
 
 /** Agent 运行结果统计（对应 Rust AgentOutcomeStats），看板算成功率用。 */
 export interface AgentOutcomeStats {

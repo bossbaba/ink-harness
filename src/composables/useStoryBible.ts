@@ -13,6 +13,7 @@ import {
   type StoryElementKind,
   type StoryRelation,
 } from "@/types";
+import { normalizeError } from "@/utils/errors";
 import { onReactivated } from "@/utils/lifecycle";
 
 export type KindFilter = StoryElementKind | "all";
@@ -202,7 +203,15 @@ export function useStoryBible(projectIdFromRoute: string) {
       });
       await loadElements();
     } catch (err) {
-      error.value = String(err);
+      const info = normalizeError(err);
+      if (info.code === "conflict") {
+        // 别的窗口先保存了：只刷新列表基准（selected 换成库里最新、表单草稿保留），
+        // 作者再点一次保存即用当前表单覆盖——覆盖与否由人决定，不静默吃掉对方的修改。
+        await loadElements(true);
+        error.value = `${info.message}。已载入最新版本——再点一次「保存」将用当前表单覆盖对方的修改。`;
+      } else {
+        error.value = info.message;
+      }
     } finally {
       saving.value = false;
     }

@@ -30,6 +30,9 @@ export const GLOBAL_NAV: GlobalNavItem[] = [
   { key: "stats", label: "统计", icon: "stats", path: "/stats" },
   { key: "bible", label: "设定库", icon: "bible", path: "/bible" },
   { key: "models", label: "模型管理", icon: "models", path: "/models" },
+  // Agent 的两个全局配置页与模型管理同级：它们对所有作品生效，不属于某部作品。
+  { key: "agent-roles", label: "Agent 角色", icon: "models", path: "/agent-roles" },
+  { key: "agent-eval", label: "Agent 评测", icon: "stats", path: "/agent-eval" },
 ];
 
 /** 作品内二级导航：每一项都有对应子路由，不存在禁用占位。 */

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NButton, NInput, NModal, NSpace } from "naive-ui";
 import type { SceneDraft } from "@/types";
+import { modalStyle } from "@/utils/modal";
 
 // 场景弹窗：POV/地点/时间是场景卡的三个关键要素，也是 AI 续写的最小上下文。
 const props = defineProps<{
@@ -24,7 +25,7 @@ function close(): void {
     v-model:show="show"
     preset="card"
     :title="props.isNew ? '新增场景' : '编辑场景'"
-    :style="{ width: '560px', maxWidth: 'calc(100vw - 48px)' }"
+    :style="modalStyle(560)"
     :bordered="false"
   >
     <div class="form">

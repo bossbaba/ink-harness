@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { NButton, NEmpty, NSelect } from "naive-ui";
 import { computed, onMounted, ref, watch } from "vue";
-import AppEmpty from "@/components/common/AppEmpty.vue";
 import LoadingState from "@/components/common/LoadingState.vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import type { SegmentOption } from "@/components/common/segmentedControl";
 import ReviewLayerSection from "@/components/review/ReviewLayerSection.vue";
+import ReviewRunState from "@/components/review/ReviewRunState.vue";
 import { useProjectReview } from "@/composables/useProjectReview";
 import { reviewToMarkdown } from "@/services/reviewService";
 import { REVIEW_LAYER_ORDER, type ReviewScope } from "@/types";
@@ -27,6 +27,8 @@ const {
   scope,
   chapterId,
   chapterOptions,
+  // 运行态要显示「正在审读：章节名」，全书概览时为空。
+  currentChapter,
   canRun,
   running,
   progress,
@@ -107,10 +109,11 @@ async function copyReport(): Promise<void> {
 <template>
   <div class="review">
     <header class="review__header">
-      <div>
+      <div class="review__heading">
         <h1 class="review__title serif">{{ pageTitle }}</h1>
+        <!-- 一句话说清分工：一致性靠规则、结构与语言靠模型；太长会换行挤掉工具条。 -->
         <p class="review__subtitle">
-          一致性由设定库规则直接检查，结构与语言交给模型。逐条审阅后可把可替换的修改写回本章正文。
+          一致性查设定库规则，结构与语言交给模型；审完可逐条采纳写回正文。
         </p>
       </div>
     </header>
@@ -138,18 +141,26 @@ async function copyReport(): Promise<void> {
 
         <span class="controls__spacer" />
 
+        <!-- 进度与停止放在同一行右侧：运行中不该再占一整行灰字，让页面看起来像卡住了。 -->
+        <span v-if="running" class="controls__status">
+          {{ progress || "准备中…"
+          }}<template v-if="received"> · 已收到 {{ received }} 字</template>
+        </span>
         <NButton v-if="running" size="small" @click="stop">停止</NButton>
-        <NButton v-else size="small" type="primary" :disabled="!canRun" @click="startReview">
-          {{ report ? "重新审读" : "开始审读" }}
+        <!-- 首次审读的入口交给下方引导卡，避免同一屏出现两个「开始审读」。 -->
+        <NButton
+          v-else-if="report"
+          size="small"
+          type="primary"
+          :disabled="!canRun"
+          @click="startReview"
+        >
+          重新审读
         </NButton>
       </div>
 
-      <p v-if="running" class="controls__status">
-        {{ progress || "准备中…" }}
-        <template v-if="received">已收到 {{ received }} 字</template>
-      </p>
       <LoadingState
-        v-else-if="loading"
+        v-if="loading"
         class="controls__hint"
         variant="inline"
         text="正在读取作品与章节…"
@@ -165,15 +176,30 @@ async function copyReport(): Promise<void> {
 
     <p v-if="error" class="review__error">{{ error }}</p>
 
-    <section v-if="report?.raw" class="raw">
-      <header class="raw__head">
-        <h2 class="raw__title">模型原始输出（未能解析成条目）</h2>
-        <span class="raw__hint">可复制出来手工整理</span>
-      </header>
-      <pre class="raw__text">{{ report.raw }}</pre>
-    </section>
+    <!--
+      运行/空状态交给子组件：审读中显示进度卡（带章节名与骨架），
+      未开始时显示三步引导，与工具条同宽，不再是悬浮在页面中间的小卡片。
+    -->
+    <ReviewRunState
+      v-if="!report"
+      :running="running"
+      :loading="loading"
+      :progress="progress"
+      :received="received"
+      :chapter-title="currentChapter?.title ?? ''"
+      :can-run="canRun"
+      @start="startReview"
+    />
 
-    <template v-if="report">
+    <template v-else>
+      <section v-if="report?.raw" class="raw">
+        <header class="raw__head">
+          <h2 class="raw__title">模型原始输出（未能解析成条目）</h2>
+          <span class="raw__hint">可复制出来手工整理</span>
+        </header>
+        <pre class="raw__text">{{ report.raw }}</pre>
+      </section>
+
       <div class="summary">
         <p class="summary__text">{{ summary }}</p>
         <span v-if="acceptedCount || rejectedCount" class="summary__progress">
@@ -213,16 +239,6 @@ async function copyReport(): Promise<void> {
         @comment="setComment"
       />
     </template>
-
-    <AppEmpty
-      v-else-if="!running"
-      class="placeholder"
-      icon="review"
-      title="还没有审稿报告"
-      description="「本章」连语言一起细看；「全书概览」只查结构与一致性，速度快、不读正文。"
-      action-label="开始审稿"
-      @action="startReview"
-    />
   </div>
 </template>
 
@@ -244,6 +260,10 @@ async function copyReport(): Promise<void> {
     gap: t.$space-4;
   }
 
+  &__heading {
+    min-width: 0;
+  }
+
   &__title {
     margin: 0;
     font-size: 1.5rem;
@@ -251,6 +271,8 @@ async function copyReport(): Promise<void> {
   }
 
   &__subtitle {
+    // 限制行长：一行读完的分工说明比铺满 1000px 更好读。
+    max-width: 640px;
     margin: t.$space-2 0 0;
     font-size: 12px;
     line-height: 1.7;
@@ -274,7 +296,8 @@ async function copyReport(): Promise<void> {
 
 .controls {
   margin-top: t.$space-4;
-  padding: t.$space-4;
+  // 工具条只放控件，纵向压到 12px：上一版 16px 让它看起来像内容卡而不是条。
+  padding: t.$space-3 t.$space-4;
   @include m.card-surface(var(--bg-surface));
 
   &__row {
@@ -286,7 +309,8 @@ async function copyReport(): Promise<void> {
   }
 
   &__chapter {
-    width: 220px;
+    // 260px 才放得下「第一章：零号废墟的觉醒」这类含章号的长标题。
+    width: 260px;
     min-width: 0;
   }
 
@@ -294,7 +318,15 @@ async function copyReport(): Promise<void> {
     flex: 1;
   }
 
-  &__status,
+  &__status {
+    // 运行中状态跟在按钮左侧，窄容器里先省略，不要把停止按钮挤到下一行。
+    max-width: 280px;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--text-faint, #{t.$ink-faint});
+    @include m.ellipsis;
+  }
+
   &__hint {
     margin: t.$space-2 0 0;
     font-size: 11px;
@@ -376,27 +408,7 @@ async function copyReport(): Promise<void> {
   }
 }
 
-// 空状态保持紧凑，只说明下一步该做什么。
-.placeholder {
-  margin-top: t.$space-4;
-  padding: t.$space-4;
-  @include m.card-surface(var(--bg-surface));
-
-  &__title {
-    margin: 0;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  &__hint {
-    margin: t.$space-2 0 0;
-    font-size: 11px;
-    line-height: 1.7;
-    color: var(--text-faint, #{t.$ink-faint});
-  }
-}
-
+// 窄容器：控件纵向排开，章节下拉吃满宽度，避免 260px 固定宽把按钮挤到下一行。
 @container (max-width: 620px) {
   .controls__row {
     align-items: stretch;
@@ -404,6 +416,11 @@ async function copyReport(): Promise<void> {
 
   .controls__chapter {
     width: 100%;
+  }
+
+  .controls__status {
+    max-width: none;
+    white-space: normal;
   }
 }
 </style>

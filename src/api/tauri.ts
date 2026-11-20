@@ -1,7 +1,9 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  AgentEvalRun,
   AgentMessageRecord,
   AgentOutcomeStats,
+  AgentRole,
   AgentSession,
   AgentStepRecord,
   Chapter,
@@ -16,7 +18,9 @@ import type {
   Foreshadow,
   MoveChapterInput,
   MoveSceneInput,
+  NewAgentEvalRun,
   NewAgentMessage,
+  NewAgentRole,
   NewAgentSession,
   NewAgentStep,
   NewChapter,
@@ -159,6 +163,20 @@ export const tauriApi = {
   appendAgentStep: (input: NewAgentStep) => call<void>("append_agent_step", { input }),
   listAgentSteps: (projectId: string) => call<AgentStepRecord[]>("list_agent_steps", { projectId }),
   agentOutcomeStats: () => call<AgentOutcomeStats>("agent_outcome_stats"),
+  // 会话管理：重命名与删除，补齐 CRUD 里的 U/D。
+  renameAgentSession: (id: string, title: string) =>
+    call<void>("rename_agent_session", { id, title }),
+  deleteAgentSession: (id: string) => call<void>("delete_agent_session", { id }),
+
+  // Agent 角色：prompt + 工具白名单，不绑定模型。
+  listAgentRoles: () => call<AgentRole[]>("list_agent_roles"),
+  saveAgentRole: (input: NewAgentRole) => call<AgentRole>("save_agent_role", { input }),
+  deleteAgentRole: (id: string) => call<void>("delete_agent_role", { id }),
+
+  // 评测结果：跑分在前端做，这里只存取汇总与明细。
+  saveAgentEvalRun: (input: NewAgentEvalRun) =>
+    call<AgentEvalRun>("save_agent_eval_run", { input }),
+  listAgentEvalRuns: (limit = 20) => call<AgentEvalRun[]>("list_agent_eval_runs", { limit }),
 
   // RAG 检索：索引按作品维护，检索按问题取最近片段。
   ragStatus: (projectId: string) => call<RagStatus>("rag_status", { projectId }),

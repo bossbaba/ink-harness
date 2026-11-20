@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NButton, NInput, NModal, NSelect, NSpace } from "naive-ui";
 import { FORESHADOW_STATUS_OPTIONS, type ForeshadowDraft } from "@/types";
+import { MODAL_WIDTH, modalStyle } from "@/utils/modal";
 
 // 新增伏笔弹窗：只填标题与「铺设/回收」章节，创建后可在右侧面板继续调整。
 const props = defineProps<{
@@ -24,7 +25,7 @@ function close(): void {
     v-model:show="show"
     preset="card"
     title="新增伏笔"
-    :style="{ width: '520px', maxWidth: 'calc(100vw - 48px)' }"
+    :style="modalStyle(MODAL_WIDTH.md)"
     :bordered="false"
   >
     <div class="form">

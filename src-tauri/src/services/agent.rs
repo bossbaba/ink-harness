@@ -69,6 +69,38 @@ pub fn list_sessions(state: &DbState, project_id: &str) -> Result<Vec<AgentSessi
     rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
 }
 
+/// 重命名会话：只改标题，不动消息与轨迹。
+/// 空标题按「未命名对话」落库，避免列表里出现一行空白、点不开也认不出。
+pub fn rename_session(state: &DbState, id: &str, title: &str) -> Result<(), AppError> {
+    let conn = state.biz();
+    let title = if title.trim().is_empty() {
+        "未命名对话"
+    } else {
+        title.trim()
+    };
+    let sql = format!("update agent_session set title = ?2, updated_at = {NOW} where id = ?1");
+    conn.execute(&sql, params![id, title])
+        .map_err(AppError::from)?;
+    Ok(())
+}
+
+/// 删除会话：连同消息与轨迹一起删。
+/// 虽然外键声明了 on delete cascade，但级联依赖连接上的 `foreign_keys` pragma，
+/// 老库或临时连接可能没开——显式删子表更稳，也不会留下孤儿轨迹。
+pub fn delete_session(state: &DbState, id: &str) -> Result<(), AppError> {
+    let conn = state.biz();
+    conn.execute("delete from agent_step where session_id = ?1", params![id])
+        .map_err(AppError::from)?;
+    conn.execute(
+        "delete from agent_message where session_id = ?1",
+        params![id],
+    )
+    .map_err(AppError::from)?;
+    conn.execute("delete from agent_session where id = ?1", params![id])
+        .map_err(AppError::from)?;
+    Ok(())
+}
+
 /// 追加一条消息，并顺带更新会话的 updated_at（列表按它排序）。
 pub fn append_message(state: &DbState, input: &NewAgentMessage) -> Result<(), AppError> {
     let conn = state.biz();

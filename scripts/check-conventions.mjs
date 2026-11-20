@@ -1,10 +1,11 @@
 /**
  * 工程规范静态守卫：把项目约定固化成可执行的 CI 检查，避免「有红线没人守」。
  *
- * 检查三件事：
+ * 检查四件事：
  * 1. 手写的 src/**、tests/**、src-tauri/src/** 单文件不超过 500 行（自动生成文件不在此列）；
  * 2. composables / views 不直接 import `@/api/tauri`（必须经 services 层）；
- * 3. components 不直接 import `@/services/*` 的运行时符号（类型导入允许，运行时必须走 props/emit）。
+ * 3. components 不直接 import `@/services/*` 的运行时符号（类型导入允许，运行时必须走 props/emit）；
+ * 4. `preset="card"` 的 NModal 必须显式给宽度（否则会撑满整个窗口）。
  *
  * 退出码非 0 表示有违规；输出每条违规的文件与行号，便于直接定位。
  */
@@ -69,6 +70,22 @@ for (const rule of LAYER_RULES) {
         FAILURES.push(`${rule.label}：${relative(ROOT, file)}:${line}`);
       }
     }
+  }
+}
+
+// 4. 弹窗宽度约束：card 预设没有默认宽度上限，漏写就会横跨全屏、输入框被拉散。
+//    统一要求用 utils/modal.ts 的 modalStyle(...)（旧的内联 :style 带 width 也放行）。
+for (const file of collect(join(ROOT, "src"), [".vue"])) {
+  const text = readFileSync(file, "utf8");
+  for (const match of text.matchAll(/<NModal\b[^>]*>/g)) {
+    const tag = match[0];
+    if (!tag.includes('preset="card"')) continue;
+    const hasWidth = tag.includes("modalStyle(") || /(?::)?style="[^"]*width/.test(tag);
+    if (hasWidth) continue;
+    const line = text.slice(0, match.index).split("\n").length;
+    FAILURES.push(
+      `弹窗缺少宽度约束：${relative(ROOT, file)}:${line}（preset="card" 需用 modalStyle(...) 指定宽度）`,
+    );
   }
 }
 

@@ -13,7 +13,7 @@ use tokio::time::timeout;
 use crate::error::AppError;
 use crate::infrastructure::{db::DbState, llm_http};
 use crate::models::{ChatChunk, ChatParams, TokenUsage};
-use crate::services::{project, provider_kind};
+use crate::services::{guardrails, project, provider_kind};
 
 use super::gateway_resolve::{ResolvedProvider, resolve_provider};
 use super::gateway_sse::{JsonlParser, ResponseParser, SseEvent, SseParser};
@@ -140,6 +140,9 @@ where
                     };
                 }
                 SseEvent::Delta(text) => {
+                    // 输出脱敏：模型可能被提示词注入带去吐凭据，逐块屏蔽后再推给前端。
+                    // 完整输出的边界情况由 chat.rs 落库前的二次 scrub 兜住。
+                    let text = guardrails::scrub_chunk(&text);
                     if !on_chunk(ChatChunk::delta(text)) {
                         return Err(AppError::internal("对话已被取消"));
                     }

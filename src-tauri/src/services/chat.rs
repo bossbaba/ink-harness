@@ -4,7 +4,7 @@
 use crate::error::AppError;
 use crate::infrastructure::db::DbState;
 use crate::models::{ChatChunk, ChatParams};
-use crate::services::{gateway, usage};
+use crate::services::{gateway, guardrails, usage};
 
 /// 发起一次流式对话，结束后记录用量与真实输入输出（供审计回放）。
 /// 用量/轨迹落库失败只记日志：对话已经生成完毕，不该反过来报错给用户。
@@ -26,7 +26,10 @@ where
     })
     .await?;
     if let Some(usage_data) = token_usage {
-        if let Err(err) = usage::record(state, params, &usage_data, &output) {
+        // 审计文本再脱敏一次：流式逐块过滤会漏掉「凭据被切在两个 chunk 边界」的情况，
+        // 这里对完整输出重跑规则，保证落库内容里不出现明文凭据。
+        let audit_output = guardrails::scrub(&output);
+        if let Err(err) = usage::record(state, params, &usage_data, &audit_output) {
             eprintln!("记录 token 用量失败：{err}");
         }
     }

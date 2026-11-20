@@ -90,6 +90,13 @@ pub fn run() {
             commands::agent::append_agent_step,
             commands::agent::list_agent_steps,
             commands::agent::agent_outcome_stats,
+            commands::agent::rename_agent_session,
+            commands::agent::delete_agent_session,
+            commands::agent::list_agent_roles,
+            commands::agent::save_agent_role,
+            commands::agent::delete_agent_role,
+            commands::agent::save_agent_eval_run,
+            commands::agent::list_agent_eval_runs,
         ])
         .build(tauri::generate_context!());
 
