@@ -49,6 +49,7 @@ const dirty = () => draft.value !== props.summary;
     preset="card"
     title="章节摘要 · 长期记忆"
     class="summary-dialog"
+    :style="{ width: '640px', maxWidth: 'calc(100vw - 48px)' }"
     @update:show="(value: boolean) => emit('update:show', value)"
   >
     <div class="summary">
