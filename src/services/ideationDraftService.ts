@@ -1,10 +1,5 @@
 import { tauriApi } from "@/api/tauri";
-import type {
-  IdeaProposal,
-  IdeationAnswers,
-  IdeationDraft,
-  IdeationDraftInput,
-} from "@/types";
+import type { IdeaProposal, IdeationAnswers, IdeationDraft, IdeationDraftInput } from "@/types";
 
 /**
  * 构思草稿的读写门面：页面与 composable 只认结构化对象，JSON 序列化在这里收口。

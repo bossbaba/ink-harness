@@ -44,44 +44,49 @@ pub fn load(state: &DbState, project_id: &str) -> Result<Option<IdeationDraft>, 
 ///
 /// 用 upsert 而不是先查再插：前端是防抖写入，切页时可能连发两次，
 /// 先查再插在极短间隔内会撞主键，upsert 一步到位也不会出现半截状态。
+///
+/// 写入包在独立作用域里：`state.biz()` 的锁不可重入，持锁再调 `load()`（内部也取锁）
+/// 会让写草稿的线程永久阻塞，构思向导每次自动保存都会卡住。
 pub fn save(state: &DbState, input: &IdeationDraftInput) -> Result<IdeationDraft, AppError> {
     let project_id = input.project_id.trim();
     if project_id.is_empty() {
         return Err(AppError::validation("缺少作品 ID，无法保存构思草稿"));
     }
-    let conn = state.biz();
-    let sql = format!(
-        "insert into ideation_draft
-             (project_id, answers_json, proposal_json, step, max_step, selected_title,
-              include_outline, applied, outline_created, updated_at)
-         values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, {NOW})
-         on conflict(project_id) do update set
-             answers_json = excluded.answers_json,
-             proposal_json = excluded.proposal_json,
-             step = excluded.step,
-             max_step = excluded.max_step,
-             selected_title = excluded.selected_title,
-             include_outline = excluded.include_outline,
-             applied = excluded.applied,
-             outline_created = excluded.outline_created,
-             updated_at = excluded.updated_at"
-    );
-    conn.execute(
-        &sql,
-        params![
-            project_id,
-            // 入参是引用，取字段要显式借用，否则会把 String 从借用的结构体里移出去。
-            &input.answers_json,
-            &input.proposal_json,
-            input.step,
-            input.max_step,
-            input.selected_title,
-            input.include_outline,
-            input.applied,
-            input.outline_created,
-        ],
-    )
-    .map_err(AppError::from)?;
+    {
+        let conn = state.biz();
+        let sql = format!(
+            "insert into ideation_draft
+                 (project_id, answers_json, proposal_json, step, max_step, selected_title,
+                  include_outline, applied, outline_created, updated_at)
+             values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, {NOW})
+             on conflict(project_id) do update set
+                 answers_json = excluded.answers_json,
+                 proposal_json = excluded.proposal_json,
+                 step = excluded.step,
+                 max_step = excluded.max_step,
+                 selected_title = excluded.selected_title,
+                 include_outline = excluded.include_outline,
+                 applied = excluded.applied,
+                 outline_created = excluded.outline_created,
+                 updated_at = excluded.updated_at"
+        );
+        conn.execute(
+            &sql,
+            params![
+                project_id,
+                // 入参是引用，取字段要显式借用，否则会把 String 从借用的结构体里移出去。
+                &input.answers_json,
+                &input.proposal_json,
+                input.step,
+                input.max_step,
+                input.selected_title,
+                input.include_outline,
+                input.applied,
+                input.outline_created,
+            ],
+        )
+        .map_err(AppError::from)?;
+    }
     load(state, project_id)?.ok_or_else(|| AppError::internal("草稿写入后读取失败"))
 }
 
@@ -123,6 +128,7 @@ mod tests {
 
         let loaded = load(&state, "p1").unwrap().unwrap();
         assert_eq!(loaded.selected_title, "废墟之上");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

@@ -78,15 +78,24 @@ const readChapter: AgentTool = {
   },
   risk: "read",
   async run(args, ctx) {
-    const chapterId =
-      typeof args.chapterId === "string" && args.chapterId ? args.chapterId : ctx.chapterId;
+    // 模型常把可选参数写成 null 或字符串 "true"：宽松处理，别让一次写法误差打断整轮对话。
+    const askedId = typeof args.chapterId === "string" && args.chapterId ? args.chapterId : "";
+    const chapterId = askedId || ctx.chapterId;
     if (!chapterId) return "尚未选择章节，且未提供 chapterId";
     const snapshot = await outlineService.snapshot(ctx.projectId);
-    const chapter = snapshot.chapters.find((item) => item.id === chapterId);
+    let chapter = snapshot.chapters.find((item) => item.id === chapterId);
+    // 模型爱把 chapterId 猜成 "1" / "第一章" 这类不存在的值。这时退回当前章节，
+    // 并在返回里说明，既不让一次猜错变成「工具报错」，也不假装读到了它要的那一章。
+    let fallbackNote = "";
+    if (!chapter && ctx.chapterId) {
+      chapter = snapshot.chapters.find((item) => item.id === ctx.chapterId);
+      fallbackNote = `（未找到章节 ${chapterId}，已改为当前章节）`;
+    }
     if (!chapter) return `章节 ${chapterId} 不存在`;
-    if (args.withContent !== true) return text(chapter);
-    const content = await writingService.getContent(chapterId);
-    return text({ chapter, content });
+    const withContent = args.withContent === true || args.withContent === "true";
+    if (!withContent) return `${fallbackNote}${text(chapter)}`;
+    const content = await writingService.getContent(chapter.id);
+    return `${fallbackNote}${text({ chapter, content })}`;
   },
 };
 

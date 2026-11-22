@@ -1,4 +1,5 @@
 import { computed, ref } from "vue";
+import type { AgentRolePreset } from "@/services/agentRolePresets";
 import { agentRoleService, parseRoleTools } from "@/services/agentRoleService";
 import { AGENT_TOOLS } from "@/services/agentTools";
 import type { AgentRole } from "@/types";
@@ -106,5 +107,29 @@ export function useAgentRoles() {
     }
   }
 
-  return { roles, loading, saving, error, isEmpty, load, save, remove };
+  /** 已有角色的名称，预设卡片据此判断「已添加」，避免重复创建同名角色。 */
+  const roleNames = computed(() => roles.value.map((item) => item.name));
+
+  /**
+   * 把一条预设模板复制成普通角色。
+   *
+   * 复制而不是引用模板：作者接下来会改措辞、增删工具，改的是自己那份，
+   * 模板本身始终可再次添加。同名已存在时直接提示去编辑那一条，不做自动改名，
+   * 否则列表里会堆出「结构审稿人 2」这种看不出区别的条目。
+   */
+  async function addPreset(preset: AgentRolePreset): Promise<boolean> {
+    if (roles.value.some((item) => item.name === preset.name)) {
+      error.value = `已有同名角色「${preset.name}」，直接编辑那一条即可。`;
+      return false;
+    }
+    return save({
+      id: "",
+      name: preset.name,
+      prompt: preset.prompt,
+      allTools: preset.toolNames.length === 0,
+      toolNames: [...preset.toolNames],
+    });
+  }
+
+  return { roles, loading, saving, error, isEmpty, roleNames, load, save, addPreset, remove };
 }

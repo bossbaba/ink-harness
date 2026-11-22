@@ -88,4 +88,14 @@ describe("actionExecutor", () => {
     expect(bad[0].isError).toBe(true);
     expect(bad[0].content).toContain("缺少必填参数");
   });
+
+  it("可选参数传 null 视为未提供，不判成参数错误", async () => {
+    // 模型常把「不传」写成 null；这里以前会直接报「参数 chapterId 应为字符串」，
+    // 结果是明明能读的章节被记成工具执行失败。
+    const results = await executeCalls(
+      [call({ name: "read_chapter", arguments: { chapterId: null, withContent: true } })],
+      ctx,
+    );
+    expect(results[0].isError).toBe(false);
+  });
 });

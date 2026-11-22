@@ -39,32 +39,40 @@ pub fn list_roles(state: &DbState) -> Result<Vec<AgentRole>, AppError> {
 
 /// 新建或更新角色：id 为空走插入，否则按 id 更新。
 /// 名称是唯一可读标识，允许重名（作者可能有多套「审稿」prompt 做对比），不做唯一约束。
+///
+/// 写入放在独立作用域里：`state.biz()` 的锁不可重入，持锁再去调 `get_role()`（内部也取锁）
+/// 会让调用线程永久阻塞，保存角色时界面会一直转圈。
 pub fn save_role(state: &DbState, input: &NewAgentRole) -> Result<AgentRole, AppError> {
     let name = input.name.trim();
     if name.is_empty() {
         return Err(AppError::validation("角色名称不能为空"));
     }
-    let conn = state.biz();
     if input.id.trim().is_empty() {
         let id = gen_id("role");
-        let sql = format!(
-            "insert into agent_role(id, name, prompt, tools, created_at, updated_at)
-             values (?1, ?2, ?3, ?4, {NOW}, {NOW})"
-        );
-        conn.execute(&sql, params![id, name, input.prompt, input.tools])
-            .map_err(AppError::from)?;
+        {
+            let conn = state.biz();
+            let sql = format!(
+                "insert into agent_role(id, name, prompt, tools, created_at, updated_at)
+                 values (?1, ?2, ?3, ?4, {NOW}, {NOW})"
+            );
+            conn.execute(&sql, params![id, name, input.prompt, input.tools])
+                .map_err(AppError::from)?;
+        }
         return get_role(state, &id)?.ok_or_else(|| AppError::internal("角色写入后读取失败"));
     }
 
-    let sql = format!(
-        "update agent_role set name = ?2, prompt = ?3, tools = ?4, updated_at = {NOW}
-          where id = ?1"
-    );
-    conn.execute(
-        &sql,
-        params![input.id, name, input.prompt, input.tools],
-    )
-    .map_err(AppError::from)?;
+    {
+        let conn = state.biz();
+        let sql = format!(
+            "update agent_role set name = ?2, prompt = ?3, tools = ?4, updated_at = {NOW}
+              where id = ?1"
+        );
+        conn.execute(
+            &sql,
+            params![input.id, name, input.prompt, input.tools],
+        )
+        .map_err(AppError::from)?;
+    }
     get_role(state, &input.id)?.ok_or_else(|| AppError::validation("要更新的角色不存在"))
 }
 

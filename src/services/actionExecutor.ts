@@ -31,6 +31,9 @@ function validateArgs(tool: AgentTool, args: Record<string, unknown>): string {
   for (const [key, spec] of Object.entries(schema.properties ?? {})) {
     if (!(key in args)) continue;
     const value = args[key];
+    // 可选参数传 null 很常见（模型把「不传」写成 null）：按未提供处理，不判类型错误。
+    // 以前这里直接判类型，模型只要多写一个 null 就会被记成「工具执行报错」。
+    if (value === null || value === undefined) continue;
     if (spec.type === "string" && typeof value !== "string") return `参数 ${key} 应为字符串`;
     if (spec.type === "boolean" && typeof value !== "boolean") return `参数 ${key} 应为布尔值`;
     if (spec.type === "number" && typeof value !== "number") return `参数 ${key} 应为数字`;

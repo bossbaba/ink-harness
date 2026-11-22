@@ -19,32 +19,38 @@ const ROW: &str = "select id, project_id, role_id, role_name, model, total, pass
                      from agent_eval_run";
 
 /// 写入一次跑分结果，返回落库后的完整记录（含后端生成的 id 与时间）。
+///
+/// 注意 `DbState::biz()` 返回的是不可重入的 `MutexGuard`：这里若一直持有连接再去调
+/// `get_run()`（它内部也会取锁），同线程会直接把 `cargo test` 与真实请求卡死。
+/// 所以写入用独立作用域，写完先释放锁再读回。
 pub fn save_run(state: &DbState, input: &NewAgentEvalRun) -> Result<AgentEvalRun, AppError> {
-    let conn = state.biz();
     let id = gen_id("eval");
-    let sql = format!(
-        "insert into agent_eval_run
-             (id, project_id, role_id, role_name, model, total, passed, rounds, tokens,
-              duration_ms, details, created_at)
-         values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, {NOW})"
-    );
-    conn.execute(
-        &sql,
-        params![
-            id,
-            input.project_id,
-            input.role_id,
-            input.role_name,
-            input.model,
-            input.total,
-            input.passed,
-            input.rounds,
-            input.tokens,
-            input.duration_ms,
-            input.details,
-        ],
-    )
-    .map_err(AppError::from)?;
+    {
+        let conn = state.biz();
+        let sql = format!(
+            "insert into agent_eval_run
+                 (id, project_id, role_id, role_name, model, total, passed, rounds, tokens,
+                  duration_ms, details, created_at)
+             values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, {NOW})"
+        );
+        conn.execute(
+            &sql,
+            params![
+                id,
+                input.project_id,
+                input.role_id,
+                input.role_name,
+                input.model,
+                input.total,
+                input.passed,
+                input.rounds,
+                input.tokens,
+                input.duration_ms,
+                input.details,
+            ],
+        )
+        .map_err(AppError::from)?;
+    }
     get_run(state, &id)?.ok_or_else(|| AppError::internal("评测写入后读取失败"))
 }
 

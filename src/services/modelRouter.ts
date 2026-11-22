@@ -175,6 +175,7 @@ class ModelRouterImpl {
   /**
    * 发起流式对话。返回 Promise，逐块通过 onChunk 回调。
    * tools 非空时随请求透传给上游；是否真的启用取决于 select 选到的模型 capabilities.tools。
+   * `toolChoice=required` 用于首轮取数：小模型常无视提示直接编答案，强制它先调一次工具。
    */
   chat(
     ctx: RouteContext,
@@ -182,6 +183,7 @@ class ModelRouterImpl {
     onChunk: (chunk: ChatChunk) => void,
     onError?: (error: string) => void,
     tools?: ToolDefinition[],
+    toolChoice?: "auto" | "required",
   ): ChatStreamHandle {
     const model = this.select(ctx);
     if (!model) {
@@ -204,6 +206,8 @@ class ModelRouterImpl {
         projectId: ctx.projectId,
         // 只有声明支持工具调用的模型才下发 tools，避免不支持的模型收到参数后行为异常。
         tools: model.capabilities.tools ? tools : undefined,
+        // tool_choice 跟着 tools 走：没有工具却要求 required，上游会直接 400。
+        toolChoice: model.capabilities.tools ? toolChoice : undefined,
       },
       onChunk,
       onError,

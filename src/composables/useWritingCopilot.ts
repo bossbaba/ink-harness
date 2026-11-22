@@ -337,6 +337,8 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
         supportsTools,
         toolNames,
         extraPrompt: role?.prompt ?? "",
+        // Copilot 的价值是「读到真实作品再答」：首轮强制取数，避免模型拿着空白上下文编设定。
+        requireToolFirst: supportsTools,
         shouldStop: () => seq !== requestSeq,
         onStep: (step) => {
           if (seq !== requestSeq) return;

@@ -149,10 +149,7 @@ export function useIdeationWizard(projectId: string) {
       proposal.value = draft.proposal;
       step.value = Math.min(3, Math.max(0, draft.step));
       // 有方案时「方案确认」这一步必须可达，否则恢复后步骤条点不回去。
-      maxStep.value = Math.min(
-        3,
-        Math.max(draft.maxStep, draft.step, draft.proposal ? 3 : 0),
-      );
+      maxStep.value = Math.min(3, Math.max(draft.maxStep, draft.step, draft.proposal ? 3 : 0));
       selectedTitle.value = draft.selectedTitle;
       includeOutline.value = draft.includeOutline;
       applied.value = draft.applied;

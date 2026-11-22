@@ -40,6 +40,11 @@ pub struct ChatParams {
     /// 不同 Provider 对 schema 的容忍度不一，强类型会在网关层就挡掉上游其实接受的描述字段。
     #[serde(default)]
     pub tools: Vec<serde_json::Value>,
+    /// 工具调用策略：`required` 要求本轮必须先调用工具，`auto`（或不下发）由模型自行决定。
+    /// 小模型经常无视 system 里的「先取数据」规则直接编答案，首轮用 required 能明显提高取数率；
+    /// 只有 tools 非空时才随请求下发给上游。
+    #[serde(default)]
+    pub tool_choice: Option<String>,
 }
 
 /// 流式返回的一个工具调用片段。

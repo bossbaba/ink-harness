@@ -4,6 +4,7 @@ import { onMounted, ref } from "vue";
 import AppEmpty from "@/components/common/AppEmpty.vue";
 import LoadingState from "@/components/common/LoadingState.vue";
 import PageHeader from "@/components/common/PageHeader.vue";
+import RolePresetGrid from "@/components/roles/RolePresetGrid.vue";
 import {
   AGENT_TOOL_OPTIONS,
   type AgentRoleDraft,
@@ -11,6 +12,7 @@ import {
   toRoleDraft,
   useAgentRoles,
 } from "@/composables/useAgentRoles";
+import { AGENT_ROLE_PRESETS, type AgentRolePreset } from "@/services/agentRolePresets";
 import type { AgentRole } from "@/types";
 import { MODAL_WIDTH, modalStyle } from "@/utils/modal";
 
@@ -19,15 +21,29 @@ import { MODAL_WIDTH, modalStyle } from "@/utils/modal";
  *
  * 角色只定义「身份 prompt + 可用工具」，不绑定具体模型；写作台切角色时
  * 只改变系统提示与下发的工具集，模型仍由任务路由决定。
+ * 页面顶部给出一组预设模板，点「添加」即复制成普通角色，之后随作者编辑。
  */
-const { roles, loading, saving, error, isEmpty, load, save, remove } = useAgentRoles();
+const { roles, loading, saving, error, isEmpty, roleNames, load, save, addPreset, remove } =
+  useAgentRoles();
 
 const editing = ref(false);
 const draft = ref<AgentRoleDraft>(emptyRoleDraft());
+/** 正在添加的预设名：卡片按钮单独 loading，不牵动弹窗里的保存状态。 */
+const addingName = ref("");
 
 function openCreate(): void {
   draft.value = emptyRoleDraft();
   editing.value = true;
+}
+
+/** 添加预设：失败时错误已写进 composable 的 error，这里只负责复位 loading。 */
+async function handleAddPreset(preset: AgentRolePreset): Promise<void> {
+  addingName.value = preset.name;
+  try {
+    await addPreset(preset);
+  } finally {
+    addingName.value = "";
+  }
 }
 
 function openEdit(role: AgentRole): void {
@@ -64,13 +80,21 @@ onMounted(() => void load());
 
     <p v-if="error" class="roles__error">{{ error }}</p>
 
+    <RolePresetGrid
+      class="roles__presets"
+      :presets="AGENT_ROLE_PRESETS"
+      :added-names="roleNames"
+      :busy-name="addingName"
+      @add="handleAddPreset"
+    />
+
     <section class="roles__card">
       <LoadingState v-if="loading && roles.length === 0" variant="inline" text="正在读取角色…" />
       <AppEmpty
         v-else-if="isEmpty"
         icon="models"
-        title="还没有自定义角色"
-        description="默认角色会开放全部工具。想让 AI 只做审稿或只做续写时，建一个收窄工具的角色即可。"
+        title="还没有角色"
+        description="默认角色会开放全部工具。想让 AI 只做审稿或只做续写时，用上面的预设或自己新建一个收窄工具的角色。"
         action-label="新建角色"
         @action="openCreate"
       />
@@ -184,6 +208,11 @@ onMounted(() => void load());
   &__card {
     @include m.card-surface(var(--bg-surface));
     padding: t.$space-4;
+  }
+
+  // 预设区与「我的角色」之间留一档间距，视觉上先选模板、再管自己的角色。
+  &__presets {
+    margin-bottom: t.$space-4;
   }
 
   &__list {

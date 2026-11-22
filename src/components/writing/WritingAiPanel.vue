@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { NButton, NInput, NTag } from "naive-ui";
+import { NButton, NTag } from "naive-ui";
 import { computed, nextTick, ref, watch } from "vue";
 import AgentControls from "@/components/writing/AgentControls.vue";
-import CopilotReferencePicker from "@/components/writing/CopilotReferencePicker.vue";
+import CopilotComposer from "@/components/writing/CopilotComposer.vue";
 import CopilotSessionBar from "@/components/writing/CopilotSessionBar.vue";
 import WritingAssistCard from "@/components/writing/WritingAssistCard.vue";
 import {
@@ -69,13 +69,19 @@ const emit = defineEmits<{
   (event: "assist-replace"): void;
 }>();
 
-const draft = ref("");
 const listRef = ref<HTMLElement | null>(null);
+/**
+ * 输入区在自己组件里管草稿，这里只在快捷提示需要灌文本时拿它的方法。
+ *
+ * 这里刻意用结构化类型而不是 `InstanceType<typeof CopilotComposer>`：后者会让 biome 的
+ * useImportType 把组件 import 自动改成 `import type`，编译后导入被擦除、组件没注册，
+ * 界面上直接表现为「输入框不见了」（控制台只有一句 Failed to resolve component）。
+ */
+const composerRef = ref<{ setDraft: (text: string) => void } | null>(null);
 // 复制成功后在对应消息上短暂显示「已复制」，避免用全局提示打断写作。
 const copiedId = ref("");
 
 const lastMessage = computed(() => props.messages[props.messages.length - 1]);
-const canSend = computed(() => !props.streaming && draft.value.trim().length > 0);
 // 辅助卡片在下面时不再提示「问点什么」，否则两块引导会互相抢注意力。
 const showQuickPrompts = computed(
   () => props.messages.length === 0 && !props.streaming && !props.assist.visible,
@@ -91,21 +97,9 @@ watch(
   },
 );
 
-function submit(): void {
-  if (!canSend.value) return;
-  emit("send", draft.value);
-  draft.value = "";
-}
-
-/** 回车发送、Shift+回车换行，是聊天框的通用习惯。 */
-function handleKeydown(event: KeyboardEvent): void {
-  if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
-  event.preventDefault();
-  submit();
-}
-
+/** 快捷提示只把文本灌进输入框，发不发仍由作者按回车确认。 */
 function fillPrompt(prompt: string): void {
-  draft.value = prompt;
+  composerRef.value?.setDraft(prompt);
 }
 
 async function copy(message: CopilotMessage): Promise<void> {
@@ -161,7 +155,7 @@ function isLive(message: CopilotMessage): boolean {
       <div v-if="showQuickPrompts" class="chat__empty">
         <p>问它设定、问它走向、让它帮你理清逻辑。</p>
         <p class="chat__empty-hint">
-          想让回答更准，用下面的「＠ 引用」把相关设定或前面的章节带进来。
+          想让回答更准，在输入框里打 ＠ 引入设定与章节；打 / 选 Agent 角色并开启工具。
         </p>
         <p class="chat__empty-hint">
           选中正文后用编辑器工具条的改写 / 扩写 / 润色，结果也会出现在这里，确认后再插入。
@@ -237,46 +231,21 @@ function isLive(message: CopilotMessage): boolean {
 
     <p v-if="error" class="chat__error">{{ error }}</p>
 
-    <div class="chat__composer">
-      <div v-if="references.length" class="chat__refs chat__refs--draft">
-        <NTag
-          v-for="reference in references"
-          :key="`${reference.kind}-${reference.id}`"
-          size="small"
-          :bordered="false"
-          closable
-          @close="emit('unpick', reference)"
-        >
-          {{ COPILOT_REF_KIND_LABEL[reference.kind] }} · {{ reference.label }}
-        </NTag>
-      </div>
-
-      <NInput
-        v-model:value="draft"
-        type="textarea"
-        size="small"
-        :autosize="{ minRows: 2, maxRows: 5 }"
-        placeholder="问点什么，或先「＠引用」相关设定与章节（回车发送，Shift+回车换行）"
-        @keydown="handleKeydown"
-      />
-
-      <div class="chat__tools">
-        <CopilotReferencePicker
-          :selected="references"
-          :elements="referenceElements"
-          :chapters="referenceChapters"
-          :loading="referenceLoading"
-          :error="referenceError"
-          @pick="emit('pick', $event)"
-          @open="emit('open-reference')"
-        />
-        <span class="chat__tools-spacer" />
-        <NButton v-if="streaming" size="small" @click="emit('stop')">停止</NButton>
-        <NButton v-else size="small" type="primary" :disabled="!canSend" @click="submit">
-          发送
-        </NButton>
-      </div>
-    </div>
+    <CopilotComposer
+      ref="composerRef"
+      :references="references"
+      :streaming="streaming"
+      :elements="referenceElements"
+      :chapters="referenceChapters"
+      :loading="referenceLoading"
+      :error="referenceError"
+      :agent="agent"
+      @send="emit('send', $event)"
+      @stop="emit('stop')"
+      @pick="emit('pick', $event)"
+      @unpick="emit('unpick', $event)"
+      @open-reference="emit('open-reference')"
+    />
   </div>
 </template>
 
@@ -465,25 +434,6 @@ function isLive(message: CopilotMessage): boolean {
     color: var(--error, #{t.$error});
   }
 
-  &__composer {
-    display: flex;
-    flex-direction: column;
-    gap: t.$space-2;
-  }
-
-  &__refs--draft {
-    padding: t.$space-1 0;
-  }
-
-  &__tools {
-    display: flex;
-    align-items: center;
-    gap: t.$space-2;
-  }
-
-  &__tools-spacer {
-    flex: 1;
-  }
 }
 
 @keyframes copilot-caret {

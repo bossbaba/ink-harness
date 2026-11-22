@@ -12,6 +12,7 @@ use tokio::time::timeout;
 
 use crate::error::AppError;
 use crate::infrastructure::{db::DbState, llm_http};
+use crate::models::chat::ChatMessage;
 use crate::models::{ChatChunk, ChatParams, TokenUsage};
 use crate::services::{guardrails, project, provider_kind};
 
@@ -56,9 +57,20 @@ where
     };
     // 注意用 resolved.model（已剥掉 `providerId:` 前缀）：上游只认自己家的模型名，
     // 把路由标识整串发过去，Ollama 会直接回 400 invalid model name。
+    // 原生接口对多轮工具消息的 arguments 类型要求不同，必须按方言转换后再发。
+    let messages = if native_ollama {
+        native_messages(&params.messages)
+    } else {
+        serde_json::to_value(&params.messages)
+            .unwrap_or(serde_json::Value::Array(Vec::new()))
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+    };
+
     let mut body = serde_json::json!({
         "model": resolved.model,
-        "messages": params.messages,
+        "messages": messages,
         "stream": true,
     });
     if native_ollama {
@@ -74,6 +86,10 @@ where
     // 工具定义非空时才带 tools：空数组发给 Ollama 原生接口可能被当成一次无效工具请求。
     if !params.tools.is_empty() {
         body["tools"] = serde_json::json!(params.tools);
+        // tool_choice 只在有工具时才有意义：没有 tools 却要求 required，上游会直接 400。
+        if let Some(choice) = params.tool_choice.as_deref() {
+            body["tool_choice"] = serde_json::json!(choice);
+        }
     }
 
     // 只在「还没收到任何流式数据」时重试：一旦开始出字再重试，
@@ -171,6 +187,33 @@ where
     }
 }
 
+/// 把消息转成 Ollama 原生 `/api/chat` 能接受的形状。
+///
+/// 前端为了兼容 OpenAI，把 `assistant.tool_calls[].function.arguments` 传成 JSON **字符串**；
+/// 原生接口只认对象，收到字符串会直接 400（`Value looks like object, but can't find
+/// closing '}' symbol`），于是「工具调用 → 回填结果 → 再问一轮」的第二轮必挂。
+/// 这里解析成对象；解析不出来就给空对象——参数本来就坏了，不该让整轮对话失败。
+fn native_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
+    messages
+        .iter()
+        .map(|message| {
+            let mut value = serde_json::to_value(message).unwrap_or(serde_json::Value::Null);
+            let Some(calls) = value.get_mut("toolCalls").and_then(|item| item.as_array_mut()) else {
+                return value;
+            };
+            for call in calls {
+                let Some(args) = call.pointer_mut("/function/arguments") else {
+                    continue;
+                };
+                if let Some(text) = args.as_str() {
+                    *args = serde_json::from_str(text).unwrap_or_else(|_| serde_json::json!({}));
+                }
+            }
+            value
+        })
+        .collect()
+}
+
 fn truncate(s: &str, max: usize) -> &str {
     if s.chars().count() <= max {
         s
@@ -184,6 +227,60 @@ fn truncate(s: &str, max: usize) -> &str {
 mod tests {
     use super::*;
     use crate::models::chat::ChatMessage;
+
+    /// 原生接口要的是 arguments 对象；字符串原样发过去会被 400 拒掉，多轮工具调用根本走不完。
+    #[test]
+    fn native_messages_turn_tool_arguments_into_objects() {
+        let messages = vec![
+            ChatMessage {
+                role: "assistant".to_string(),
+                content: String::new(),
+                tool_call_id: None,
+                name: None,
+                tool_calls: Some(serde_json::json!([{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": { "name": "read_chapter", "arguments": "{\"withContent\":true}" }
+                }])),
+            },
+            ChatMessage {
+                role: "tool".to_string(),
+                content: "{\"title\":\"第一章\"}".to_string(),
+                tool_call_id: Some("call_1".to_string()),
+                name: Some("read_chapter".to_string()),
+                tool_calls: None,
+            },
+        ];
+
+        let converted = native_messages(&messages);
+        assert_eq!(
+            converted[0].pointer("/toolCalls/0/function/arguments"),
+            Some(&serde_json::json!({ "withContent": true }))
+        );
+        // 工具结果消息保持原样：原生接口同样接受 toolCallId/name 字段。
+        assert_eq!(converted[1]["role"], serde_json::json!("tool"));
+        assert_eq!(converted[1]["name"], serde_json::json!("read_chapter"));
+    }
+
+    /// 参数是被截断或乱码时不能把整轮请求打成 400，退化成空对象让对话继续。
+    #[test]
+    fn native_messages_fall_back_to_empty_object_on_bad_arguments() {
+        let messages = vec![ChatMessage {
+            role: "assistant".to_string(),
+            content: String::new(),
+            tool_call_id: None,
+            name: None,
+            tool_calls: Some(serde_json::json!([{
+                "function": { "name": "read_chapter", "arguments": "{\"withContent\":" }
+            }])),
+        }];
+
+        let converted = native_messages(&messages);
+        assert_eq!(
+            converted[0].pointer("/toolCalls/0/function/arguments"),
+            Some(&serde_json::json!({}))
+        );
+    }
 
     #[tokio::test]
     #[ignore = "需要本机运行 Ollama 并已拉取 qwen3.5:4b"]
@@ -206,6 +303,7 @@ mod tests {
             task_kind: None,
             project_id: None,
             tools: Vec::new(),
+            tool_choice: None,
         };
         let usage = stream_chat(&state, &params, |chunk| {
             content.push_str(&chunk.delta);

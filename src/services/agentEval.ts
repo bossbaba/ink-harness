@@ -159,6 +159,8 @@ export async function runAgentEval(input: RunAgentEvalInput): Promise<RunAgentEv
       supportsTools: input.supportsTools,
       toolNames: input.toolNames,
       extraPrompt: input.extraPrompt ?? "",
+      // 评测考察的就是「会不会主动取数」，首轮必须给足压力，否则分数只反映模型的编造能力。
+      requireToolFirst: input.supportsTools,
       maxIterations: input.maxIterations ?? 4,
       shouldStop: input.shouldStop,
     });

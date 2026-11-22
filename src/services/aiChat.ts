@@ -30,6 +30,8 @@ export interface ChatRoute {
   projectId?: string;
   /** 本次可用的工具定义；非空且模型支持时随请求下发。 */
   tools?: ToolDefinition[];
+  /** 要求本轮必须先调用工具（首轮取数用）；模型不支持工具时自动忽略。 */
+  requireTool?: boolean;
 }
 
 export interface ChatRunResult {
@@ -131,6 +133,7 @@ export async function runChat(
       failure = message;
     },
     route.tools,
+    route.requireTool ? "required" : undefined,
   );
   await handle.done.catch(() => undefined);
   return { raw, toolCalls: collectToolCalls(fragments), failure, usage, model };

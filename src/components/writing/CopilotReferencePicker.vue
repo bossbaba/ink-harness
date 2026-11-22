@@ -31,6 +31,13 @@ const emit = defineEmits<{
   (event: "open"): void;
 }>();
 
+/**
+ * 展开状态由父级用 `v-model:model-open` 接管（输入框打 `@` 时置 true）。
+ * 用 defineModel 而不是手写 prop + emit：手写时容易把事件发成 `update:model-open`，
+ * 而 `v-model:model-open` 监听的是 `update:modelOpen`，两者对不上就会表现为「点了没反应」。
+ */
+const modelOpen = defineModel<boolean>("modelOpen", { default: false });
+
 interface PickerRow {
   reference: CopilotReference;
   title: string;
@@ -38,11 +45,11 @@ interface PickerRow {
   checked: boolean;
 }
 
-const show = ref(false);
+const show = computed(() => modelOpen.value);
 const keyword = ref("");
 
 function handleShow(value: boolean): void {
-  show.value = value;
+  modelOpen.value = value;
   if (value) emit("open");
 }
 

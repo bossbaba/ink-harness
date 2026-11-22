@@ -74,6 +74,11 @@ export interface ChatParams {
   /** 任务与作品只用于用量统计，不影响模型选择。 */
   taskKind?: string;
   projectId?: string;
+  /**
+   * 工具调用策略：`required` 要求本轮先调用工具，`auto`/不传由模型自行决定。
+   * 目前只在「首轮取数」时用 required，避免小模型拿着空白上下文直接编答案。
+   */
+  toolChoice?: "auto" | "required";
 }
 
 /**

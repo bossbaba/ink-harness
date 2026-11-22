@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { NButton, NSelect, NTag } from "naive-ui";
-import { computed, ref, watch } from "vue";
+import { NButton, NTag } from "naive-ui";
+import { ref, watch } from "vue";
 import type { AgentPanelState, PendingToolAction } from "@/types";
 
 /**
- * AI 面板里的 Agent 控制区：模式开关 + 写操作授权卡片。
+ * AI 面板里的 Agent 结果区：写操作授权卡片 + 运行进度。
  *
- * 把两者合并成一个组件，是为了让 Copilot 面板只暴露一个 agent prop 与一个 action 事件，
- * 避免父级为了转派五六个细碎事件把文件撑过 500 行。
- * 组件纯展示：模式状态与审批队列都由 useWritingCopilot 持有。
+ * 模式开关与角色选择已经挪到输入框下方（AgentBar）——那是「这次怎么问」；
+ * 这里只留「上一轮发生了什么」，所以它跟着消息流走。
+ * 组件纯展示：审批队列由 useWritingCopilot 持有。
  */
 const props = defineProps<{
   agent: AgentPanelState;
@@ -27,16 +27,6 @@ const STATUS_LABEL: Record<PendingToolAction["status"], string> = {
 
 // 通过/驳回共用一个 busyId：记录刚点的那个，让只有它转圈。
 const pendingType = ref<"approve" | "reject" | null>(null);
-
-/** 角色下拉：默认角色不追加 prompt、放开全部工具；自定义角色按配置裁剪。 */
-const roleOptions = computed(() => [
-  { label: "默认角色（全部工具）", value: "" },
-  ...props.agent.roles.map((role) => ({ label: role.name, value: role.id })),
-]);
-
-function switchRole(id: string): void {
-  void props.agent.onAction({ type: "role", id });
-}
 
 watch(
   () => props.agent.busyId,
@@ -70,26 +60,9 @@ function candidate(action: PendingToolAction): string {
 </script>
 
 <template>
-  <section class="controls" v-if="agent.mode || visible().length">
-    <button
-      type="button"
-      class="controls__mode"
-      :class="{ 'controls__mode--on': agent.mode }"
-      @click="agent.onAction({ type: 'toggle' })"
-    >
-      {{ agent.mode ? "Agent 模式·开" : "Agent 模式·关" }}
-    </button>
+  <!-- 没有进度、没有待审批动作时整块不渲染，避免消息流末尾常驻一个空盒子。 -->
+  <section v-if="visible().length || agent.progress || agent.error" class="controls">
     <span v-if="agent.progress" class="controls__progress">{{ agent.progress }}</span>
-
-    <!-- 角色只在 Agent 模式下有意义：它影响系统提示与工具白名单，普通聊天用不到。 -->
-    <NSelect
-      v-if="agent.mode"
-      class="controls__role"
-      size="small"
-      :value="agent.roleId"
-      :options="roleOptions"
-      @update:value="switchRole"
-    />
 
     <div v-for="action in visible()" :key="action.id" class="controls__action">
       <div class="controls__row">
@@ -156,32 +129,10 @@ function candidate(action: PendingToolAction): string {
   border-radius: t.$radius-md;
   min-width: 0;
 
-  &__mode {
-    align-self: flex-start;
-    padding: 3px 10px;
-    font-size: 11px;
-    color: var(--text-soft, #{t.$ink-soft});
-    background: var(--bg-sunken, #{t.$paper-sunken});
-    border: 1px solid var(--divider, #{t.$divider});
-    border-radius: t.$radius-sm;
-    cursor: pointer;
-
-    &--on {
-      color: var(--accent, #{t.$accent});
-      border-color: var(--accent, #{t.$accent});
-    }
-  }
-
   &__progress,
   &__clear {
     font-size: 11px;
     color: var(--text-faint, #{t.$ink-faint});
-  }
-
-  // 面板最窄 320px：下拉必须撑满可用宽度，否则选项文字会被截到只剩两个字。
-  &__role {
-    width: 100%;
-    min-width: 0;
   }
 
   &__clear {

@@ -161,6 +161,7 @@ mod tests {
             task_kind: task.map(|s| s.to_string()),
             project_id: project.map(|s| s.to_string()),
             tools: Vec::new(),
+            tool_choice: None,
         }
     }
 
