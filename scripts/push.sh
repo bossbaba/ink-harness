@@ -13,14 +13,16 @@
 #   bash scripts/push.sh --tag v0.2.0           # 不打 tag 确认，直接按给定版本打 tag
 #   bash scripts/push.sh --no-tag               # 明确不打 tag
 #   bash scripts/push.sh --dry-run --tag v0.2.0 # 只打印将做什么，不修改任何东西
+#   bash scripts/push.sh --skip-checks         # 跳过本地检查，直接推送
 
 set -euo pipefail
 
 DRY_RUN=0
 TAG_MODE="ask"
 TAG_VALUE=""
+SKIP_CHECKS=0
 
-# 参数解析：--dry-run / --tag 版本 / --no-tag / -h|--help。
+# 参数解析：--dry-run / --tag 版本 / --no-tag / --skip-checks / -h|--help。
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run)
@@ -40,8 +42,12 @@ while [ "$#" -gt 0 ]; do
       TAG_MODE="no"
       shift
       ;;
+    --skip-checks)
+      SKIP_CHECKS=1
+      shift
+      ;;
     -h|--help)
-      sed -n '2,16p' "$0"
+      sed -n '2,17p' "$0"
       exit 0
       ;;
     *)
@@ -54,6 +60,19 @@ done
 die() {
   echo "错误：$*" >&2
   exit 1
+}
+
+# 每一步都打印进度，避免用户误以为命令卡住；输出直接走 stdout，不经缓冲。
+step() {
+  printf '\n==> %s\n' "$*"
+}
+
+ok() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    printf '[dry-run] 计划完成：%s\n' "$*"
+  else
+    printf '✓ %s\n' "$*"
+  fi
 }
 
 # 网络不通时 git push 会一直挂着，这里加看门狗：超时就终止并给出明确原因。
@@ -108,6 +127,7 @@ run() {
   fi
 }
 
+step "检查仓库与远端配置"
 # 前置检查：必须在 git 仓库的分支上，且有已配置的 upstream，避免误推到错误的远端。
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "当前目录不是 git 仓库"
 cd "$(git rev-parse --show-toplevel)"
@@ -133,7 +153,7 @@ else
 fi
 git remote get-url "$REMOTE" >/dev/null 2>&1 || die "找不到远端 $REMOTE"
 
-echo "分支：$BRANCH -> $UPSTREAM"
+ok "仓库检查完成：${BRANCH} -> ${UPSTREAM}"
 
 # 只排除 changelog 目录：其他文件（含文档）变更都视为需要写变更记录。
 CODE_CHANGES=$(git status --porcelain -- . ':(exclude)docs/changelogs')
@@ -145,6 +165,7 @@ CHANGELOG_DETAIL=""
 MADE_CODE_COMMIT=0
 
 if [ -n "$ALL_CHANGES" ]; then
+  step "提交本地改动"
   if [ -z "$CODE_CHANGES" ]; then
     echo "当前只有 docs/changelogs 下的文档改动，按约定不再追加变更记录。"
     DEFAULT_TYPE="docs"
@@ -185,9 +206,10 @@ if [ -n "$ALL_CHANGES" ]; then
   # 先提交代码，hash 才有值；changelog 里要写这个真实 hash。
   run add -A
   run commit -m "${COMMIT_TYPE}：${COMMIT_SUMMARY}"
+  ok "代码改动已提交"
   MADE_CODE_COMMIT=1
 else
-  echo "工作区干净，没有需要提交的改动。"
+  step "工作区干净，没有需要提交的改动，跳过提交"
 fi
 
 # 在指定标题后插入一段内容，并吃掉原标题后的空行，避免出现多余空行。
@@ -265,29 +287,49 @@ write_changelog() {
 }
 
 if [ "$MADE_CODE_COMMIT" -eq 1 ] && [ -n "$CODE_CHANGES" ]; then
+  step "生成并提交变更记录"
   SHORT_HASH=$(git rev-parse --short=7 HEAD)
   write_changelog "$SHORT_HASH" "$COMMIT_TYPE" "$COMMIT_SUMMARY" "$CHANGELOG_DETAIL"
   run add -- "docs/changelogs/$(date '+%Y-%m-%d').md"
   run commit -m "docs：更新 $(date '+%Y-%m-%d') 变更记录"
+  ok "变更记录已提交"
 fi
 
 # 本地门禁是可选的：CI 会全量跑，但推送前跑一遍能省一次红 CI。
-if [ "$DRY_RUN" -eq 0 ]; then
-  read -r -p "推送前跑本地检查（pnpm check / check:conventions / test）？[y/N]:" CHECK_ANSWER
+step "本地检查（pnpm check / check:conventions / test）"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "[dry-run] 将交互询问是否跑本地检查"
+elif [ "$SKIP_CHECKS" -eq 1 ]; then
+  echo "已通过 --skip-checks 跳过本地检查"
+else
+  read -r -p "是否跑本地检查？[y/N]:" CHECK_ANSWER
   case "$CHECK_ANSWER" in
     y|Y|yes|YES)
       pnpm check && pnpm check:conventions && pnpm test || die "本地检查未通过，已停止推送"
+      ok "本地检查通过"
       ;;
+    *) echo "已跳过本地检查" ;;
   esac
-else
-  echo "[dry-run] 将交互询问是否跑本地检查"
 fi
 
 # 先推分支，tag 必须指向已存在的远端提交，否则 CI 的 Release job 拿不到构建产物。
+step "推送分支 ${UPSTREAM}（最多等待 ${PUSH_TIMEOUT} 秒，期间无输出属正常）"
 if [ "$FIRST_PUSH" -eq 1 ]; then
   push_checked push -u "$REMOTE" "$BRANCH"
 else
   push_checked push "$REMOTE" "$BRANCH"
+fi
+
+# git push 有时返回后进程仍挂住，单看退出码不可靠；用远端跟踪引用核对是否真的推上去。
+if [ "$DRY_RUN" -eq 1 ]; then
+  ok "分支推送成功：${UPSTREAM}"
+else
+  LOCAL_HEAD=$(git rev-parse HEAD)
+  REMOTE_HEAD=$(git rev-parse "refs/remotes/${UPSTREAM}" 2>/dev/null || true)
+  if [ "$REMOTE_HEAD" != "$LOCAL_HEAD" ]; then
+    die "push 命令已返回，但 ${UPSTREAM} 仍指向 ${REMOTE_HEAD:-<空>}，本地 HEAD 是 ${LOCAL_HEAD}；请手动检查"
+  fi
+  ok "分支推送成功并已核对：${UPSTREAM} @ ${LOCAL_HEAD}"
 fi
 
 # 是否发版：tag 推送会触发 CI 的三平台打包和公开 Release。
@@ -305,6 +347,7 @@ if [ "$TAG_MODE" = "ask" ]; then
 fi
 
 if [ "$TAG_MODE" = "set" ]; then
+  step "检查并推送 tag（最多等待 ${PUSH_TIMEOUT} 秒）"
   if [ "$DRY_RUN" -eq 0 ]; then
     if [ -z "$TAG_VALUE" ]; then
       LATEST_TAG=$(git tag --list 'v*' --sort=-v:refname | head -n 1 || true)
@@ -334,8 +377,20 @@ if [ "$TAG_MODE" = "set" ]; then
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "[dry-run] tag ${TAG_VALUE} 将被推送，CI 会开始三平台打包并发布 Release。"
   else
-    echo "tag ${TAG_VALUE} 已推送，CI 将开始三平台打包并发布 Release。"
+    ok "tag ${TAG_VALUE} 已推送，CI 将开始三平台打包并发布 Release。"
   fi
 else
-  echo "未打 tag，本次只推送代码。"
+  step "未打 tag，本次只推送代码"
+fi
+
+step "最终结果"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "[dry-run] 以上仅为计划操作，未实际推送"
+else
+  printf '分支：%s 已推送\n' "$UPSTREAM"
+  if [ "$TAG_MODE" = "set" ]; then
+    printf 'tag：%s 已推送（CI 将发布 Release）\n' "$TAG_VALUE"
+  else
+    printf 'tag：未推送（本次不发版）\n'
+  fi
 fi
