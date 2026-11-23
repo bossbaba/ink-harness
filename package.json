@@ -2,6 +2,7 @@
   "name": "ink-harness",
   "private": true,
   "version": "0.1.0",
+  "packageManager": "pnpm@12.21.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -21,7 +22,8 @@
     "check:ub": "bash scripts/check-ub.sh",
     "check:ub:miri": "bash scripts/check-ub.sh miri",
     "check:ub:asan": "bash scripts/check-ub.sh asan",
-    "check:all": "pnpm typecheck && pnpm lint && pnpm check:conventions && pnpm test && pnpm build"
+    "check:all": "pnpm typecheck && pnpm lint && pnpm check:conventions && pnpm test && pnpm build",
+    "push": "bash scripts/push.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
