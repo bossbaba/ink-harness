@@ -67,6 +67,8 @@ export interface RouteContext {
   minContext?: number;
   /** 作品 ID，只用于把本次 token 用量记到该作品名下。 */
   projectId?: string;
+  /** 本次请求 ID，随 params 下发到 Rust，供停止按钮主动取消。 */
+  requestId?: string;
 }
 
 export interface ChatStreamHandle {
@@ -208,11 +210,20 @@ class ModelRouterImpl {
         tools: model.capabilities.tools ? tools : undefined,
         // tool_choice 跟着 tools 走：没有工具却要求 required，上游会直接 400。
         toolChoice: model.capabilities.tools ? toolChoice : undefined,
+        requestId: ctx.requestId,
       },
       onChunk,
       onError,
     );
     return { done };
+  }
+
+  /**
+   * 停止指定请求：通知 Rust 置位取消标志，让网关断开上游连接。
+   * 放在路由层而不是 composable 里直接调 IPC，是为了守住「composable 不直连 api」的分层。
+   */
+  cancel(requestId: string): Promise<void> {
+    return tauriApi.cancelChat(requestId);
   }
 }
 

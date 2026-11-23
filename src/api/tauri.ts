@@ -195,7 +195,7 @@ export const tauriApi = {
   /**
    * 流式对话：创建 Channel 逐块接收。
    * Channel 在 Rust 命令返回（或出错）时自动清理，无需前端手动关闭。
-   * 中途取消将在后续阶段通过取消令牌实现（Tauri Channel 无公开 close）。
+   * 中途取消走 `cancelChat(requestId)`——Tauri Channel 没有公开的 close()。
    */
   chat: (
     params: ChatParams,
@@ -209,4 +209,10 @@ export const tauriApi = {
       onError?.(normalizeError(err).message);
     });
   },
+
+  /**
+   * 停止指定请求：后端置位取消标志，网关在读流/等待首字处主动断开上游连接。
+   * 幂等操作——请求已正常结束时标志已注销，这次调用什么也不做。
+   */
+  cancelChat: (requestId: string) => call<void>("cancel_chat", { requestId }),
 };

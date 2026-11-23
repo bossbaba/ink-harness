@@ -79,6 +79,8 @@ export interface ChatParams {
    * 目前只在「首轮取数」时用 required，避免小模型拿着空白上下文直接编答案。
    */
   toolChoice?: "auto" | "required";
+  /** 本次请求 ID，仅用于停止时调用 cancel_chat；不下发给模型。 */
+  requestId?: string;
 }
 
 /**

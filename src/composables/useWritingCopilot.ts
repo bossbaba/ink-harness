@@ -101,6 +101,8 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
   let contextCache: string | null = null;
   // 每次发送自增：停止或新问题到来后，旧请求迟到的分片直接丢弃。
   let requestSeq = 0;
+  /** 当前进行中的请求 ID，停止时用 cancel_chat 通知后端真正断开上游连接。 */
+  let activeRequestId = "";
   /** 记住已加载的作品，切作品后重取，同作品反复展开不重复请求。 */
   let referencesLoadedFor = "";
 
@@ -197,6 +199,8 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
     ];
     const answerIndex = messages.value.length - 1;
     const seq = ++requestSeq;
+    const requestId = `copilot-${seq}`;
+    activeRequestId = requestId;
     streaming.value = true;
 
     try {
@@ -234,7 +238,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
       });
 
       const handle = modelRouter.chat(
-        { task: "copilot", privacy: project.privacy, projectId: project.id },
+        { task: "copilot", privacy: project.privacy, projectId: project.id, requestId },
         chatMessages,
         (chunk) => {
           if (seq !== requestSeq) return;
@@ -256,6 +260,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
       messages.value[answerIndex].failed = true;
     } finally {
       if (seq === requestSeq) streaming.value = false;
+      if (seq === requestSeq) activeRequestId = "";
     }
   }
 
@@ -285,6 +290,8 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
     ];
     const answerIndex = messages.value.length - 1;
     const seq = ++requestSeq;
+    const requestId = `copilot-${seq}`;
+    activeRequestId = requestId;
     streaming.value = true;
 
     try {
@@ -339,6 +346,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
         extraPrompt: role?.prompt ?? "",
         // Copilot 的价值是「读到真实作品再答」：首轮强制取数，避免模型拿着空白上下文编设定。
         requireToolFirst: supportsTools,
+        requestId,
         shouldStop: () => seq !== requestSeq,
         onStep: (step) => {
           if (seq !== requestSeq) return;
@@ -371,12 +379,18 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
       messages.value[answerIndex].failed = true;
     } finally {
       if (seq === requestSeq) streaming.value = false;
+      if (seq === requestSeq) activeRequestId = "";
     }
   }
 
   /** 停止生成：作废进行中的请求，已收到的内容留在气泡里供作者取用。 */
   function stop(): void {
     requestSeq += 1;
+    // 只增序号的话前端只是不再显示分片，上游仍在生成、仍在计费。
+    if (activeRequestId) {
+      void modelRouter.cancel(activeRequestId).catch(() => undefined);
+      activeRequestId = "";
+    }
     streaming.value = false;
     agentProgress.value = "";
   }
@@ -429,8 +443,8 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
 
   /** 清空对话：换作品或想重新开始时用，连同引用一起清掉，并开一条新会话。 */
   function clear(): void {
-    requestSeq += 1;
-    streaming.value = false;
+    // 复用 stop()：清空对话也要中断正在跑的流，否则后台继续生成没有地方展示。
+    stop();
     messages.value = [];
     references.value = [];
     retrievedCount.value = 0;

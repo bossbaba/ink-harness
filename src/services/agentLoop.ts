@@ -63,6 +63,11 @@ export interface AgentLoopInput {
    * 补一次明确追问再试。只影响首轮，拿到工具结果后恢复自由作答。
    */
   requireToolFirst?: boolean;
+  /**
+   * 本次请求 ID：循环里的每一轮都带上它，作者点停止时后端能中断当前这一轮，
+   * 而不只是等这一轮输出完再靠 shouldStop 拦下一轮。
+   */
+  requestId?: string;
   /** 最多循环轮次，默认 6。 */
   maxIterations?: number;
   /** 作者在 UI 点停止时返回 true；每轮开始前检查。 */
@@ -233,6 +238,7 @@ export async function runAgentLoop(
         projectId: input.projectId,
         tools: input.supportsTools ? tools : undefined,
         requireTool: forceTool,
+        requestId: input.requestId,
       },
       messages,
     );

@@ -162,6 +162,7 @@ mod tests {
             project_id: project.map(|s| s.to_string()),
             tools: Vec::new(),
             tool_choice: None,
+            request_id: None,
         }
     }
 

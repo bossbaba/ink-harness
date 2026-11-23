@@ -45,6 +45,10 @@ pub struct ChatParams {
     /// 只有 tools 非空时才随请求下发给上游。
     #[serde(default)]
     pub tool_choice: Option<String>,
+    /// 前端为每次请求生成的 ID，仅用于 `cancel_chat` 主动中断；不下发给模型。
+    /// 老调用方不带这个字段时退化为「只看 Channel 是否关闭」的被动取消。
+    #[serde(default)]
+    pub request_id: Option<String>,
 }
 
 /// 流式返回的一个工具调用片段。

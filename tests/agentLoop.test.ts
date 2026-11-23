@@ -263,4 +263,23 @@ describe("runAgentLoop", () => {
     expect(result.reason).toBe("no-tools");
     expect(result.steps).toHaveLength(2);
   });
+
+  it("把 requestId 带到每一轮请求，停止时后端才能按它中断当前流", async () => {
+    const call = {
+      id: "c1",
+      name: "get_project",
+      arguments: {},
+      rawArguments: "{}",
+      parseError: "",
+    };
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce({ raw: "", toolCalls: [call], failure: "" } satisfies ChatRunResult)
+      .mockResolvedValueOnce({ raw: "答完了", toolCalls: [], failure: "" } satisfies ChatRunResult);
+
+    await runAgentLoop({ ...base, requestId: "copilot-7" }, runner);
+
+    expect(runner).toHaveBeenCalledTimes(2);
+    expect(runner.mock.calls.every((args) => args[0].requestId === "copilot-7")).toBe(true);
+  });
 });

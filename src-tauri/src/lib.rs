@@ -6,9 +6,12 @@ mod services;
 
 pub use error::{AppError, ErrorCode};
 
+use std::sync::Arc;
+
 use tauri::Manager;
 
 use infrastructure::db;
+use services::cancel::CancelRegistry;
 use services::provider;
 
 #[tauri::command]
@@ -30,6 +33,8 @@ pub fn run() {
             // 首次启动的默认 Provider 由领域服务决定（幂等，用户删过就不复活）。
             provider::ensure_default_seeded(&db_state)?;
             app.manage(db_state);
+            // 用 Arc 包一层：命令层拿到的 State 里要能持有克隆出的 guard 引用计数。
+            app.manage(Arc::new(CancelRegistry::default()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -39,6 +44,7 @@ pub fn run() {
             commands::model::remove_provider,
             commands::model::probe_provider,
             commands::model::chat_completions,
+            commands::model::cancel_chat,
             commands::ollama::check_ollama,
             commands::ollama::start_ollama,
             commands::setting::get_app_setting,

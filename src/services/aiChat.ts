@@ -32,6 +32,8 @@ export interface ChatRoute {
   tools?: ToolDefinition[];
   /** 要求本轮必须先调用工具（首轮取数用）；模型不支持工具时自动忽略。 */
   requireTool?: boolean;
+  /** 请求 ID，用于停止时中断后端流式请求。 */
+  requestId?: string;
 }
 
 export interface ChatRunResult {

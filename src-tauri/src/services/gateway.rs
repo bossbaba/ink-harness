@@ -14,17 +14,22 @@ use crate::error::AppError;
 use crate::infrastructure::{db::DbState, llm_http};
 use crate::models::chat::ChatMessage;
 use crate::models::{ChatChunk, ChatParams, TokenUsage};
-use crate::services::{guardrails, project, provider_kind};
+use crate::services::{cancel::CancelFlag, guardrails, project, provider_kind};
 
 use super::gateway_resolve::{ResolvedProvider, resolve_provider};
 use super::gateway_sse::{JsonlParser, ResponseParser, SseEvent, SseParser};
 
 /// 发起流式对话，每收到一块就调用 `on_chunk`。
 /// `on_chunk` 由调用方（commands 层）注入，返回 false 表示接收端已断开，应立刻停止读取。
-pub async fn stream_chat<F>(
+///
+/// 只在收到 chunk 时检查取消是不够的：模型「正在思考、迟迟不出第一个字」时点停止，
+/// 旧实现要等到 120s 空闲超时才退出，期间连接和 token 都还在烧。
+/// 所以额外在重试等待与读流等待处检查 `cancel`；没有 requestId 的老调用方传 None。
+pub async fn stream_chat_with_cancel<F>(
     state: &DbState,
     params: &ChatParams,
     mut on_chunk: F,
+    cancel: Option<&CancelFlag>,
 ) -> Result<Option<TokenUsage>, AppError>
 where
     F: FnMut(ChatChunk) -> bool,
@@ -97,6 +102,10 @@ where
     let client = llm_http::client();
     let mut attempt = 0u32;
     let response = loop {
+        // 可能在重试退避里被取消：下一次发请求前先看标志，别再打一发。
+        if cancel.map_or(false, |flag| flag.is_cancelled()) {
+            return Err(AppError::internal("对话已被取消"));
+        }
         let mut req = client.post(&url).json(&body);
         if let Some(key) = api_key.as_deref() {
             req = req.bearer_auth(key);
@@ -140,9 +149,20 @@ where
     let mut stream = response.bytes_stream();
     loop {
         // 长文本生成允许整体耗时很久，但连续 120 秒收不到任何字节就视为上游假死。
-        let next = timeout(Duration::from_secs(120), stream.next())
-            .await
-            .map_err(|_| AppError::network("模型长时间未返回数据，已中断本次对话"))?;
+        // 同时每 200ms 看一眼取消标志：等首字的阶段也能被「停止」立刻打断，
+        // 不引入 tokio-util 的 CancellationToken——这里只需要一个布尔量。
+        let next = tokio::select! {
+            _ = async {
+                loop {
+                    if cancel.map_or(false, |flag| flag.is_cancelled()) {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                }
+            } => return Err(AppError::internal("对话已被取消")),
+            value = timeout(Duration::from_secs(120), stream.next()) => value
+                .map_err(|_| AppError::network("模型长时间未返回数据，已中断本次对话"))?,
+        };
         let Some(item) = next else { break };
         let bytes = item.map_err(|e| AppError::network(format!("读取流失败：{e}")))?;
         let events = parser.push(&String::from_utf8_lossy(&bytes));
@@ -304,11 +324,12 @@ mod tests {
             project_id: None,
             tools: Vec::new(),
             tool_choice: None,
+            request_id: None,
         };
-        let usage = stream_chat(&state, &params, |chunk| {
+        let usage = stream_chat_with_cancel(&state, &params, |chunk| {
             content.push_str(&chunk.delta);
             true
-        })
+        }, None)
         .await
         .expect("stream");
         assert!(!content.trim().is_empty(), "原生接口应返回正文");
