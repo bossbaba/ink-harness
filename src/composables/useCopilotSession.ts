@@ -73,7 +73,7 @@ export function useCopilotSession(projectId: string) {
 
   /**
    * 恢复最近一次会话；没有会话时返回空数组。
-   * 只恢复内容与角色：工具轨迹在步骤表里，看板可回放，聊天界面不重复铺开。
+   * 消息内容、引用与工具名摘要一并恢复；完整轨迹仍在看板，聊天区只做轻量提示。
    */
   async function restoreLatest() {
     try {
@@ -138,15 +138,21 @@ export function useCopilotSession(projectId: string) {
   }
 
   /**
-   * 把一次问答落库：用户消息、助手消息（含工具调用与停止原因）、每轮轨迹。
+   * 把一次问答落库：用户消息（含引用）、助手消息（含工具调用与停止原因）、每轮轨迹。
    * 顺序写入而不是并行：轨迹行依赖会话存在，且顺序错乱会让看板回放读起来颠倒。
+   *
+   * 失败不再只 console.warn——作者需要知道「这次回答没存上」，
+   * 否则关掉应用后才发现对话丢了，完全无从补救。
    */
-  async function persist(
-    question: string,
-    answer: string,
-    steps: AgentStep[] = [],
-    reason?: string,
-  ): Promise<void> {
+  async function persist(input: {
+    question: string;
+    answer: string;
+    references?: Array<{ kind: string; id: string; label: string }>;
+    steps?: AgentStep[];
+    reason?: string;
+  }): Promise<void> {
+    const { question, answer, references = [], steps = [], reason } = input;
+    error.value = "";
     try {
       const sid = await ensureSession(question);
       // 点「+」时建的是空会话，标题还叫「新对话」；发第一条消息后用首句问题命名，
@@ -166,6 +172,8 @@ export function useCopilotSession(projectId: string) {
         sessionId: sid,
         role: "user",
         content: question,
+        // 引用随提问一起存，恢复会话时才能重建 @ 标记。
+        references: references.length ? JSON.stringify(references) : "",
       });
       await agentSessionService.appendMessage({
         id: nextId(),
@@ -197,7 +205,25 @@ export function useCopilotSession(projectId: string) {
         });
       }
     } catch (err) {
-      console.warn("保存 Copilot 会话失败：", err);
+      error.value = `本次对话没能保存：${String(err)}`;
+    }
+  }
+
+  /**
+   * 把一条后补的助手消息（如工具审批回执）写进当前会话。
+   * 没有会话时静默跳过——审批总发生在一次问答之后，正常不会有这种竞态。
+   */
+  async function appendNote(content: string): Promise<void> {
+    if (!sessionId) return;
+    try {
+      await agentSessionService.appendMessage({
+        id: `msg-${Date.now()}-note`,
+        sessionId,
+        role: "assistant",
+        content,
+      });
+    } catch (err) {
+      error.value = `审批回执没能保存：${String(err)}`;
     }
   }
 
@@ -215,5 +241,6 @@ export function useCopilotSession(projectId: string) {
     rename,
     remove,
     persist,
+    appendNote,
   };
 }

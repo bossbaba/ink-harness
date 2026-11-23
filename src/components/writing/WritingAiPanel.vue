@@ -192,6 +192,10 @@ function isLive(message: CopilotMessage): boolean {
             </NTag>
           </div>
 
+          <!-- 恢复历史会话时展示本轮用过的工具；完整轨迹在 Trace 看板，这里不重复铺开。 -->
+          <p v-if="message.toolNames?.length" class="chat__tools">
+            本轮调用：{{ message.toolNames.join("、") }}
+          </p>
           <p v-if="!message.content && isLive(message)" class="chat__pending">正在思考…</p>
           <pre
             v-if="message.content"
@@ -409,10 +413,15 @@ function isLive(message: CopilotMessage): boolean {
   }
 
   &__pending,
-  &__failed {
+  &__failed,
+  &__tools {
     margin: 0;
     font-size: 12px;
     color: var(--text-faint, #{t.$ink-faint});
+  }
+
+  &__tools {
+    margin-bottom: t.$space-2;
   }
 
   &__failed {

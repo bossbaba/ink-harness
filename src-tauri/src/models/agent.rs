@@ -25,6 +25,9 @@ pub struct AgentMessage {
     /// 只有助手消息有值；看板用它算成功率，空串表示不是一次完整循环的产物。
     #[serde(default)]
     pub stop_reason: String,
+    /// 本次提问携带的引用（序列化的 JSON 数组）；恢复会话时重建 @引用 标签。
+    #[serde(default)]
+    pub references: String,
     pub created_at: String,
 }
 
@@ -69,6 +72,9 @@ pub struct NewAgentMessage {
     /// 循环停止原因；非 Agent 消息不传，落库为空串。
     #[serde(default)]
     pub stop_reason: String,
+    /// 本次提问携带的引用，序列化成 JSON 数组字符串；老调用方不传落空串。
+    #[serde(default)]
+    pub references: String,
 }
 
 /// 追加一步轨迹的入参。

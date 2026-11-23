@@ -20,6 +20,11 @@ export interface CopilotMessage {
   /** 用户提问时选中的引用；助手回答固定为空数组。 */
   references: CopilotReference[];
   failed?: boolean;
+  /**
+   * 本轮 Agent 用到的工具名；仅恢复历史会话时从 toolCalls 解析出来做轻量展示，
+   * 完整轨迹在 Trace 看板，这里不重复铺开。
+   */
+  toolNames?: string[];
 }
 
 export const COPILOT_REF_KIND_LABEL: Record<CopilotReferenceKind, string> = {

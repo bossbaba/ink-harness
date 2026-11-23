@@ -14,7 +14,8 @@ use super::init_schema;
 /// 5：Agent 消息记停止原因、步骤记模型——看板算成功率与成本折算要用。
 /// 6：Agent 角色（prompt + 工具白名单）与评测结果表——补齐「角色管理」与「回归评估」。
 /// 7：构思向导草稿表——访谈答案与生成方案落库，切页/关应用不再丢。
-pub(super) const SCHEMA_VERSION: i64 = 7;
+/// 8：Agent 消息记引用与工具调用摘要——恢复会话时能重建「问了哪些设定/章节、动过哪些工具」。
+pub(super) const SCHEMA_VERSION: i64 = 8;
 
 /// 顺序迁移：从 `pragma user_version` 记录的位置往后执行。
 ///
@@ -147,6 +148,19 @@ pub(super) fn migrate(conn: &Connection) -> Result<(), AppError> {
             .map_err(AppError::from)?;
     }
 
+    if current < 8 {
+        // 恢复会话时重建引用与工具摘要：两列都存 JSON，老消息读出来是空串，
+        // 前端按「没有引用」处理即可，不需要回填历史数据。
+        ensure_column(
+            conn,
+            "agent_message",
+            "refs_json",
+            "refs_json text not null default ''",
+        )?;
+        conn.pragma_update(None, "user_version", 8)
+            .map_err(AppError::from)?;
+    }
+
     Ok(())
 }
 
@@ -196,6 +210,7 @@ fn create_agent_tables(conn: &Connection) -> Result<(), AppError> {
             content     text not null default '',
             tool_calls  text not null default '',
             stop_reason text not null default '',
+            refs_json   text not null default '',
             created_at  text not null
         );
 
@@ -306,6 +321,12 @@ fn backfill_columns(conn: &Connection) -> Result<(), AppError> {
         "agent_step",
         "model",
         "model text not null default ''",
+    )?;
+    ensure_column(
+        conn,
+        "agent_message",
+        "refs_json",
+        "refs_json text not null default ''",
     )?;
     // 唯一索引前的去重同样要重跑：缺索引的库靠它兜住「同章同号快照」。
     conn.execute_batch(

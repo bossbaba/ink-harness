@@ -80,7 +80,12 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
     },
     role: () => roles.value.find((item) => item.id === roleId.value) ?? null,
     planning: () => planning.value,
-    persist: (text, content, steps, reason) => session.persist(text, content, steps, reason),
+    persist: (input) => {
+      void session.persist(input);
+    },
+    persistNote: (content) => {
+      void session.appendNote(content);
+    },
   });
 
   /** 打开面板时恢复最近一次会话：关掉应用再回来还能接着聊。 */

@@ -29,6 +29,15 @@ import type {
  * 会话条/角色选择/引用选择器无关。本层只处理前者，界面状态仍由调用方持有。
  */
 
+/** 一次问答落库所需的全部信息；引用随用户消息一起存，恢复时才能重建 @ 标记。 */
+export interface CopilotPersistInput {
+  question: string;
+  answer: string;
+  references: CopilotReference[];
+  steps?: AgentStep[];
+  reason?: AgentStopReason;
+}
+
 /** 发送层需要的外部依赖，全部以 getter 注入，避免反向依赖面板 composable。 */
 export interface CopilotMessagingOptions {
   projectId: string;
@@ -46,7 +55,9 @@ export interface CopilotMessagingOptions {
   /** 是否启用自主规划；默认关闭，由面板开关控制。 */
   planning: () => boolean;
   /** 消息与轨迹落库；失败不应阻塞对话展示。 */
-  persist: (text: string, content: string, steps?: AgentStep[], reason?: AgentStopReason) => void;
+  persist: (input: CopilotPersistInput) => void;
+  /** 后补消息落库（工具审批回执），恢复会话时才能看到作者做过什么决定。 */
+  persistNote: (content: string) => void;
 }
 
 /** 消息 id 只用于列表 key，不需要全局唯一，递增即可。 */
@@ -56,14 +67,37 @@ function nextMessageId(): string {
   return `copilot-${messageSeq}`;
 }
 
-/** 把落库消息映射成界面消息；引用关系不持久化，恢复后不带 @ 标记。 */
-function toMessages(records: AgentMessageRecord[]): CopilotMessage[] {
-  return records.map((record) => ({
-    id: record.id,
-    role: record.role === "user" ? "user" : "assistant",
-    content: record.content,
-    references: [],
-  }));
+/**
+ * 安全解析消息里存的 JSON 数组；老记录或坏数据返回空数组，
+ * 恢复会话不该因为一列脏数据就整屏打不开。
+ */
+function parseStoredArray<T>(raw: string): T[] {
+  if (!raw) return [];
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value) ? (value as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 把落库消息映射成界面消息，重建引用 @ 标记与工具名摘要。
+ * 工具名从已存的 toolCalls 里取，完整观察结果仍在 Trace 看板，这里只做轻量提示。
+ */
+export function toMessages(records: AgentMessageRecord[]): CopilotMessage[] {
+  return records.map((record) => {
+    const calls = parseStoredArray<{ name?: unknown }>(record.toolCalls);
+    return {
+      id: record.id,
+      role: record.role === "user" ? "user" : "assistant",
+      content: record.content,
+      references: parseStoredArray<CopilotReference>(record.references),
+      toolNames: calls
+        .map((call) => (typeof call.name === "string" ? call.name : ""))
+        .filter(Boolean),
+    };
+  });
 }
 
 export function useCopilotMessaging(options: CopilotMessagingOptions) {
@@ -193,7 +227,11 @@ export function useCopilotMessaging(options: CopilotMessagingOptions) {
       );
       await handle.done.catch(() => undefined);
       // 对话落库：失败不阻塞，作者仍能正常看到与使用回答。
-      void options.persist(text, messages.value[answerIndex].content);
+      void options.persist({
+        question: text,
+        answer: messages.value[answerIndex].content,
+        references: attached,
+      });
     } catch (err) {
       if (seq !== requestSeq) return;
       error.value = err instanceof Error ? err.message : String(err);
@@ -302,7 +340,13 @@ export function useCopilotMessaging(options: CopilotMessagingOptions) {
         messages.value[answerIndex].content = result.answer || "（没有拿到结果）";
       }
       // 会话记忆与轨迹落库：失败不影响对话展示；停止原因给看板算成功率。
-      void options.persist(text, messages.value[answerIndex].content, result.steps, result.reason);
+      void options.persist({
+        question: text,
+        answer: messages.value[answerIndex].content,
+        references: attached,
+        steps: result.steps,
+        reason: result.reason,
+      });
       agentProgress.value = "";
     } catch (err) {
       if (seq !== requestSeq) return;
@@ -330,15 +374,12 @@ export function useCopilotMessaging(options: CopilotMessagingOptions) {
           : decision.status === "failed"
             ? `${decision.toolName} 执行失败：${decision.error || "原因未知"}`
             : `工具 ${decision.toolName} 的审批状态为 ${decision.status}`;
+    const content = `【工具回执】${outcome}`;
     messages.value = [
       ...messages.value,
-      {
-        id: nextMessageId(),
-        role: "assistant",
-        content: `【工具回执】${outcome}`,
-        references: [],
-      },
+      { id: nextMessageId(), role: "assistant", content, references: [] },
     ];
+    options.persistNote(content);
   }
 
   /** 把一轮循环进度追加到当前助手气泡，并更新进度行。 */

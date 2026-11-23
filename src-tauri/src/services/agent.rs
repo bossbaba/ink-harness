@@ -105,8 +105,8 @@ pub fn delete_session(state: &DbState, id: &str) -> Result<(), AppError> {
 pub fn append_message(state: &DbState, input: &NewAgentMessage) -> Result<(), AppError> {
     let conn = state.biz();
     let sql = format!(
-        "insert into agent_message(id, session_id, role, content, tool_calls, stop_reason, created_at)
-         values (?1, ?2, ?3, ?4, ?5, ?6, {NOW})"
+        "insert into agent_message(id, session_id, role, content, tool_calls, stop_reason, refs_json, created_at)
+         values (?1, ?2, ?3, ?4, ?5, ?6, ?7, {NOW})"
     );
     conn.execute(
         &sql,
@@ -116,7 +116,8 @@ pub fn append_message(state: &DbState, input: &NewAgentMessage) -> Result<(), Ap
             input.role,
             input.content,
             input.tool_calls,
-            input.stop_reason
+            input.stop_reason,
+            input.references
         ],
     )
     .map_err(AppError::from)?;
@@ -129,7 +130,7 @@ pub fn list_messages(state: &DbState, session_id: &str) -> Result<Vec<AgentMessa
     let conn = state.biz();
     let mut stmt = conn
         .prepare(
-            "select id, session_id, role, content, tool_calls, stop_reason, created_at
+            "select id, session_id, role, content, tool_calls, stop_reason, refs_json, created_at
                from agent_message where session_id = ?1 order by created_at asc, rowid asc",
         )
         .map_err(AppError::from)?;
@@ -142,7 +143,8 @@ pub fn list_messages(state: &DbState, session_id: &str) -> Result<Vec<AgentMessa
                 content: row.get(3)?,
                 tool_calls: row.get(4)?,
                 stop_reason: row.get(5)?,
-                created_at: row.get(6)?,
+                references: row.get(6)?,
+                created_at: row.get(7)?,
             })
         })
         .map_err(AppError::from)?;
@@ -303,6 +305,7 @@ mod tests {
                 content: "检查第三章".into(),
                 tool_calls: String::new(),
                 stop_reason: String::new(),
+                references: r#"[{"kind":"chapter","id":"c3","label":"第三章"}]"#.into(),
             },
         )
         .unwrap();
@@ -315,12 +318,14 @@ mod tests {
                 content: "第三章有三处问题".into(),
                 tool_calls: String::new(),
                 stop_reason: "no-tools".into(),
+                references: String::new(),
             },
         )
         .unwrap();
         let messages = list_messages(&state, &session.id).unwrap();
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].content, "检查第三章");
+        assert_eq!(messages[0].references, r#"[{"kind":"chapter","id":"c3","label":"第三章"}]"#);
         assert_eq!(messages[1].stop_reason, "no-tools");
 
         append_step(
@@ -351,6 +356,7 @@ mod tests {
                 content: "重复调用被掐停".into(),
                 tool_calls: String::new(),
                 stop_reason: "idle-loop".into(),
+                references: String::new(),
             },
         )
         .unwrap();
@@ -363,6 +369,7 @@ mod tests {
                 content: "又答完一次".into(),
                 tool_calls: String::new(),
                 stop_reason: "no-tools".into(),
+                references: String::new(),
             },
         )
         .unwrap();

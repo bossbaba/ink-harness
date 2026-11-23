@@ -1,7 +1,7 @@
 # INK-HARNESS Agent 能力落地方案
 
 > 对照《Agent运用要素.md》的差距盘点与分阶段实施计划。
-> 版本：v1.2 ｜ 日期：2026-11-23 ｜ 状态：已实施（P0~P5 完成，P6 评测可信度落地）
+> 版本：v1.3 ｜ 日期：2026-11-23 ｜ 状态：已实施（P0~P7 完成：基础能力→规划→审批→评测→会话恢复）
 >
 > 实施记录：P0 工具调用契约、P1 工具系统/执行器/审批、P2 Agent Loop、P3 会话记忆/Trace/看板；
 > P4（2026-11-23）补上 Planner：任务拆解、逐步推进、按新事实重规划，见第 6 节。
@@ -25,7 +25,7 @@ README 自我定位为「作者主导、Agent 辅助」，工作流的推进权�
 | State 状态管理       | ✅ 已具备 | `src/services/workflowService.ts` 阶段状态持久化，State 与 Context 已分离                              |
 | Context Engineering  | ✅ 已具备 | `src/services/copilotService.ts` 提示词组装 + 字符预算 + 裁剪                                          |
 | Planner/Controller   | ✅ 已具备 | P4：`agentPlanner.ts` 拆解任务，`update_plan` / `replan` 元工具逐步推进（第 6 节）                     |
-| Memory               | ✅ 已具备 | P3 起有 `agent_session` / `agent_message` / `agent_step` 三表，会话持久化与恢复已接通                  |
+| Memory               | ✅ 已具备 | P3 有 `agent_session` / `agent_message` / `agent_step` 三表；P7 补引用与工具痕迹，恢复后完整重建       |
 | Session/Runtime      | ✅ 已具备 | Tauri 运行时 + 会话表 + `useCopilotSession`，支持多会话切换/新建/重命名/删除                           |
 | Guardrails           | ⚠️ 部分   | 隐私分级、钥匙串、文件白名单、敏感信息脱敏齐备；无沙箱（当前无代码执行工具，非必需）与通用内容安全过滤 |
 | Observability        | ✅ 已具备 | P3 Trace 看板 + 评测页；`usage.rs` 已写真实输入/输出摘要（`record_writes_real_input_and_output` 单测） |
@@ -241,3 +241,31 @@ P3 的评测页能记录通过率，但有四个缺口让它无法回答「换�
 - `pnpm exec biome check .` 222 文件全绿；`pnpm test` **79 例**通过（新增 5 例：service 作品过滤转发 3 例、默认用例集与审稿跳过 2 例）；typecheck 通过。
 - Rust `cargo test --lib` 135 通过 / 0 失败；`list_runs` 单测覆盖传/不传 `project_id` 两种路径。
 - UI 遵守容器查询规范：中等容器两列、窄容器单列，表单四列不产生横向滚动。
+
+---
+
+## 9. P7 · 会话恢复体验（2026-11-23）
+
+P3 接通了会话持久化，但恢复时只重建消息正文：@引用 标记、工具调用痕迹、审批回执都丢失；落库失败也只 `console.warn`，作者关掉应用才知道对话没存上。P7 补齐这些细节。
+
+### 9.1 改动
+
+| 缺口         | 处置                                                                                                                  |
+| ------------ | --------------------------------------------------------------------------------------------------------------------- |
+| 引用丢失     | `agent_message` 加 `refs_json` 列（schema v8），用户消息落库时写入引用 JSON；`toMessages` 解析后重建 @引用 标签       |
+| 工具痕迹丢失 | 助手消息本就存了 `tool_calls`，恢复时解析出工具名，气泡上轻量展示「本轮调用：…」；完整轨迹仍在 Trace 看板，不重复铺开 |
+| 审批回执丢失 | 新增 `appendNote`，作者通过/驳回写操作后回执同步落库，恢复会话时仍能看到做过什么决定                                  |
+| 落库失败静默 | `persist` 的 catch 从 `console.warn` 改为写入 `session.error`，面板可见「本次对话没能保存」                           |
+
+### 9.2 关键取舍
+
+- **列名避开保留字**：`references` 是 SQLite 关键字，裸用会让建表失败；列命名 `refs_json`，对前端仍暴露 `references` 字段。
+- **坏数据容错**：`parseStoredArray` 对空串/非法 JSON 返回空数组，老记录或脏数据不会让整屏会话打不开。
+- **结构化落库入参**：`persist` 从位置参数改为 `CopilotPersistInput`，引用与轨迹一起传，避免以后加字段再改调用签名。
+- **回执是后补消息**：它不属于那次问答的「问题→回答」配对，单独 `appendNote` 写入，恢复时作为普通 assistant 消息展示。
+
+### 9.3 验证
+
+- `pnpm exec biome check .` 223 文件全绿；`pnpm test` **84 例**通过（新增 5 例：引用恢复、工具名解析、脏数据容错、角色区分）；`pnpm check:all` 全绿。
+- Rust `cargo test --lib` 135 通过 / 0 失败；`session_message_and_step_roundtrip` 增加引用存取断言，覆盖 schema v8 迁移路径。
+- 所有改动文件均在 500 行红线内（最大 `WritingAiPanel.vue` 453 行）。

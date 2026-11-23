@@ -156,6 +156,8 @@ export interface AgentMessageRecord {
   toolCalls: string;
   /** 循环停止原因（no-tools/error/…）；普通消息与老记录为空串。 */
   stopReason: string;
+  /** 本次提问携带的引用，JSON 数组字符串；老记录为空串。 */
+  references: string;
   createdAt: string;
 }
 
@@ -188,6 +190,8 @@ export interface NewAgentMessage {
   toolCalls?: string;
   /** Agent 循环的停止原因；普通聊天不传。 */
   stopReason?: string;
+  /** 本次提问携带的引用，序列化成 JSON 数组字符串；普通回答不传。 */
+  references?: string;
 }
 
 /** 追加轨迹入参。 */
