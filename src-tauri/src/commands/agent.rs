@@ -105,6 +105,7 @@ pub async fn save_agent_eval_run(
 pub async fn list_agent_eval_runs(
     app: tauri::AppHandle,
     limit: i64,
+    project_id: Option<String>,
 ) -> Result<Vec<AgentEvalRun>, AppError> {
-    blocking(app, move |state| agent_eval::list_runs(state, limit)).await
+    blocking(app, move |state| agent_eval::list_runs(state, limit, project_id.as_deref())).await
 }

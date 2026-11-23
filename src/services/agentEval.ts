@@ -31,8 +31,8 @@ export interface AgentEvalCase {
 
 /**
  * 内置用例：覆盖读作品、列设定、读章节、检索、写候选五条主链路。
- * 不包含 propose_review——它内部会再调一次模型，跑一次评测等于双倍耗时与费用，
- * 需要时由作者在写作台手动验证。
+ * 审稿用例单独导出、默认不跑——它内部会再调一次模型，等于双倍耗时与费用，
+ * 由评测页的开关显式纳入，避免作者误点一次就等很久。
  */
 export const AGENT_EVAL_CASES: AgentEvalCase[] = [
   {
@@ -67,6 +67,18 @@ export const AGENT_EVAL_CASES: AgentEvalCase[] = [
     question: () => "针对当前章节写一小段修改候选，提交给我审批，不要直接改动正文。",
   },
 ];
+
+/**
+ * 可选的审稿用例：依赖章节，内部再跑一次审稿模型。
+ * 单独成常量而不是塞进默认集，是为了让「要不要付双倍成本」成为作者的显式选择。
+ */
+export const AGENT_EVAL_REVIEW_CASE: AgentEvalCase = {
+  id: "propose-review",
+  title: "生成审稿建议",
+  expectTools: ["propose_review"],
+  skip: (ctx) => (ctx.chapterId ? "" : "当前作品还没有章节"),
+  question: () => "审读当前章节，给出按严重程度排序的修改建议，不要改动正文。",
+};
 
 /** 单次跑评测的输入。 */
 export interface RunAgentEvalInput {

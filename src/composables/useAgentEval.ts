@@ -1,5 +1,10 @@
 import { computed, ref } from "vue";
-import { type RunAgentEvalResult, runAgentEval } from "@/services/agentEval";
+import {
+  AGENT_EVAL_CASES,
+  AGENT_EVAL_REVIEW_CASE,
+  type RunAgentEvalResult,
+  runAgentEval,
+} from "@/services/agentEval";
 import { agentEvalService } from "@/services/agentEvalService";
 import { agentRoleService, parseRoleTools } from "@/services/agentRoleService";
 import { modelRouter } from "@/services/modelRouter";
@@ -18,42 +23,99 @@ export function parseDetails(raw: string): AgentEvalCaseResult[] {
   }
 }
 
+/** 通过率统一按此口径计算，避免结果区和历史区各算一套对不上。 */
+function passRate(passed: number, total: number): number {
+  return total > 0 ? Math.round((passed / total) * 100) : 0;
+}
+
 /**
- * Agent 评测页状态：选项（作品/角色）、跑分进度、最近一次结果与历史。
+ * Agent 评测页状态：选项（作品/章节/角色）、跑分进度、最近一次结果与历史趋势。
  *
  * 跑分是重操作（每个用例一次多轮对话），因此全程可取消，且一次只允许跑一轮；
- * 结果即时落库，历史按时间倒序展示，方便换模型后对比通过率。
+ * 结果即时落库，历史按时间倒序展示，并用「本次 vs 上次」的通过率差回答
+ * 「换模型/改提示词之后到底变好还是变差」这个评测初衷。
  */
 export function useAgentEval() {
   const projects = ref<Project[]>([]);
   const roles = ref<AgentRole[]>([]);
   const projectId = ref("");
   const roleId = ref("");
+  /** 评测用章节：默认第一项，作者可换成真正要验证的那一章；空串表示不指定。 */
+  const chapterId = ref("");
+  const chapters = ref<Array<{ id: string; title: string }>>([]);
+  /** 审稿用例开关：默认关，它内部再调一次模型，跑一轮约双倍耗时。 */
+  const includeReview = ref(false);
   const loading = ref(false);
   const running = ref(false);
   const progress = ref("");
   const error = ref("");
   const result = ref<RunAgentEvalResult | null>(null);
   const history = ref<AgentEvalRun[]>([]);
+  /** 跑分开始前记下的上一次通过率，用于本次结果对比；不受本次落库影响。 */
+  const previousRate = ref<number | null>(null);
 
   /** 取消标记：跑分循环每轮开始前检查，点停止后剩余用例标记为跳过。 */
   let cancelled = false;
 
   const canRun = computed(() => !running.value && projectId.value !== "");
-  const historyRows = computed(() =>
-    history.value.map((run) => ({
-      ...run,
-      rate: run.total > 0 ? Math.round((run.passed / run.total) * 100) : 0,
-      cases: parseDetails(run.details),
-    })),
-  );
+  const historyRows = computed(() => {
+    // history 已按作品过滤且时间倒序：当前项的「上一次」就是紧随其后的那一条。
+    return history.value.map((run, index) => {
+      const prior = history.value[index + 1];
+      const rate = passRate(run.passed, run.total);
+      return {
+        ...run,
+        rate,
+        cases: parseDetails(run.details),
+        delta: prior ? rate - passRate(prior.passed, prior.total) : null,
+      };
+    });
+  });
 
-  /** 拉取作品、角色与历史；单块失败不阻塞其余，页面能继续用。 */
+  /** 本次通过率与上一次的差值；null 表示没有可比的历史。 */
+  const rateDelta = computed(() => {
+    if (!result.value || previousRate.value === null) return null;
+    return passRate(result.value.passed, result.value.cases.length) - previousRate.value;
+  });
+
+  /**
+   * 加载某个作品范围内的章节与历史。
+   * 切作品时必须重取：章节属于新作品，历史也只该显示该作品的跑分，
+   * 否则「上次通过率」会拿别的作品做基线，趋势对比完全失真。
+   */
+  async function loadScoped(id: string): Promise<void> {
+    chapterId.value = "";
+    chapters.value = [];
+    history.value = [];
+    previousRate.value = null;
+    result.value = null;
+    if (!id) return;
+    const [snapshot, runs] = await Promise.all([
+      outlineService.snapshot(id).catch(() => null),
+      agentEvalService.list(20, id).catch(() => [] as AgentEvalRun[]),
+    ]);
+    chapters.value = (snapshot?.chapters ?? []).map((chapter) => ({
+      id: chapter.id,
+      title: chapter.title,
+    }));
+    chapterId.value = chapters.value[0]?.id ?? "";
+    history.value = runs;
+    previousRate.value = runs.length > 0 ? passRate(runs[0].passed, runs[0].total) : null;
+  }
+
+  /** NSelect 的显式变更入口：v-model 换成 :value + 此回调，避免 watch 与首屏加载重复取数。 */
+  async function handleProjectChange(id: string): Promise<void> {
+    if (running.value || id === projectId.value) return;
+    projectId.value = id;
+    await loadScoped(id);
+  }
+
+  /** 拉取作品、角色与当前作品的历史；单块失败不阻塞其余，页面能继续用。 */
   async function load(): Promise<void> {
     loading.value = true;
     error.value = "";
     const failures: string[] = [];
-    const [projectList, roleList, runs] = await Promise.all([
+    const [projectList, roleList] = await Promise.all([
       projectService.list().catch((err: unknown) => {
         failures.push(`作品列表（${String(err)}）`);
         return [] as Project[];
@@ -62,20 +124,16 @@ export function useAgentEval() {
         failures.push(`角色列表（${String(err)}）`);
         return [] as AgentRole[];
       }),
-      agentEvalService.list(20).catch((err: unknown) => {
-        failures.push(`评测历史（${String(err)}）`);
-        return [] as AgentEvalRun[];
-      }),
     ]);
     projects.value = projectList;
     roles.value = roleList;
-    history.value = runs;
     if (!projectId.value && projectList.length > 0) projectId.value = projectList[0].id;
+    await loadScoped(projectId.value);
     if (failures.length > 0) error.value = `部分数据读取失败：${failures.join("、")}`;
     loading.value = false;
   }
 
-  /** 运行评测：准备作品/章节上下文，按所选角色裁剪工具，跑完写库并刷新历史。 */
+  /** 运行评测：按所选章节准备上下文，按角色裁剪工具，跑完写库并刷新历史。 */
   async function run(): Promise<void> {
     if (!canRun.value) return;
     const project = projects.value.find((item) => item.id === projectId.value);
@@ -90,14 +148,20 @@ export function useAgentEval() {
     progress.value = "准备中…";
 
     try {
-      // 章节只用于「读当前章」用例：取大纲里第一项，没有章节时该用例自动跳过。
-      const snapshot = await outlineService.snapshot(project.id).catch(() => null);
-      const chapter = snapshot?.chapters[0];
+      // 章节由作者指定；选「不指定章节」时读章节用例自动跳过。
+      const chapter = chapters.value.find((item) => item.id === chapterId.value);
+      // 基线必须在本次落库之前取，否则 history[0] 就是这次自己，差值永远是 0。
+      previousRate.value =
+        history.value.length > 0 ? passRate(history.value[0].passed, history.value[0].total) : null;
       // 模型可能在别的页面刚改过配置，这里刷新一次，避免按旧能力判断走错轨道。
       await modelRouter.refresh();
       const selected = modelRouter.select({ task: "copilot", privacy: project.privacy });
       const supportsTools = selected?.capabilities.tools === true;
       const role = roles.value.find((item) => item.id === roleId.value) ?? null;
+      // 审稿用例默认不跑：作者显式打开才纳入，避免误点一次就等双倍时间。
+      const cases = includeReview.value
+        ? [...AGENT_EVAL_CASES, AGENT_EVAL_REVIEW_CASE]
+        : AGENT_EVAL_CASES;
 
       const runResult = await runAgentEval({
         ctx: {
@@ -108,6 +172,7 @@ export function useAgentEval() {
         toolNames: parseRoleTools(role),
         extraPrompt: role?.prompt ?? "",
         supportsTools,
+        cases,
         onProgress: (done, total, title) => {
           progress.value = title
             ? `${done}/${total} · 正在跑：${title}`
@@ -154,6 +219,9 @@ export function useAgentEval() {
     roles,
     projectId,
     roleId,
+    chapterId,
+    chapters,
+    includeReview,
     loading,
     running,
     progress,
@@ -161,9 +229,11 @@ export function useAgentEval() {
     result,
     history,
     historyRows,
+    rateDelta,
     canRun,
     load,
     run,
     cancel,
+    handleProjectChange,
   };
 }

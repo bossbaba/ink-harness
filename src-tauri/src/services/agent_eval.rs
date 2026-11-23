@@ -65,13 +65,22 @@ pub fn get_run(state: &DbState, id: &str) -> Result<Option<AgentEvalRun>, AppErr
 }
 
 /// 最近的跑分，新的在前。limit 为 0 时取 20 条：页面只看近期趋势，不需要全量。
-pub fn list_runs(state: &DbState, limit: i64) -> Result<Vec<AgentEvalRun>, AppError> {
+///
+/// project_id 为 None 时不过滤（全量历史）；传值时只取该作品的记录，
+/// 避免切作品后历史里混着别的作品的通过率，对比趋势失去意义。
+pub fn list_runs(
+    state: &DbState,
+    limit: i64,
+    project_id: Option<&str>,
+) -> Result<Vec<AgentEvalRun>, AppError> {
     let conn = state.biz();
     let limit = if limit <= 0 { 20 } else { limit.min(200) };
-    let sql = format!("{ROW} order by created_at desc limit ?1");
+    let sql = format!(
+        "{ROW} where (?1 is null or project_id = ?1) order by created_at desc limit ?2"
+    );
     let mut stmt = conn.prepare(&sql).map_err(AppError::from)?;
     let rows = stmt
-        .query_map(params![limit], map_row)
+        .query_map(params![project_id, limit], map_row)
         .map_err(AppError::from)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
 }
@@ -128,9 +137,11 @@ mod tests {
         assert_eq!(saved.passed, 4);
         assert!(!saved.created_at.is_empty(), "created_at 应由数据库写入");
 
-        let runs = list_runs(&state, 0).unwrap();
+        let runs = list_runs(&state, 0, None).unwrap();
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].role_name, "写作助手");
+        assert_eq!(list_runs(&state, 0, Some("p1")).unwrap().len(), 1);
+        assert_eq!(list_runs(&state, 0, Some("other")).unwrap().len(), 0);
         assert!(get_run(&state, &saved.id).unwrap().is_some());
         std::fs::remove_dir_all(&dir).ok();
     }

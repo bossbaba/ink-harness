@@ -1,7 +1,7 @@
 # INK-HARNESS Agent 能力落地方案
 
 > 对照《Agent运用要素.md》的差距盘点与分阶段实施计划。
-> 版本：v1.1 ｜ 日期：2026-11-23 ｜ 状态：已实施（P0~P3 全部完成，P4 自主规划已落地）
+> 版本：v1.2 ｜ 日期：2026-11-23 ｜ 状态：已实施（P0~P5 完成，P6 评测可信度落地）
 >
 > 实施记录：P0 工具调用契约、P1 工具系统/执行器/审批、P2 Agent Loop、P3 会话记忆/Trace/看板；
 > P4（2026-11-23）补上 Planner：任务拆解、逐步推进、按新事实重规划，见第 6 节。
@@ -15,24 +15,24 @@
 
 当前项目是**人在环路（human-in-the-loop）的 AI 辅助写作工作台**，不是完整意义的 Agent 应用。
 README 自我定位为「作者主导、Agent 辅助」，工作流的推进权在作者手中——`pending` 必须等人工审批，`approved` 才解锁下一阶段（`src/types/workflow.ts:4-9`）。
-文档列举的 12 项要素中，缺的正是让 Agent 成为 Agent 的三件核心：**Agent Loop 主循环、Tools 工具系统、Action Executor 动作执行器**；而 LLM 接入、上下文工程、状态管理等外围反而已相当完整。
+文档列举的 12 项要素中，让 Agent 成为 Agent 的三件核心（**Agent Loop 主循环、Tools 工具系统、Action Executor 动作执行器**）均已在 P1/P2 落地；P4 补齐自主规划，P5 修复审批闭环，P6 让评测结果可信。下表已按 2026-11-23 代码现状更新，早期版本「缺失」的标注多为过期信息。
 
-### 1.2 要素对照表
+### 1.2 要素对照表（2026-11-23 现状）
 
-| 要素                 | 状态      | 关键证据                                                                                                |
-| -------------------- | --------- | ------------------------------------------------------------------------------------------------------- |
-| LLM 接入             | ✅ 已具备 | `src-tauri/src/services/gateway.rs` 多 Provider 流式代理；`src/services/modelRouter.ts:76-208` 任务路由 |
-| State 状态管理       | ✅ 已具备 | `src/services/workflowService.ts:17-82` 阶段状态持久化，State 与 Context 已分离                         |
-| Context Engineering  | ✅ 已具备 | `src/services/copilotService.ts:92-150` 提示词组装 + 字符预算 + 裁剪                                    |
-| Planner/Controller   | ✅ 已具备 | P4 落地：先拆解任务，模型用 `update_plan` 逐步推进、`replan` 按新事实重拆（见第 6 节）                  |
-| Memory               | ⚠️ 部分   | 有 Story Bible / RAG / 章节摘要，但对话历史不持久化（组件内 `messages` ref，全仓无会话表）              |
-| Session/Runtime      | ⚠️ 部分   | 有 Tauri 运行时 + `project_id` 命名空间，无 Agent 会话/线程概念                                         |
-| Guardrails           | ⚠️ 部分   | 隐私分级、钥匙串、文件白名单强；无沙箱、无输出安全过滤                                                  |
-| Observability        | ⚠️ 部分   | 有用量看板，但 `agent_run.input_summary/output` 写死空串（`usage.rs:20-21`），无 trace/评估             |
-| **Agent Loop**       | ❌ 缺失   | 全仓无「思考→行动→观察」循环；`runChat()` 一次性请求即结束                                              |
-| **Tools 工具系统**   | ❌ 缺失   | `src/services/modelRouter.ts:31` 的 `tools: false`；`ChatParams`(Rust) 无 tools 字段；无 MCP            |
-| **Action Executor**  | ❌ 缺失   | 仅 `looseJson.ts` 容错解析 + `reviewApply.ts` 人工应用，无动作 schema 与执行分发                        |
-| Sandbox / Evaluation | ❌ 缺失   | 无代码执行路径故沙箱当前非必需；无成功率/成本评估集                                                     |
+| 要素                 | 状态      | 关键证据                                                                                               |
+| -------------------- | --------- | ------------------------------------------------------------------------------------------------------ |
+| LLM 接入             | ✅ 已具备 | `src-tauri/src/services/gateway.rs` 多 Provider 流式代理；`src/services/modelRouter.ts` 任务路由       |
+| State 状态管理       | ✅ 已具备 | `src/services/workflowService.ts` 阶段状态持久化，State 与 Context 已分离                              |
+| Context Engineering  | ✅ 已具备 | `src/services/copilotService.ts` 提示词组装 + 字符预算 + 裁剪                                          |
+| Planner/Controller   | ✅ 已具备 | P4：`agentPlanner.ts` 拆解任务，`update_plan` / `replan` 元工具逐步推进（第 6 节）                     |
+| Memory               | ✅ 已具备 | P3 起有 `agent_session` / `agent_message` / `agent_step` 三表，会话持久化与恢复已接通                  |
+| Session/Runtime      | ✅ 已具备 | Tauri 运行时 + 会话表 + `useCopilotSession`，支持多会话切换/新建/重命名/删除                           |
+| Guardrails           | ⚠️ 部分   | 隐私分级、钥匙串、文件白名单、敏感信息脱敏齐备；无沙箱（当前无代码执行工具，非必需）与通用内容安全过滤 |
+| Observability        | ✅ 已具备 | P3 Trace 看板 + 评测页；`usage.rs` 已写真实输入/输出摘要（`record_writes_real_input_and_output` 单测） |
+| **Agent Loop**       | ✅ 已具备 | `src/services/agentLoop.ts` 思考→行动→观察循环，含空转检测、轮次上限、停止信号、规划注入               |
+| **Tools 工具系统**   | ⚠️ 部分   | 8 个内置工具 + 角色白名单 + 标准轨/JSON 降级轨；无 MCP 外部工具协议（未纳入 P0~P6 计划）               |
+| **Action Executor**  | ✅ 已具备 | `src/services/actionExecutor.ts` 风险分级、审批闸门、按作品/会话隔离队列、结果回执回灌（P5）           |
+| Sandbox / Evaluation | ⚠️ 部分   | 沙箱当前非必需；P3 有评估集与看板，P6 补齐章节可选、回归对比、按作品过滤，见第 8 节                    |
 
 ### 1.3 有利条件（不是从零造轮子）
 
@@ -213,3 +213,31 @@ Planner 落地后的代码审查发现审批链路有三处问题，同日修复
 - 前端 `pnpm check:all` 全绿：typecheck / lint / 规范守卫 / **74 单测** / build。
 - 单测新增 3 例：队列跨上下文隔离、异上下文无法审批、批准失败落 `failed` 并保留原因。
 - Rust `cargo test --lib` 135 通过 / 0 失败（后端未改动，回归验证）。
+
+---
+
+## 8. P6 · 评测可信度（2026-11-23）
+
+P3 的评测页能记录通过率，但有四个缺口让它无法回答「换模型/改提示词之后到底变好还是变差」：章节写死第一项、审稿用例无法单独控制、历史不按作品过滤、没有趋势对比。P6 逐项补齐。
+
+### 8.1 改动
+
+| 缺口                                                       | 处置                                                                                                                             |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| 章节写死第一项（`useAgentEval` 取 `snapshot.chapters[0]`） | 评测页加载所选作品的章节列表，作者可指定评测章节；选「不指定章节」时读章节用例自动跳过                                           |
+| `propose_review` 被永久排除                                | 单独导出 `AGENT_EVAL_REVIEW_CASE`，评测页加开关默认关闭；作者显式打开才纳入（它内部再调一次模型，约双倍耗时）                    |
+| 历史不按作品过滤                                           | 后端 `list_runs(state, limit, project_id)` 加可选作品过滤，IPC / service / composable 全链路透传；切作品时重取该作品的章节与历史 |
+| 无回归信号                                                 | 本次结果与「上一次」对比显示通过率差值，下降用警告色；历史每条同时显示相对前一次的差值                                           |
+
+### 8.2 关键取舍
+
+- **基线必须在本次落库前取**：否则 `history[0]` 就是本次自己，差值永远为 0。
+- **作品切换走显式回调**：NSelect 用 `:value` + `@update:value="handleProjectChange"`，避免 `v-model` 与 `watch` 在首屏加载时重复取数。
+- **差值是相对值不是绝对值**：只看相邻两次跑分，避免「历史最佳」被偶然的高通过率锁死，导致后续正常波动一直报警。
+- **通过率口径统一**：本次结果与历史列表共用 `passRate()`，不再各算一套对不上。
+
+### 8.3 验证
+
+- `pnpm exec biome check .` 222 文件全绿；`pnpm test` **79 例**通过（新增 5 例：service 作品过滤转发 3 例、默认用例集与审稿跳过 2 例）；typecheck 通过。
+- Rust `cargo test --lib` 135 通过 / 0 失败；`list_runs` 单测覆盖传/不传 `project_id` 两种路径。
+- UI 遵守容器查询规范：中等容器两列、窄容器单列，表单四列不产生横向滚动。

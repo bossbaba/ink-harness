@@ -7,5 +7,7 @@ import type { AgentEvalRun, NewAgentEvalRun } from "@/types";
  */
 export const agentEvalService = {
   save: (input: NewAgentEvalRun): Promise<AgentEvalRun> => tauriApi.saveAgentEvalRun(input),
-  list: (limit = 20): Promise<AgentEvalRun[]> => tauriApi.listAgentEvalRuns(limit),
+  /** 取评测历史；传 projectId 时只返回该作品的跑分，limit 为 0 用后端默认条数。 */
+  list: (limit = 20, projectId?: string): Promise<AgentEvalRun[]> =>
+    tauriApi.listAgentEvalRuns(limit, projectId),
 };

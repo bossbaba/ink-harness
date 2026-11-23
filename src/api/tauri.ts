@@ -178,7 +178,9 @@ export const tauriApi = {
   // 评测结果：跑分在前端做，这里只存取汇总与明细。
   saveAgentEvalRun: (input: NewAgentEvalRun) =>
     call<AgentEvalRun>("save_agent_eval_run", { input }),
-  listAgentEvalRuns: (limit = 20) => call<AgentEvalRun[]>("list_agent_eval_runs", { limit }),
+  // projectId 传入时只拉该作品的跑分，避免切作品后历史混在一起。
+  listAgentEvalRuns: (limit = 20, projectId?: string) =>
+    call<AgentEvalRun[]>("list_agent_eval_runs", { limit, projectId: projectId ?? null }),
 
   // 构思向导草稿：按作品存一份，答案与方案以 JSON 字符串传输。
   loadIdeationDraft: (projectId: string) =>

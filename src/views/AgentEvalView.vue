@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NButton, NSelect, NTag } from "naive-ui";
+import { NButton, NCheckbox, NSelect, NTag } from "naive-ui";
 import { computed, onMounted } from "vue";
 import AppEmpty from "@/components/common/AppEmpty.vue";
 import LoadingState from "@/components/common/LoadingState.vue";
@@ -17,6 +17,9 @@ const {
   roles,
   projectId,
   roleId,
+  chapterId,
+  chapters,
+  includeReview,
   loading,
   running,
   progress,
@@ -24,10 +27,12 @@ const {
   result,
   history,
   historyRows,
+  rateDelta,
   canRun,
   load,
   run,
   cancel,
+  handleProjectChange,
 } = useAgentEval();
 
 const projectOptions = computed(() =>
@@ -36,6 +41,11 @@ const projectOptions = computed(() =>
 const roleOptions = computed(() => [
   { label: "默认角色（全部工具）", value: "" },
   ...roles.value.map((role) => ({ label: role.name, value: role.id })),
+]);
+/** 「不指定章节」用于只跑作品级用例；读章节用例会自动跳过。 */
+const chapterOptions = computed(() => [
+  { label: "不指定章节", value: "" },
+  ...chapters.value.map((chapter) => ({ label: chapter.title, value: chapter.id })),
 ]);
 
 /** 最近一次结果的通过率，界面顶部用大号数字展示。 */
@@ -49,6 +59,19 @@ function rateType(rate: number): "success" | "info" | "warning" {
   if (rate >= 80) return "success";
   if (rate >= 50) return "info";
   return "warning";
+}
+
+/** 趋势标签：上涨用成功色、下跌用警告色（回归告警），持平保持中性。 */
+function deltaType(delta: number | null): "success" | "warning" | "default" {
+  if (delta === null || delta === 0) return "default";
+  return delta > 0 ? "success" : "warning";
+}
+
+/** 差值文案：带正负号，读者一眼看出变好还是变差。 */
+function deltaText(delta: number | null): string {
+  if (delta === null) return "无历史可比";
+  if (delta === 0) return "与上次持平";
+  return `${delta > 0 ? "↑ +" : "↓ "}${delta}% 较上次`;
 }
 
 /** 时间戳只显示到分钟：评测历史看的是顺序与趋势，秒级精度没有意义。 */
@@ -75,10 +98,20 @@ onMounted(() => void load());
         <label class="eval__field">
           <span class="eval__label">评测作品</span>
           <NSelect
-            v-model:value="projectId"
+            :value="projectId"
             size="small"
             :options="projectOptions"
             placeholder="选择一部作品"
+            :disabled="running"
+            @update:value="handleProjectChange"
+          />
+        </label>
+        <label class="eval__field">
+          <span class="eval__label">评测章节</span>
+          <NSelect
+            v-model:value="chapterId"
+            size="small"
+            :options="chapterOptions"
             :disabled="running"
           />
         </label>
@@ -92,10 +125,15 @@ onMounted(() => void load());
           </NButton>
           <NButton v-else size="small" @click="cancel">停止</NButton>
         </div>
+        <label class="eval__field eval__field--check">
+          <NCheckbox v-model:checked="includeReview" :disabled="running" size="small">
+            纳入审稿用例（内部再调一次模型，约双倍耗时）
+          </NCheckbox>
+        </label>
       </div>
       <p v-if="progress" class="eval__progress">{{ progress }}</p>
       <p class="eval__hint">
-        用例覆盖读作品、列设定、读章节、检索与写候选五条链路；每次跑分会写进历史，方便换模型后对比。
+        用例覆盖读作品、列设定、读章节、检索与写候选五条链路；章节只影响读章节用例，换模型或改提示词后跑一遍对比通过率。
       </p>
     </section>
 
@@ -104,6 +142,10 @@ onMounted(() => void load());
         <h2 class="eval__section">本次结果</h2>
         <NTag size="small" :bordered="false" :type="rateType(lastRate)">
           通过率 {{ lastRate }}%（{{ result.passed }}/{{ result.cases.length }}）
+        </NTag>
+        <!-- 通过率下降要显眼：这是「换模型/改提示词后变差」的直接信号。 -->
+        <NTag size="small" :bordered="false" :type="deltaType(rateDelta)">
+          {{ deltaText(rateDelta) }}
         </NTag>
         <NTag size="small" :bordered="false">{{ result.rounds }} 轮</NTag>
         <NTag size="small" :bordered="false">tokens {{ result.tokens || "—" }}</NTag>
@@ -153,6 +195,14 @@ onMounted(() => void load());
           <NTag size="small" :bordered="false" :type="rateType(row.rate)">
             {{ row.rate }}%（{{ row.passed }}/{{ row.total }}）
           </NTag>
+          <NTag
+            v-if="row.delta !== null"
+            size="small"
+            :bordered="false"
+            :type="deltaType(row.delta)"
+          >
+            {{ deltaText(row.delta) }}
+          </NTag>
           <span class="eval__history-meta">
             {{ row.rounds }} 轮 · {{ row.tokens || "—" }} tokens · {{ row.durationMs }} ms
           </span>
@@ -193,7 +243,7 @@ onMounted(() => void load());
 
   &__form {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
     gap: t.$space-3;
     align-items: end;
   }
@@ -203,6 +253,11 @@ onMounted(() => void load());
     flex-direction: column;
     gap: t.$space-2;
     min-width: 0;
+
+    // 审稿开关没有上方标签，靠跨整行与上方字段拉开距离。
+    &--check {
+      grid-column: 1 / -1;
+    }
   }
 
   &__label {
@@ -315,7 +370,15 @@ onMounted(() => void load());
   }
 }
 
-// 窄容器下配置区改单列：三列在 620px 内会把下拉压到看不全选项。
+// 中等容器两列（操作按钮换到第二行），窄容器单列；四列在 900px 内会把下拉压得过窄。
+@container (620px < width <= 1000px) {
+  .eval {
+    &__form {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+  }
+}
+
 @container (max-width: 620px) {
   .eval {
     padding: t.$space-4;
