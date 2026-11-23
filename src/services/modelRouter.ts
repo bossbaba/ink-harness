@@ -30,8 +30,6 @@ export function toModelInfo(provider: ProviderConfig, model: ProviderModel): Mod
     capabilities: {
       contextWindow: model.contextWindow,
       tools: model.supportsTools === true,
-      json: false,
-      vision: false,
       streaming: true,
     },
     costPer1kTokens: model.costPer1kTokens,

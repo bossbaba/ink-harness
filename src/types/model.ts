@@ -4,19 +4,16 @@ export type ModelSource = "local" | "remote";
 /**
  * 模型能力声明，任务路由据此选择模型。
  *
- * `tools` 来自模型管理页的显式勾选（ProviderModel.supportsTools），
- * 决定 Agent Loop 走标准 tool_calls 还是 JSON 降级轨；
- * `json` / `vision` 仍未采集，恒为 false，读取前需先补采集链路。
+ * 只声明本仓真正消费的能力：`tools` 来自模型管理页的显式勾选，
+ * 决定 Agent Loop 走标准 tool_calls 还是 JSON 降级轨。
+ * 早期版本有 json / vision 两个恒 false 的字段，全仓无人读取，已清理——
+ * 它们既没被路由用到，也没有采集链路，留着只会误导后来者以为支持多模态。
  */
 export interface ModelCapabilities {
   /** 上下文窗口（token 数），长篇续写依赖此值。 */
   contextWindow: number;
   /** 是否支持 function/tool calling；由模型管理页勾选，未勾选即走 JSON 降级轨。 */
   tools: boolean;
-  /** @experimental 是否支持 JSON mode，暂未采集，恒为 false。 */
-  json: boolean;
-  /** @experimental 是否支持多模态输入，暂未采集，恒为 false。 */
-  vision: boolean;
   /** 是否支持流式输出，当前统一按支持处理。 */
   streaming: boolean;
 }
