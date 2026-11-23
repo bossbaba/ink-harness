@@ -56,6 +56,47 @@ die() {
   exit 1
 }
 
+# 网络不通时 git push 会一直挂着，这里加看门狗：超时就终止并给出明确原因。
+# 可用 PUSH_TIMEOUT 调整秒数，默认 120 秒。
+PUSH_TIMEOUT=${PUSH_TIMEOUT:-120}
+
+# 在限定时间内执行 git 子命令，返回其退出码；143 表示被看门狗终止。
+run_git_with_timeout() {
+  local seconds="$1" pid rc=0 elapsed=0
+  shift
+  # 禁用交互式账号密码提示：否则 push 会停在不可见的凭据输入上。
+  GIT_TERMINAL_PROMPT=0 git "$@" &
+  pid=$!
+  # 轮询而不是另起 sleep 看门狗，避免 git 提前结束时留下孤儿 sleep 进程。
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$elapsed" -ge "$seconds" ]; then
+      kill -TERM "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      return 143
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+  wait "$pid" || rc=$?
+  return "$rc"
+}
+
+# 带超时和错误说明的 push，避免把网络故障误当成脚本卡死。
+push_checked() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    printf '[dry-run] git'
+    printf ' %q' "$@"
+    printf '\n'
+    return 0
+  fi
+  local rc=0
+  run_git_with_timeout "$PUSH_TIMEOUT" "$@" || rc=$?
+  if [ "$rc" -eq 143 ]; then
+    die "git push 超过 ${PUSH_TIMEOUT} 秒未完成（网络或代理不通），已中止；本地提交已保留"
+  fi
+  [ "$rc" -eq 0 ] || die "git push 失败（退出码 ${rc}）；本地提交已保留"
+}
+
 # dry-run 下只打印命令，真实模式才执行。
 run() {
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -244,9 +285,9 @@ fi
 
 # 先推分支，tag 必须指向已存在的远端提交，否则 CI 的 Release job 拿不到构建产物。
 if [ "$FIRST_PUSH" -eq 1 ]; then
-  run push -u "$REMOTE" "$BRANCH"
+  push_checked push -u "$REMOTE" "$BRANCH"
 else
-  run push "$REMOTE" "$BRANCH"
+  push_checked push "$REMOTE" "$BRANCH"
 fi
 
 # 是否发版：tag 推送会触发 CI 的三平台打包和公开 Release。
@@ -273,9 +314,18 @@ if [ "$TAG_MODE" = "set" ]; then
     printf '%s' "$TAG_VALUE" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$' \
       || die "版本号格式不对，应为 v主.次.补（可带 -rc.1 等后缀）"
     git rev-parse -q --verify "refs/tags/$TAG_VALUE" >/dev/null && die "本地已存在 tag $TAG_VALUE"
-    git ls-remote --exit-code "$REMOTE" "refs/tags/$TAG_VALUE" >/dev/null 2>&1 && die "远端已存在 tag $TAG_VALUE"
+
+    # ls-remote 同样会卡在网络上：2 表示远端没有该 tag，其他非零码都按故障处理。
+    REMOTE_CHECK_RC=0
+    run_git_with_timeout 30 ls-remote --exit-code "$REMOTE" "refs/tags/$TAG_VALUE" >/dev/null 2>&1 || REMOTE_CHECK_RC=$?
+    if [ "$REMOTE_CHECK_RC" -eq 0 ]; then
+      die "远端已存在 tag $TAG_VALUE"
+    elif [ "$REMOTE_CHECK_RC" -ne 2 ]; then
+      die "检查远端 tag 失败（退出码 ${REMOTE_CHECK_RC}）：网络或代理不通，已中止"
+    fi
+
     git tag -a "$TAG_VALUE" -m "release $TAG_VALUE"
-    git push "$REMOTE" "$TAG_VALUE"
+    push_checked push "$REMOTE" "$TAG_VALUE"
   else
     TAG_VALUE=${TAG_VALUE:-vX.Y.Z}
     printf '[dry-run] git tag -a %q -m %q\n' "$TAG_VALUE" "release $TAG_VALUE"
