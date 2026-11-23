@@ -303,9 +303,9 @@ describe("runAgentLoop 规划模式", () => {
 
     expect(runner).toHaveBeenCalledTimes(2);
     // 第一次调用是规划器：它的 system 里有「任务规划器」字样。
-    expect((runner.mock.calls[0][1][0].content as string)).toContain("任务规划器");
+    expect(runner.mock.calls[0][1][0].content as string).toContain("任务规划器");
     // 工作轮的 system 里带上了刚生成的计划。
-    expect((runner.mock.calls[1][1][0].content as string)).toContain("任务计划 v1");
+    expect(runner.mock.calls[1][1][0].content as string).toContain("任务计划 v1");
     expect(onPlan).toHaveBeenCalledTimes(1);
     expect(result.plan?.steps[0].title).toBe("读正文");
     expect(result.steps[0]).toMatchObject({ iteration: 0, phase: "plan" });
@@ -322,7 +322,11 @@ describe("runAgentLoop 规划模式", () => {
     const runner = vi
       .fn()
       .mockResolvedValueOnce({ raw: planRaw, toolCalls: [], failure: "" } satisfies ChatRunResult)
-      .mockResolvedValueOnce({ raw: "", toolCalls: [updateCall], failure: "" } satisfies ChatRunResult)
+      .mockResolvedValueOnce({
+        raw: "",
+        toolCalls: [updateCall],
+        failure: "",
+      } satisfies ChatRunResult)
       .mockResolvedValueOnce({
         raw: "已完成检查",
         toolCalls: [],
@@ -351,13 +355,21 @@ describe("runAgentLoop 规划模式", () => {
     const runner = vi
       .fn()
       .mockResolvedValueOnce({ raw: planRaw, toolCalls: [], failure: "" } satisfies ChatRunResult)
-      .mockResolvedValueOnce({ raw: "", toolCalls: [replanCall], failure: "" } satisfies ChatRunResult)
+      .mockResolvedValueOnce({
+        raw: "",
+        toolCalls: [replanCall],
+        failure: "",
+      } satisfies ChatRunResult)
       .mockResolvedValueOnce({
         raw: '{"steps":[{"title":"重查设定"}]}',
         toolCalls: [],
         failure: "",
       } satisfies ChatRunResult)
-      .mockResolvedValueOnce({ raw: "重新答完", toolCalls: [], failure: "" } satisfies ChatRunResult);
+      .mockResolvedValueOnce({
+        raw: "重新答完",
+        toolCalls: [],
+        failure: "",
+      } satisfies ChatRunResult);
 
     const result = await runAgentLoop({ ...base, planning: true }, runner);
 
@@ -374,8 +386,16 @@ describe("runAgentLoop 规划模式", () => {
   it("规划请求失败时降级为普通循环，不挡住回答", async () => {
     const runner = vi
       .fn()
-      .mockResolvedValueOnce({ raw: "规划模型挂了", toolCalls: [], failure: "网络异常" } satisfies ChatRunResult)
-      .mockResolvedValueOnce({ raw: "直接回答", toolCalls: [], failure: "" } satisfies ChatRunResult);
+      .mockResolvedValueOnce({
+        raw: "规划模型挂了",
+        toolCalls: [],
+        failure: "网络异常",
+      } satisfies ChatRunResult)
+      .mockResolvedValueOnce({
+        raw: "直接回答",
+        toolCalls: [],
+        failure: "",
+      } satisfies ChatRunResult);
 
     const result = await runAgentLoop({ ...base, planning: true }, runner);
 

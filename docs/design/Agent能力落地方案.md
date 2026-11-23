@@ -24,7 +24,7 @@ README 自我定位为「作者主导、Agent 辅助」，工作流的推进权�
 | LLM 接入             | ✅ 已具备 | `src-tauri/src/services/gateway.rs` 多 Provider 流式代理；`src/services/modelRouter.ts:76-208` 任务路由 |
 | State 状态管理       | ✅ 已具备 | `src/services/workflowService.ts:17-82` 阶段状态持久化，State 与 Context 已分离                         |
 | Context Engineering  | ✅ 已具备 | `src/services/copilotService.ts:92-150` 提示词组装 + 字符预算 + 裁剪                                    |
-| Planner/Controller   | ✅ 已具备 | P4 落地：先拆解任务，模型用 `update_plan` 逐步推进、`replan` 按新事实重拆（见第 6 节）                    |
+| Planner/Controller   | ✅ 已具备 | P4 落地：先拆解任务，模型用 `update_plan` 逐步推进、`replan` 按新事实重拆（见第 6 节）                  |
 | Memory               | ⚠️ 部分   | 有 Story Bible / RAG / 章节摘要，但对话历史不持久化（组件内 `messages` ref，全仓无会话表）              |
 | Session/Runtime      | ⚠️ 部分   | 有 Tauri 运行时 + `project_id` 命名空间，无 Agent 会话/线程概念                                         |
 | Guardrails           | ⚠️ 部分   | 隐私分级、钥匙串、文件白名单强；无沙箱、无输出安全过滤                                                  |
@@ -156,14 +156,14 @@ runAgentLoop(goal, tools, { maxIterations: 6, onStep }):
 
 ### 6.1 结构
 
-| 文件 | 职责 |
-| ---- | ---- |
-| `src/services/agentPlanner.ts` | 计划拆解（`makePlan`）、JSON 容错（`parsePlan`）、元工具定义、步骤状态更新（`applyPlanUpdates`）、计划文本渲染（`planToText`） |
-| `src/services/agentLoop.ts` | 循环前规划、每轮注入最新计划、元工具与业务工具分流、`replan` 触发重拆 |
-| `src/services/agentLoopRules.ts` | 从 Loop 拆出的规则/解析纯函数，控制主文件在 500 行以内 |
-| `src/composables/useCopilotMessaging.ts` | 从 `useWritingCopilot` 拆出的消息编排层，持有计划状态并下发开关 |
-| `src/components/writing/AgentBar.vue` / `AgentControls.vue` | 规划开关、计划清单展示 |
-| `tests/agentPlanner.test.ts` / `tests/agentLoop.test.ts` | 解析容错、不可变更新、重规划参数与 Loop 集成 |
+| 文件                                                        | 职责                                                                                                                           |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `src/services/agentPlanner.ts`                              | 计划拆解（`makePlan`）、JSON 容错（`parsePlan`）、元工具定义、步骤状态更新（`applyPlanUpdates`）、计划文本渲染（`planToText`） |
+| `src/services/agentLoop.ts`                                 | 循环前规划、每轮注入最新计划、元工具与业务工具分流、`replan` 触发重拆                                                          |
+| `src/services/agentLoopRules.ts`                            | 从 Loop 拆出的规则/解析纯函数，控制主文件在 500 行以内                                                                         |
+| `src/composables/useCopilotMessaging.ts`                    | 从 `useWritingCopilot` 拆出的消息编排层，持有计划状态并下发开关                                                                |
+| `src/components/writing/AgentBar.vue` / `AgentControls.vue` | 规划开关、计划清单展示                                                                                                         |
+| `tests/agentPlanner.test.ts` / `tests/agentLoop.test.ts`    | 解析容错、不可变更新、重规划参数与 Loop 集成                                                                                   |
 
 ### 6.2 运行链路
 
@@ -195,11 +195,11 @@ Planner 落地后的代码审查发现审批链路有三处问题，同日修复
 
 ### 7.1 修复内容
 
-| 问题 | 原因 | 处置 |
-| ---- | ---- | ---- |
+| 问题                   | 原因                                                                                              | 处置                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | 待审批队列跨上下文串台 | `actionExecutor` 用单个模块级数组，切作品/会话后界面仍列出别人的操作，点「通过」还会用新 ctx 执行 | 改为 `pendingByScope` 按 `作品::会话` 分桶；所有队列 API 接受 `ToolContext`；异上下文的 approve/reject 返回 null |
-| `approved` 是死状态 | 类型与 UI 都定义了，但代码从 `pending` 直接跳到 `applied/failed`，「批准」和「落地」混为一谈 | `approveAction` 先置 `approved` 再执行；写库失败落 `failed` 并保留原因；卡片显示「正在执行…」 |
-| 审批结果不回灌模型 | `approvalPrompt` 明写「作者的决定不会自动回填到本次对话」，模型永远不知道工具是否执行 | 审批完成后追加「工具回执」消息进入对话历史；提示词同步改为「结果会以回执出现」 |
+| `approved` 是死状态    | 类型与 UI 都定义了，但代码从 `pending` 直接跳到 `applied/failed`，「批准」和「落地」混为一谈      | `approveAction` 先置 `approved` 再执行；写库失败落 `failed` 并保留原因；卡片显示「正在执行…」                    |
+| 审批结果不回灌模型     | `approvalPrompt` 明写「作者的决定不会自动回填到本次对话」，模型永远不知道工具是否执行             | 审批完成后追加「工具回执」消息进入对话历史；提示词同步改为「结果会以回执出现」                                   |
 
 ### 7.2 关键取舍
 

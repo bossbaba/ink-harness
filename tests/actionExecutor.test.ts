@@ -92,10 +92,10 @@ describe("actionExecutor", () => {
 
   it("审批队列按作品与会话隔离，切上下文看不到别人的待授权操作", async () => {
     resetPendingForTest();
-    await executeCalls(
-      [call({ name: "propose_text", arguments: { content: "甲作品的候选" } })],
-      { projectId: "p1", sessionId: "s1" },
-    );
+    await executeCalls([call({ name: "propose_text", arguments: { content: "甲作品的候选" } })], {
+      projectId: "p1",
+      sessionId: "s1",
+    });
     await executeCalls(
       [call({ id: "call-2", name: "propose_text", arguments: { content: "乙作品的候选" } })],
       { projectId: "p2", sessionId: "s2" },
@@ -110,10 +110,10 @@ describe("actionExecutor", () => {
 
   it("异上下文无法审批别人的动作，避免把修改落到错误的章节", async () => {
     resetPendingForTest();
-    await executeCalls(
-      [call({ name: "propose_text", arguments: { content: "甲的候选" } })],
-      { projectId: "p1", sessionId: "s1" },
-    );
+    await executeCalls([call({ name: "propose_text", arguments: { content: "甲的候选" } })], {
+      projectId: "p1",
+      sessionId: "s1",
+    });
     const id = listPending({ projectId: "p1", sessionId: "s1" })[0].id;
     expect(await approveAction(id, { projectId: "p1", sessionId: "s2" })).toBeNull();
     expect(rejectAction(id, { projectId: "p2", sessionId: "s1" })).toBeNull();
