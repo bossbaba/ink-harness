@@ -186,3 +186,30 @@ runAgentLoop(goal, tools, { maxIterations: 6, onStep }):
 - 前端 `pnpm check:all` 全绿：typecheck / lint / 规范守卫 / 71 单测 / build。
 - 单测新增 16 例：代码块包裹解析、步骤上限、非法步骤拒绝、失败降级、计划注入、`update_plan` 推进、`replan` 版本递增与轨迹记录。
 - Rust `cargo test --lib` 135 通过 / 0 失败（后端未改动，回归验证）。
+
+---
+
+## 7. P5 · 审批闭环修复（2026-11-23）
+
+Planner 落地后的代码审查发现审批链路有三处问题，同日修复。
+
+### 7.1 修复内容
+
+| 问题 | 原因 | 处置 |
+| ---- | ---- | ---- |
+| 待审批队列跨上下文串台 | `actionExecutor` 用单个模块级数组，切作品/会话后界面仍列出别人的操作，点「通过」还会用新 ctx 执行 | 改为 `pendingByScope` 按 `作品::会话` 分桶；所有队列 API 接受 `ToolContext`；异上下文的 approve/reject 返回 null |
+| `approved` 是死状态 | 类型与 UI 都定义了，但代码从 `pending` 直接跳到 `applied/failed`，「批准」和「落地」混为一谈 | `approveAction` 先置 `approved` 再执行；写库失败落 `failed` 并保留原因；卡片显示「正在执行…」 |
+| 审批结果不回灌模型 | `approvalPrompt` 明写「作者的决定不会自动回填到本次对话」，模型永远不知道工具是否执行 | 审批完成后追加「工具回执」消息进入对话历史；提示词同步改为「结果会以回执出现」 |
+
+### 7.2 关键取舍
+
+- **回执用 assistant 角色而非 tool**：`CopilotMessage` 不保存 `tool_calls` / `toolCallId`，发 tool 角色消息会让上游因找不到对应调用而拒绝请求（Ollama 原生协议尤甚）。带明确前缀的 assistant 消息既安全，又能让作者看出不是模型自己说的话。
+- **不自动重启 Loop**：审批是独立事件，作者点完「通过」不该被意外触发新一轮模型调用；回执进入 history 后，模型在作者下一次提问时自然带上真实结果。
+- **会话 id 走 getter**：`useAgentActions(ctx)` 每次操作重新取 ctx，切会话后不会用旧上下文定位队列。
+- **回执暂不单独落库**：它进入当前会话的消息流，下次会话恢复时不会重建这条回执；跨会话保留属于「会话恢复体验」方向的后续工作。
+
+### 7.3 验证
+
+- 前端 `pnpm check:all` 全绿：typecheck / lint / 规范守卫 / **74 单测** / build。
+- 单测新增 3 例：队列跨上下文隔离、异上下文无法审批、批准失败落 `failed` 并保留原因。
+- Rust `cargo test --lib` 135 通过 / 0 失败（后端未改动，回归验证）。

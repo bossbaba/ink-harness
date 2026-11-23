@@ -124,6 +124,8 @@ function candidate(action: PendingToolAction): string {
             >驳回</NButton
           >
         </template>
+        <!-- approved 到 applied 之间可能要写库：给个明确的处理中提示，别让卡片看着卡住。 -->
+        <span v-else-if="action.status === 'approved'" class="controls__busy">正在执行…</span>
         <NButton
           v-else-if="candidate(action)"
           size="tiny"
@@ -160,7 +162,8 @@ function candidate(action: PendingToolAction): string {
   min-width: 0;
 
   &__progress,
-  &__clear {
+  &__clear,
+  &__busy {
     font-size: 11px;
     color: var(--text-faint, #{t.$ink-faint});
   }

@@ -17,6 +17,7 @@ import type {
   AgentRole,
   CopilotMessage,
   CopilotReference,
+  PendingToolAction,
   Project,
 } from "@/types";
 
@@ -313,6 +314,33 @@ export function useCopilotMessaging(options: CopilotMessagingOptions) {
     }
   }
 
+  /**
+   * 把作者对写操作的决定作为回执追加到对话，供模型在下一轮据此推理。
+   *
+   * 用 assistant 角色而不是 tool：CopilotMessage 不保存 tool_calls / toolCallId，
+   * 若发 tool 角色消息，上游会因找不到对应的工具调用而拒绝请求（Ollama 原生协议尤甚）。
+   * 明确的「工具回执」前缀让作者一眼看出这不是模型自己说的话。
+   */
+  function appendToolDecision(decision: PendingToolAction): void {
+    const outcome =
+      decision.status === "applied"
+        ? `已执行 ${decision.toolName}：${decision.label}`
+        : decision.status === "rejected"
+          ? `作者驳回了 ${decision.toolName}（${decision.label}），未执行`
+          : decision.status === "failed"
+            ? `${decision.toolName} 执行失败：${decision.error || "原因未知"}`
+            : `工具 ${decision.toolName} 的审批状态为 ${decision.status}`;
+    messages.value = [
+      ...messages.value,
+      {
+        id: nextMessageId(),
+        role: "assistant",
+        content: `【工具回执】${outcome}`,
+        references: [],
+      },
+    ];
+  }
+
   /** 把一轮循环进度追加到当前助手气泡，并更新进度行。 */
   function appendStep(answerIndex: number, seq: number, step: AgentStep): void {
     if (seq !== requestSeq) return;
@@ -351,6 +379,7 @@ export function useCopilotMessaging(options: CopilotMessagingOptions) {
     plan,
     setMessages,
     clearMessages,
+    appendToolDecision,
     loadContext,
     refreshContext,
     send,

@@ -13,6 +13,16 @@ vi.mock("@/services/outlineService", () => ({
 vi.mock("@/services/ragService", () => ({
   ragService: { search: vi.fn().mockResolvedValue([]) },
 }));
+// c99 专用于模拟写库失败：其余章节仍返回正常结构，避免影响 read_chapter 的用例。
+vi.mock("@/services/writingService", () => ({
+  writingService: {
+    getContent: vi.fn().mockImplementation(async (chapterId: string) => {
+      if (chapterId === "c99") throw new Error("模拟写库失败");
+      return { content: "", contentRevision: 0, wordCount: 0 };
+    }),
+    saveContent: vi.fn(),
+  },
+}));
 
 import {
   approveAction,
@@ -55,7 +65,8 @@ describe("actionExecutor", () => {
       ctx,
     );
     expect(results[0].content).toContain("作者审批");
-    const pending = listPending();
+    expect(results[0].content).toContain("工具回执");
+    const pending = listPending(ctx);
     expect(pending).toHaveLength(1);
     expect(pending[0].status).toBe("pending");
   });
@@ -66,7 +77,7 @@ describe("actionExecutor", () => {
       [call({ name: "propose_text", arguments: { content: "候选", label: "改写开头" } })],
       ctx,
     );
-    const id = listPending()[0].id;
+    const id = listPending(ctx)[0].id;
     const approved = await approveAction(id, ctx);
     expect(approved?.status).toBe("applied");
     expect(approved?.label).toContain("候选");
@@ -75,8 +86,52 @@ describe("actionExecutor", () => {
       [call({ id: "call-2", name: "propose_text", arguments: { content: "候选2" } })],
       ctx,
     );
-    const id2 = listPending().find((item) => item.status === "pending")?.id ?? "";
-    expect(rejectAction(id2)?.status).toBe("rejected");
+    const id2 = listPending(ctx).find((item) => item.status === "pending")?.id ?? "";
+    expect(rejectAction(id2, ctx)?.status).toBe("rejected");
+  });
+
+  it("审批队列按作品与会话隔离，切上下文看不到别人的待授权操作", async () => {
+    resetPendingForTest();
+    await executeCalls(
+      [call({ name: "propose_text", arguments: { content: "甲作品的候选" } })],
+      { projectId: "p1", sessionId: "s1" },
+    );
+    await executeCalls(
+      [call({ id: "call-2", name: "propose_text", arguments: { content: "乙作品的候选" } })],
+      { projectId: "p2", sessionId: "s2" },
+    );
+    expect(listPending({ projectId: "p1", sessionId: "s1" })).toHaveLength(1);
+    expect(listPending({ projectId: "p1", sessionId: "s1" })[0].label).toBe("执行 propose_text");
+    // 同一个作品、换一个会话也是空的；老调用方不传 sessionId 同样独立。
+    expect(listPending({ projectId: "p1", sessionId: "s2" })).toHaveLength(0);
+    expect(listPending({ projectId: "p1" })).toHaveLength(0);
+    expect(listPending({ projectId: "p2", sessionId: "s2" })).toHaveLength(1);
+  });
+
+  it("异上下文无法审批别人的动作，避免把修改落到错误的章节", async () => {
+    resetPendingForTest();
+    await executeCalls(
+      [call({ name: "propose_text", arguments: { content: "甲的候选" } })],
+      { projectId: "p1", sessionId: "s1" },
+    );
+    const id = listPending({ projectId: "p1", sessionId: "s1" })[0].id;
+    expect(await approveAction(id, { projectId: "p1", sessionId: "s2" })).toBeNull();
+    expect(rejectAction(id, { projectId: "p2", sessionId: "s1" })).toBeNull();
+    // 原队列仍是 pending，作者回到正确上下文还能继续操作。
+    expect(listPending({ projectId: "p1", sessionId: "s1" })[0].status).toBe("pending");
+  });
+
+  it("approved 是真实的中间状态：批准但执行失败会落到 failed 并保留原因", async () => {
+    resetPendingForTest();
+    const failingCtx = { projectId: "p1", chapterId: "c99" };
+    await executeCalls(
+      [call({ name: "apply_edits", arguments: { edits: [{ quote: "a", replacement: "b" }] } })],
+      failingCtx,
+    );
+    const id = listPending(failingCtx)[0].id;
+    const result = await approveAction(id, failingCtx);
+    expect(result?.status).toBe("failed");
+    expect(result?.error).toBeTruthy();
   });
 
   it("未注册工具与参数错误都转成 isError 观察而不抛", async () => {
