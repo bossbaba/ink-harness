@@ -283,3 +283,119 @@ describe("runAgentLoop", () => {
     expect(runner.mock.calls.every((args) => args[0].requestId === "copilot-7")).toBe(true);
   });
 });
+
+/** 自主规划模式：首次拆解、计划推进与重规划，全部用注入 runner 隔离真实模型。 */
+describe("runAgentLoop 规划模式", () => {
+  const planRaw = '{"steps":[{"title":"读正文","intent":"拿到第三章原文"}]}';
+
+  it("循环前先拆解任务，并把计划注入每轮 system", async () => {
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce({ raw: planRaw, toolCalls: [], failure: "" } satisfies ChatRunResult)
+      .mockResolvedValueOnce({
+        raw: "看完了",
+        toolCalls: [],
+        failure: "",
+      } satisfies ChatRunResult);
+    const onPlan = vi.fn();
+
+    const result = await runAgentLoop({ ...base, planning: true, onPlan }, runner);
+
+    expect(runner).toHaveBeenCalledTimes(2);
+    // 第一次调用是规划器：它的 system 里有「任务规划器」字样。
+    expect((runner.mock.calls[0][1][0].content as string)).toContain("任务规划器");
+    // 工作轮的 system 里带上了刚生成的计划。
+    expect((runner.mock.calls[1][1][0].content as string)).toContain("任务计划 v1");
+    expect(onPlan).toHaveBeenCalledTimes(1);
+    expect(result.plan?.steps[0].title).toBe("读正文");
+    expect(result.steps[0]).toMatchObject({ iteration: 0, phase: "plan" });
+  });
+
+  it("模型用 update_plan 推进步骤时更新计划并回填观察，不误判为空转", async () => {
+    const updateCall = {
+      id: "u1",
+      name: "update_plan",
+      arguments: { stepId: "s1", status: "done", result: "拿到 3000 字" },
+      rawArguments: '{"stepId":"s1","status":"done","result":"拿到 3000 字"}',
+      parseError: "",
+    };
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce({ raw: planRaw, toolCalls: [], failure: "" } satisfies ChatRunResult)
+      .mockResolvedValueOnce({ raw: "", toolCalls: [updateCall], failure: "" } satisfies ChatRunResult)
+      .mockResolvedValueOnce({
+        raw: "已完成检查",
+        toolCalls: [],
+        failure: "",
+      } satisfies ChatRunResult);
+    const onPlan = vi.fn();
+
+    const result = await runAgentLoop({ ...base, planning: true, onPlan }, runner);
+
+    expect(onPlan).toHaveBeenCalledTimes(2);
+    expect(result.plan?.steps[0]).toMatchObject({ status: "done", result: "拿到 3000 字" });
+    // 连续两轮只发计划元工具也不能触发空转保护：元工具代表有进展。
+    expect(result.reason).toBe("no-tools");
+    const secondMessages = runner.mock.calls[2][1] as Array<{ content: string; role: string }>;
+    expect(secondMessages.some((m) => m.content.includes("计划已更新"))).toBe(true);
+  });
+
+  it("模型请求 replan 时生成 v2 计划并记入轨迹", async () => {
+    const replanCall = {
+      id: "r1",
+      name: "replan",
+      arguments: { reason: "设定与正文冲突" },
+      rawArguments: '{"reason":"设定与正文冲突"}',
+      parseError: "",
+    };
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce({ raw: planRaw, toolCalls: [], failure: "" } satisfies ChatRunResult)
+      .mockResolvedValueOnce({ raw: "", toolCalls: [replanCall], failure: "" } satisfies ChatRunResult)
+      .mockResolvedValueOnce({
+        raw: '{"steps":[{"title":"重查设定"}]}',
+        toolCalls: [],
+        failure: "",
+      } satisfies ChatRunResult)
+      .mockResolvedValueOnce({ raw: "重新答完", toolCalls: [], failure: "" } satisfies ChatRunResult);
+
+    const result = await runAgentLoop({ ...base, planning: true }, runner);
+
+    expect(result.plan?.version).toBe(2);
+    expect(result.plan?.reason).toBe("设定与正文冲突");
+    expect(result.plan?.steps[0].title).toBe("重查设定");
+    // 首次规划 + 重规划各记一条 phase=plan 的轨迹。
+    expect(result.steps.filter((step) => step.phase === "plan")).toHaveLength(2);
+    // 重规划的 question 带着原因，模型才知道为什么改计划。
+    const replanQuestion = runner.mock.calls[2][1][1].content as string;
+    expect(replanQuestion).toContain("设定与正文冲突");
+  });
+
+  it("规划请求失败时降级为普通循环，不挡住回答", async () => {
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce({ raw: "规划模型挂了", toolCalls: [], failure: "网络异常" } satisfies ChatRunResult)
+      .mockResolvedValueOnce({ raw: "直接回答", toolCalls: [], failure: "" } satisfies ChatRunResult);
+
+    const result = await runAgentLoop({ ...base, planning: true }, runner);
+
+    expect(result.reason).toBe("no-tools");
+    expect(result.answer).toBe("直接回答");
+    expect(result.plan).toBeUndefined();
+    expect(result.steps[0].text).toContain("规划未采用");
+  });
+
+  it("关闭规划时不额外发规划请求，行为与原来一致", async () => {
+    const runner = vi.fn().mockResolvedValue({
+      raw: "普通回答",
+      toolCalls: [],
+      failure: "",
+    } satisfies ChatRunResult);
+
+    const result = await runAgentLoop(base, runner);
+
+    expect(runner).toHaveBeenCalledTimes(1);
+    expect(result.plan).toBeUndefined();
+    expect(result.steps.some((step) => step.phase === "plan")).toBe(false);
+  });
+});

@@ -189,7 +189,10 @@ function successTagType(rate: number): "success" | "info" | "warning" {
 
       <div v-for="step in visibleSteps" :key="step.id" class="trace__step">
         <div class="trace__step-head">
-          <NTag size="small" :bordered="false" type="info">第 {{ step.iteration }} 轮</NTag>
+          <!-- 规划步 iteration=0：写成「规划」比「第 0 轮」更贴近它实际做的事。 -->
+          <NTag size="small" :bordered="false" :type="step.iteration === 0 ? 'warning' : 'info'">
+            {{ step.iteration === 0 ? "规划" : `第 ${step.iteration} 轮` }}
+          </NTag>
           <span class="trace__session">{{ sessionTitle(step.sessionId) }}</span>
           <span class="trace__meta">
             <template v-if="step.model">{{ step.model }} · </template>{{ step.tokens }} tokens ·

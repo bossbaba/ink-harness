@@ -33,6 +33,16 @@ function toggleMode(): void {
 }
 
 /**
+ * 切换自主规划。打开时顺带开启 Agent 模式：规划只在循环里生效，
+ * 否则界面上「规划已开」却仍走一次性回答，会让人误以为功能没做。
+ */
+function togglePlanning(): void {
+  void props.agent.onAction({ type: "toggle-planning" });
+  if (!props.agent.planning && !props.agent.mode) void props.agent.onAction({ type: "toggle" });
+  modelOpen.value = false;
+}
+
+/**
  * 选角色时顺带把模式打开：只选角色却忘了开开关，是这里最容易踩的坑，
  * 界面上会表现为「选了角色但还是没有工具」。
  */
@@ -62,6 +72,12 @@ function openReference(): void {
         <span class="agentbar__value">{{ agent.mode ? "开" : "关" }}</span>
       </button>
       <p class="agentbar__hint">开启后 AI 才会调用工具读设定、读正文，并把改稿候选交给你审批。</p>
+
+      <button type="button" class="agentbar__item" @click="togglePlanning">
+        <span>自主规划</span>
+        <span class="agentbar__value">{{ agent.planning ? "开" : "关" }}</span>
+      </button>
+      <p class="agentbar__hint">打开后先拆解任务再逐步执行，适合查设定、审稿这类多步骤请求。</p>
 
       <div class="agentbar__group">用哪个角色</div>
       <button

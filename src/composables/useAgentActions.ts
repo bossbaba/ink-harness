@@ -13,42 +13,47 @@ import type { PendingToolAction, ToolContext } from "@/types";
  * 供 Copilot 面板显示「待授权操作」卡片。
  *
  * 执行器保持纯 TS（便于单测），响应式只在这一层引入；
- * ctx 由调用方注入（项目/章节 id），这里不直接读全局 store。
+ * ctx 由调用方以 getter 注入，每次操作都重新取，切作品/会话后不会用旧上下文。
  */
 export function useAgentActions(ctx: () => ToolContext) {
-  const pending: Ref<PendingToolAction[]> = ref(listPending());
+  const pending: Ref<PendingToolAction[]> = ref(listPending(ctx()));
   const busyId = ref("");
   const error = ref("");
 
-  /** 每次工具执行后调用，把执行器队列的最新状态同步到界面。 */
+  /** 每次工具执行或审批后调用，把当前上下文队列的最新状态同步到界面。 */
   function refresh(): void {
-    pending.value = listPending();
+    pending.value = listPending(ctx());
   }
 
-  async function approve(id: string): Promise<string> {
+  /**
+   * 审批通过。返回完整的动作（含最终状态与结果文本），
+   * 由调用方决定是否把结果作为工具回执写回对话。
+   */
+  async function approve(id: string): Promise<PendingToolAction | null> {
     busyId.value = id;
     error.value = "";
     try {
       const action = await approveAction(id, ctx());
       refresh();
-      // 通过的写工具返回的是「工具结果文本」，供 UI 决定插入正文；失败时为空。
-      return action?.status === "applied" ? action.label : "";
+      return action;
     } catch (err) {
       error.value = `执行操作失败：${String(err)}`;
       refresh();
-      return "";
+      return null;
     } finally {
       busyId.value = "";
     }
   }
 
-  function reject(id: string): void {
-    rejectAction(id);
+  /** 驳回：同样返回动作，便于把「作者已驳回」回灌给模型。 */
+  function reject(id: string): PendingToolAction | null {
+    const action = rejectAction(id, ctx());
     refresh();
+    return action;
   }
 
   function clear(): void {
-    clearFinished();
+    clearFinished(ctx());
     refresh();
   }
 

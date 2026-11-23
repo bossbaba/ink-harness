@@ -10,6 +10,40 @@ import type { CollectedToolCall } from "./model";
 /** 工具风险等级：read 自动执行，write 必须作者审批后才落库。 */
 export type ToolRisk = "read" | "write";
 
+/**
+ * 自主规划（Planner）相关类型。
+ *
+ * 计划由模型先拆解、再由它在循环里用 update_plan 逐步推进；
+ * 与「工具白名单 + prompt」的区别是：目标被显式拆成可核对的步骤，
+ * 模型能在读到新事实后主动请求重规划，而不再是一路走到轮次上限。
+ */
+
+/** 计划步骤的状态；done/skipped 都会带结果摘要，供后续步骤与重规划使用。 */
+export type AgentPlanStepStatus = "pending" | "active" | "done" | "skipped";
+
+/** 任务分解后的一步，id 是模型更新状态时的定位键。 */
+export interface AgentPlanStep {
+  /** 稳定短 id（如 s1），模型用 update_plan 按它定位。 */
+  id: string;
+  /** 一句话动作描述，界面直接展示。 */
+  title: string;
+  /** 这一步要达成什么，作为子任务提示注入下一轮 system。 */
+  intent: string;
+  status: AgentPlanStepStatus;
+  /** 完成/跳过的理由或拿到的关键事实，重规划时作为已完成事实回传。 */
+  result: string;
+}
+
+/** 一次任务计划；每次重规划生成新版本，旧版本只留在轨迹里。 */
+export interface AgentPlan {
+  goal: string;
+  steps: AgentPlanStep[];
+  /** 计划版本号，从 1 开始，每次重规划 +1。 */
+  version: number;
+  /** 重规划原因；首次规划为空串。 */
+  reason: string;
+}
+
 /** AI 面板里 Agent 相关的全部展示状态，打包成一个 prop 减少父子接口行数。 */
 export interface AgentPanelState {
   actions: PendingToolAction[];
@@ -17,6 +51,10 @@ export interface AgentPanelState {
   error: string;
   mode: boolean;
   progress: string;
+  /** 当前任务计划；仅规划模式且成功拆解时有值。 */
+  plan: AgentPlan | null;
+  /** 自主规划开关，默认关闭，避免影响既有写作流程。 */
+  planning: boolean;
   /** 可选角色列表；空 roleId 表示默认角色（全部工具、无额外 prompt）。 */
   roles: AgentRole[];
   roleId: string;
@@ -28,7 +66,7 @@ export interface AgentPanelState {
 export type AgentPanelAction =
   | { type: "approve" | "reject"; id: string }
   | { type: "insert"; text: string }
-  | { type: "clear" | "toggle" }
+  | { type: "clear" | "toggle" | "toggle-planning" }
   | { type: "role"; id: string };
 
 /** 工具执行上下文：由调用方（Agent Loop / Copilot）注入，工具本身不直接读全局状态。 */
@@ -36,6 +74,11 @@ export interface ToolContext {
   projectId: string;
   /** 当前选中的章节 id；读章节/写正文类工具的默认目标。 */
   chapterId?: string;
+  /**
+   * 当前会话 id，仅用于审批队列按会话隔离，不下发给工具执行。
+   * 老调用方不传时用空串，保持兼容。
+   */
+  sessionId?: string;
 }
 
 /**

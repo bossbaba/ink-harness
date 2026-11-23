@@ -15,9 +15,31 @@ import type {
  * 由作者点「通过/驳回」后才真正执行。这样即使模型误判，也不会改动作者的作品。
  */
 
-/** 待审批队列，UI 通过 useAgentActions 订阅；这里用模块级状态，与会话生命周期一致。 */
+/**
+ * 待审批队列按「作品::会话」隔离。
+ *
+ * 原来是单个模块级数组：切到另一部作品后，界面仍会列出上一部作品的待授权操作；
+ * 作者在那里点「通过」，用的又是新作品的 ctx，极易把修改落到错误的章节。
+ * 现在按上下文分桶，切会话/作品只看到自己那一份，审批时也用同一份 ctx 定位。
+ */
 let pendingSeq = 0;
-const pending: PendingToolAction[] = [];
+const pendingByScope = new Map<string, PendingToolAction[]>();
+
+/** 生成队列键；老调用方不传 sessionId 时用空串，保持兼容。 */
+function scopeKey(ctx: ToolContext): string {
+  return `${ctx.projectId}::${ctx.sessionId ?? ""}`;
+}
+
+/** 取（必要时创建）当前上下文的队列。 */
+function queueOf(ctx: ToolContext): PendingToolAction[] {
+  const key = scopeKey(ctx);
+  let queue = pendingByScope.get(key);
+  if (!queue) {
+    queue = [];
+    pendingByScope.set(key, queue);
+  }
+  return queue;
+}
 
 /** 简易参数校验：只检查 required 与类型，够拦住模型常见的字段缺失/类型错配。 */
 function validateArgs(tool: AgentTool, args: Record<string, unknown>): string {
@@ -42,9 +64,9 @@ function validateArgs(tool: AgentTool, args: Record<string, unknown>): string {
   return "";
 }
 
-/** 给模型的待审批提示：让它知道操作已提交、结果稍后由作者决定，而不是以为已经执行。 */
+/** 给模型的待审批提示：结果会以工具回执进入对话，模型在下一轮能据此继续推理。 */
 function approvalPrompt(action: PendingToolAction): string {
-  return `工具 ${action.toolName} 已提交作者审批，当前未执行。作者的决定不会自动回填到本次对话，请基于已有信息继续或结束回答。`;
+  return `工具 ${action.toolName} 已提交作者审批，当前未执行。作者通过或驳回后，结果会以「工具回执」出现在对话中；请基于已有信息继续或结束回答，不要假设它已经执行。`;
 }
 
 /** 执行一批工具调用，返回与之一一对应的观察结果（供下一轮请求作为 tool 消息）。 */
@@ -83,7 +105,7 @@ async function executeOne(call: CollectedToolCall, ctx: ToolContext): Promise<To
       status: "pending",
       error: "",
     };
-    pending.push(action);
+    queueOf(ctx).push(action);
     return { ...base, content: approvalPrompt(action), isError: false };
   }
   try {
@@ -101,18 +123,25 @@ function describeAction(call: CollectedToolCall): string {
   return typeof label === "string" && label.trim() ? label.trim() : `执行 ${call.name}`;
 }
 
-/** 返回当前待审批队列的副本（UI 只读展示，改动必须走 approve/reject）。 */
-export function listPending(): PendingToolAction[] {
-  return pending.map((item) => ({ ...item }));
+/** 返回当前上下文队列的副本（UI 只读展示，改动必须走 approve/reject）。 */
+export function listPending(ctx: ToolContext): PendingToolAction[] {
+  return queueOf(ctx).map((item) => ({ ...item }));
 }
 
-/** 审批通过：执行工具的 run，结果由调用方（UI）决定如何落到作品里。 */
+/**
+ * 审批通过：执行工具的 run，结果由调用方（UI）决定如何落到作品里。
+ *
+ * 先落到 approved 再执行：工具可能要写库而耗时，也可能抛错——
+ * 「作者已批准」与「修改真的落地」是两件事，失败时作者需要看到区分。
+ */
 export async function approveAction(
   id: string,
   ctx: ToolContext,
 ): Promise<PendingToolAction | null> {
-  const action = pending.find((item) => item.id === id);
+  const queue = queueOf(ctx);
+  const action = queue.find((item) => item.id === id);
   if (action?.status !== "pending") return null;
+  action.status = "approved";
   try {
     // 审批通过后返回的结果会展示到卡片上，同样要脱敏。
     const result = scrubText(await action.tool.run(action.args, ctx));
@@ -127,22 +156,23 @@ export async function approveAction(
 }
 
 /** 驳回：不执行，标记状态供 UI 显示「已驳回」。 */
-export function rejectAction(id: string): PendingToolAction | null {
-  const action = pending.find((item) => item.id === id);
+export function rejectAction(id: string, ctx: ToolContext): PendingToolAction | null {
+  const action = queueOf(ctx).find((item) => item.id === id);
   if (action?.status !== "pending") return null;
   action.status = "rejected";
   return { ...action };
 }
 
-/** 清空已完成（通过/驳回/失败）的动作，保留 pending 供下次审批。 */
-export function clearFinished(): void {
-  for (let i = pending.length - 1; i >= 0; i -= 1) {
-    if (pending[i].status !== "pending") pending.splice(i, 1);
+/** 清空当前上下文里已完成（通过/驳回/失败）的动作，保留 pending 供下次审批。 */
+export function clearFinished(ctx: ToolContext): void {
+  const queue = queueOf(ctx);
+  for (let i = queue.length - 1; i >= 0; i -= 1) {
+    if (queue[i].status !== "pending") queue.splice(i, 1);
   }
 }
 
-/** 仅测试用：清空全部队列。 */
+/** 仅测试用：清空全部上下文的队列。 */
 export function resetPendingForTest(): void {
-  pending.length = 0;
+  pendingByScope.clear();
   pendingSeq = 0;
 }

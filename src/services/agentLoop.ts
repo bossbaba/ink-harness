@@ -1,16 +1,36 @@
 import { executeCalls } from "@/services/actionExecutor";
+import {
+  assistantToolCalls,
+  buildFallbackRule,
+  buildToolRule,
+  parseFallbackCalls,
+  signature,
+  TOOL_RETRY_PROMPT,
+} from "@/services/agentLoopRules";
+import {
+  applyPlanUpdates,
+  isPlanTool,
+  makePlan,
+  planToText,
+  REPLAN_TOOL,
+  UPDATE_PLAN_TOOL,
+} from "@/services/agentPlanner";
 import { filterToolDefinitions } from "@/services/agentRoleService";
 import { toToolDefinitions } from "@/services/agentTools";
 import { runChat } from "@/services/aiChat";
 import type {
+  AgentPlan,
   ChatMessage,
   CollectedToolCall,
   PrivacyScope,
   TaskKind,
   ToolContext,
+  ToolDefinition,
   ToolObservation,
 } from "@/types";
-import { parseLooseJson } from "@/utils/looseJson";
+
+// 规则函数可能被外部按旧路径引用，这里保持向后兼容的再导出。
+export { buildFallbackRule, buildToolRule, parseFallbackCalls } from "@/services/agentLoopRules";
 
 /**
  * Agent Loop：以「思考 → 行动 → 观察」循环驱动模型自主完成目标。
@@ -35,6 +55,8 @@ export interface AgentStep {
   latencyMs: number;
   /** 本轮实际使用的模型（providerId:modelId）；失败未选到模型时为空串。 */
   model: string;
+  /** 阶段：plan=规划/重规划调用（iteration=0），work=普通行动轮。老轨迹没有此字段。 */
+  phase?: "plan" | "work";
 }
 
 /** 循环结束原因，便于 UI 给出不同文案与评估统计。 */
@@ -70,6 +92,15 @@ export interface AgentLoopInput {
   requestId?: string;
   /** 最多循环轮次，默认 6。 */
   maxIterations?: number;
+  /**
+   * 是否启用自主规划：循环前先拆解任务，模型可用 update_plan 推进步骤、
+   * 用 replan 请求重拆。默认 false——实验能力不能改变既有写作流程。
+   */
+  planning?: boolean;
+  /** 最多重规划次数，默认 1；防止模型一遇挫折就反复重拆耗光轮次。 */
+  maxReplans?: number;
+  /** 计划生成或更新时的回调，供 UI 实时展示步骤清单。 */
+  onPlan?: (plan: AgentPlan) => void;
   /** 作者在 UI 点停止时返回 true；每轮开始前检查。 */
   shouldStop?: () => boolean;
   /** 每轮结束回调，用于流式展示与 Trace。 */
@@ -83,117 +114,14 @@ export interface AgentLoopResult {
   steps: AgentStep[];
   /** 失败原因；为空表示正常结束。 */
   failure: string;
-}
-
-/**
- * 把工具定义渲染成降级轨提示里的清单。
- *
- * 之前这里是手写的固定字符串，与实际注册表两份维护——加一个工具很容易漏改，
- * 模型在降级轨里就永远看不到它。现在从已下发的工具定义现生成，顺带按角色白名单
- * 自动收窄：角色只允许读章节时，清单里也不会出现写工具。
- */
-function fallbackToolList(tools: ReturnType<typeof toToolDefinitions>): string {
-  return tools
-    .map((tool) => {
-      const schema = tool.function.parameters as {
-        properties?: Record<string, unknown>;
-        required?: string[];
-      };
-      const required = new Set(schema.required ?? []);
-      const names = Object.keys(schema.properties ?? {});
-      const args = names.map((name) => (required.has(name) ? `${name}*` : `${name}?`));
-      return `- ${tool.function.name}(${args.join(",")})：${tool.function.description}`;
-    })
-    .join("\n");
-}
-
-/**
- * 标准轨（模型支持 function calling）的工具使用提示。
- *
- * 只把 tools 丢给上游是不够的：system 里既有「作品上下文」又写着「没有的信息就说未设定」，
- * 模型会很自然地直接照着上下文作答，甚至回一句「作品尚未建立任何设定」——实测 Agent 评测
- * 5 条用例全部 `calls: []`。所以这里显式写清「先取数据再回答」，并重复工具名，
- * 避免模型忽略 tools 参数。
- */
-export function buildToolRule(tools = toToolDefinitions()): string {
-  return [
-    "【工具使用】",
-    "1. 只要问题涉及作品内容（作品信息、设定、章节、资料检索），本轮第一步必须是调用工具；拿到工具结果之前，不得输出任何作品相关内容。",
-    "2. 禁止凭上下文中已有的片段作答：上下文字段可能缺失或过期，作品数据一律以工具返回为准。",
-    "3. 除非工具明确返回「没有 / 不存在」，不要回答「未设定」「暂无」「尚未建立」。",
-    "4. 一轮可以并行调用多个工具，拿到结果后再组织回答；同一个工具不要反复调用来回试。",
-    "5. 自检：如果你的回答里出现具体人物、情节或设定，而本轮没有调用过工具，说明你在编造，必须改成先调用工具。",
-    "6. 可用工具（按用途选择，读正文用 read_chapter、找资料用 search_notes，别用列表工具代替）：",
-    // 带上用途而不是只列名字：只给名字时小模型经常拿 list_elements 当「读内容」用。
-    ...tools.map((tool) => `- ${tool.function.name}：${firstSentence(tool.function.description)}`),
-  ].join("\n");
-}
-
-/** 取描述的第一句：工具描述都写成「一句话用途 + 补充说明」，清单里只要第一句。 */
-function firstSentence(text: string): string {
-  const end = text.indexOf("。");
-  return end > 0 ? text.slice(0, end + 1) : text;
-}
-
-/**
- * JSON 降级轨的提示词：让不支持 function calling 的模型以约定格式表达工具调用。
- * 带 `*` 的参数是必填项，和正式 schema 的 required 对齐。
- */
-export function buildFallbackRule(tools = toToolDefinitions()): string {
-  return [
-    "【工具调用】",
-    "需要作品数据（作品信息、设定条目、章节正文、检索片段）时，必须先输出如下 JSON 获取，",
-    "不要凭上下文空白直接回答「未设定」「暂无」。只输出 JSON，不要其它文字：",
-    '{"tool_calls":[{"name":"工具名","arguments":{参数对象}}]}',
-    "可用工具：",
-    fallbackToolList(tools),
-    "确实不需要作品数据时，直接正常回答，不要输出上述 JSON。",
-  ].join("\n");
-}
-
-/** 首轮没调工具时的补问：直接说下一步动作，比再讲一遍规则更容易被小模型执行。 */
-const TOOL_RETRY_PROMPT =
-  "刚才那一步没有调用任何工具。请先调用工具读取所需的作品数据（如 get_project、list_elements、read_chapter、search_notes），再回答上面的问题。";
-
-/** 从降级轨的文本里抠出工具调用；不是约定 JSON 时返回空数组。 */
-export function parseFallbackCalls(text: string): CollectedToolCall[] {
-  const value = parseLooseJson(text.trim());
-  if (!value || typeof value !== "object") return [];
-  const calls = (value as { tool_calls?: unknown }).tool_calls;
-  if (!Array.isArray(calls)) return [];
-  return calls.flatMap((item, index) => {
-    if (!item || typeof item !== "object") return [];
-    const raw = item as { name?: unknown; arguments?: unknown };
-    if (typeof raw.name !== "string" || !raw.name) return [];
-    const args = raw.arguments && typeof raw.arguments === "object" ? raw.arguments : {};
-    return [
-      {
-        id: `fallback-${index}-${raw.name}`,
-        name: raw.name,
-        arguments: args as Record<string, unknown>,
-        rawArguments: JSON.stringify(args),
-        parseError: "",
-      },
-    ];
-  });
-}
-
-/** 把一组调用转成 assistant 消息里的 tool_calls 字段（OpenAI 要求原样回传）。 */
-function assistantToolCalls(calls: CollectedToolCall[]): ChatMessage["toolCalls"] {
-  return calls.map((call) => ({
-    id: call.id,
-    type: "function" as const,
-    function: { name: call.name, arguments: call.rawArguments },
-  }));
-}
-
-/** 把两个调用的结果拼成用于空转检测的特征串。 */
-function signature(calls: CollectedToolCall[]): string {
-  return calls.map((call) => `${call.name}:${JSON.stringify(call.arguments)}`).join("|");
+  /** 最终计划；仅规划模式且成功拆解时有值。 */
+  plan?: AgentPlan;
 }
 
 /**
  * 运行 Agent Loop。为便于单测，chatRunner 可注入；生产调用用默认的 runChat。
+ *
+ * 提示词规则与输出解析放在 agentLoopRules，这里只负责循环编排与状态推进。
  */
 export async function runAgentLoop(
   input: AgentLoopInput,
@@ -201,8 +129,17 @@ export async function runAgentLoop(
 ): Promise<AgentLoopResult> {
   const maxIterations = Math.max(1, input.maxIterations ?? 6);
   const steps: AgentStep[] = [];
+  const planning = input.planning === true;
+  const maxReplans = Math.max(0, input.maxReplans ?? 1);
+  let plan: AgentPlan | null = null;
+  let replans = 0;
   // 角色白名单只裁剪下发与可见的工具；执行器仍按注册表校验，未下发的名字也调不通。
-  const tools = filterToolDefinitions(toToolDefinitions(), input.toolNames ?? []);
+  const baseTools = filterToolDefinitions(toToolDefinitions(), input.toolNames ?? []);
+  // 规划元工具不进全局注册表：它们在循环里被拦截，用来推进/重拆计划而非执行业务。
+  // 关闭规划时完全不下发，老角色与评测口径不受影响。
+  const tools: ToolDefinition[] = planning
+    ? [...baseTools, UPDATE_PLAN_TOOL, REPLAN_TOOL]
+    : baseTools;
   // 角色提示插在作品上下文之后：越靠后越贴近本次任务，模型更容易遵守。
   const baseSystem = input.extraPrompt
     ? `${input.system}\n\n【角色要求】\n${input.extraPrompt}`
@@ -210,11 +147,11 @@ export async function runAgentLoop(
   // 两条轨道都要把「先调工具再回答」写进 system：标准轨靠 tools 参数，降级轨靠约定 JSON，
   // 但两者都可能被「上下文没有就说未设定」的纪律带偏成纯文本作答。
   const systemRule = input.supportsTools ? buildToolRule(tools) : buildFallbackRule(tools);
+  // 计划每次更新后都要重建 system：模型必须在每一轮都看到最新的步骤状态。
+  const buildSystem = (current: AgentPlan | null): string =>
+    `${baseSystem}\n\n${systemRule}${current ? `\n\n${planToText(current)}` : ""}`;
   const messages: ChatMessage[] = [
-    {
-      role: "system",
-      content: `${baseSystem}\n\n${systemRule}`,
-    },
+    { role: "system", content: buildSystem(plan) },
     ...input.history,
     { role: "user", content: input.question },
   ];
@@ -225,9 +162,45 @@ export async function runAgentLoop(
   let forceTool = input.requireToolFirst === true;
   let retriedFirst = false;
 
+  // 循环前先拆解任务。规划调用本身也记一条轨迹（iteration=0），成本与耗时不丢；
+  // 拆解失败或格式不对时降级为普通循环，不让实验性能力挡住已有问答流程。
+  if (planning && !input.shouldStop?.()) {
+    const planned = await makePlan(
+      {
+        goal: input.question,
+        system: baseSystem,
+        toolNames: input.toolNames ?? [],
+        task: input.task,
+        privacy: input.privacy,
+        projectId: input.projectId,
+        requestId: input.requestId,
+      },
+      chatRunner,
+    );
+    const planStep: AgentStep = {
+      iteration: 0,
+      text: planned.plan
+        ? planToText(planned.plan)
+        : `规划未采用（${planned.failure || "未解析出有效步骤"}），按普通循环继续。`,
+      calls: [],
+      observations: [],
+      tokens: planned.tokens,
+      latencyMs: planned.latencyMs,
+      model: planned.model,
+      phase: "plan",
+    };
+    steps.push(planStep);
+    input.onStep?.(planStep);
+    if (planned.plan) {
+      plan = planned.plan;
+      input.onPlan?.(plan);
+      messages[0].content = buildSystem(plan);
+    }
+  }
+
   for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
     if (input.shouldStop?.()) {
-      return { answer: "", reason: "stopped", steps, failure: "" };
+      return { answer: "", reason: "stopped", steps, failure: "", plan: plan ?? undefined };
     }
 
     const startedAt = Date.now();
@@ -247,7 +220,13 @@ export async function runAgentLoop(
     const latencyMs = Date.now() - startedAt;
     const model = result.model ?? "";
     if (result.failure) {
-      return { answer: result.raw, reason: "error", steps, failure: result.failure };
+      return {
+        answer: result.raw,
+        reason: "error",
+        steps,
+        failure: result.failure,
+        plan: plan ?? undefined,
+      };
     }
 
     // 标准轨从流式分片拼调用；降级轨从文本里抠约定 JSON。
@@ -261,6 +240,7 @@ export async function runAgentLoop(
         tokens,
         latencyMs,
         model,
+        phase: "work",
       };
       steps.push(step);
       input.onStep?.(step);
@@ -272,18 +252,29 @@ export async function runAgentLoop(
         messages.push({ role: "user", content: TOOL_RETRY_PROMPT });
         continue;
       }
-      return { answer: result.raw, reason: "no-tools", steps, failure: "" };
+      return {
+        answer: result.raw,
+        reason: "no-tools",
+        steps,
+        failure: "",
+        plan: plan ?? undefined,
+      };
     }
 
-    // 已经拿到工具调用，后续轮次不再强制，让模型基于观察结果自由作答。
-    forceTool = false;
+    // 计划元工具与业务工具分流：前者改计划状态，后者才走执行器。
+    const planCalls = planning ? calls.filter((call) => isPlanTool(call.name)) : [];
+    const workCalls = calls.filter((call) => !isPlanTool(call.name));
+    // 元工具调用代表「有进展」，不能按空转处理（update_plan 每轮参数本来就不同）。
+    const hasPlanProgress = planCalls.length > 0;
+    // 首轮强制取数只对真实业务工具生效：只标计划不算「已读到作品数据」。
+    if (workCalls.length > 0) forceTool = false;
 
     // 空转检测：同一组调用重复出现时不立刻终止——模型常常是「没拿到有用结果，再试一遍」，
     // 先提醒它换个工具还有救；连续两次重复仍不改，才判定它在兜圈子。
-    const current = signature(calls);
-    const repeated = current === lastSignature;
+    const current = signature(workCalls);
+    const repeated = !hasPlanProgress && current === lastSignature;
     idleRounds = repeated ? idleRounds + 1 : 0;
-    lastSignature = current;
+    lastSignature = hasPlanProgress ? "" : current;
     if (repeated) {
       const step: AgentStep = {
         iteration,
@@ -293,6 +284,7 @@ export async function runAgentLoop(
         tokens,
         latencyMs,
         model,
+        phase: "work",
       };
       steps.push(step);
       input.onStep?.(step);
@@ -302,6 +294,7 @@ export async function runAgentLoop(
           reason: "idle-loop",
           steps,
           failure: "",
+          plan: plan ?? undefined,
         };
       }
       // 第一次重复：不再白跑一遍工具，直接把「换个方式」的提醒回填成观察结果。
@@ -322,7 +315,50 @@ export async function runAgentLoop(
       continue;
     }
 
-    const observations = await executeCalls(calls, input.ctx);
+    // 先应用 update_plan（可能更新计划并通知 UI），再跑业务工具；最后按调用原序回填观察，
+    // 保证 tool 消息与 assistant.tool_calls 一一对应。
+    const planObservations = new Map<string, ToolObservation>();
+    let replanReason = "";
+    for (const call of planCalls) {
+      if (call.name === REPLAN_TOOL.function.name) {
+        if (plan && replans < maxReplans) {
+          replanReason =
+            typeof call.arguments.reason === "string" && call.arguments.reason.trim()
+              ? call.arguments.reason.trim()
+              : "模型请求重规划";
+          planObservations.set(call.id, {
+            toolCallId: call.id,
+            toolName: call.name,
+            content: `已接受重规划请求：${replanReason}`,
+            isError: false,
+          });
+        } else {
+          planObservations.set(call.id, {
+            toolCallId: call.id,
+            toolName: call.name,
+            content: "当前没有计划或重规划次数已用完，请基于已有工具继续完成任务。",
+            isError: false,
+          });
+        }
+      }
+    }
+    const updateCalls = planCalls.filter((call) => call.name === UPDATE_PLAN_TOOL.function.name);
+    if (plan && updateCalls.length > 0) {
+      const applied = applyPlanUpdates(plan, updateCalls);
+      plan = applied.plan;
+      input.onPlan?.(plan);
+      messages[0].content = buildSystem(plan);
+      for (const observation of applied.observations) {
+        planObservations.set(observation.toolCallId, observation);
+      }
+    }
+
+    const workObservations = workCalls.length ? await executeCalls(workCalls, input.ctx) : [];
+    let workIndex = 0;
+    const observations = calls.map((call) => {
+      const planned = planObservations.get(call.id);
+      return planned ?? workObservations[workIndex++];
+    });
     const step: AgentStep = {
       iteration,
       text: result.raw,
@@ -331,6 +367,7 @@ export async function runAgentLoop(
       tokens,
       latencyMs,
       model,
+      phase: "work",
     };
     steps.push(step);
     input.onStep?.(step);
@@ -349,7 +386,51 @@ export async function runAgentLoop(
         name: observation.toolName,
       });
     }
+
+    // 重规划放在本轮回填之后：模型下一轮才看到新计划，避免同一轮里计划前后不一致。
+    if (replanReason && plan) {
+      replans += 1;
+      const revised = await makePlan(
+        {
+          goal: input.question,
+          system: baseSystem,
+          toolNames: input.toolNames ?? [],
+          task: input.task,
+          privacy: input.privacy,
+          projectId: input.projectId,
+          requestId: input.requestId,
+          previous: plan,
+          reason: replanReason,
+        },
+        chatRunner,
+      );
+      if (revised.plan) {
+        plan = revised.plan;
+        input.onPlan?.(plan);
+        messages[0].content = buildSystem(plan);
+      }
+      const replanStep: AgentStep = {
+        iteration: 0,
+        text: revised.plan
+          ? planToText(revised.plan)
+          : `重规划未采用（${revised.failure || "未解析出有效步骤"}），沿用原计划。`,
+        calls: [],
+        observations: [],
+        tokens: revised.tokens,
+        latencyMs: revised.latencyMs,
+        model: revised.model,
+        phase: "plan",
+      };
+      steps.push(replanStep);
+      input.onStep?.(replanStep);
+    }
   }
 
-  return { answer: "", reason: "max-iterations", steps, failure: "" };
+  return {
+    answer: "",
+    reason: "max-iterations",
+    steps,
+    failure: "",
+    plan: plan ?? undefined,
+  };
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { NButton, NTag } from "naive-ui";
 import { ref, watch } from "vue";
-import type { AgentPanelState, PendingToolAction } from "@/types";
+import type { AgentPanelState, AgentPlanStepStatus, PendingToolAction } from "@/types";
 
 /**
  * AI 面板里的 Agent 结果区：写操作授权卡片 + 运行进度。
@@ -24,6 +24,21 @@ const STATUS_LABEL: Record<PendingToolAction["status"], string> = {
   applied: "已应用",
   failed: "失败",
 };
+
+/** 计划步骤的中文标签，和 Planner 回填给模型的叫法保持一致。 */
+const PLAN_STATUS_LABEL: Record<AgentPlanStepStatus, string> = {
+  pending: "待做",
+  active: "进行中",
+  done: "已完成",
+  skipped: "已跳过",
+};
+
+/** 完成用成功色、进行中用信息色，其余保持中性，避免一屏彩色标签。 */
+function planTagType(status: AgentPlanStepStatus): "default" | "info" | "success" {
+  if (status === "done") return "success";
+  if (status === "active") return "info";
+  return "default";
+}
 
 // 通过/驳回共用一个 busyId：记录刚点的那个，让只有它转圈。
 const pendingType = ref<"approve" | "reject" | null>(null);
@@ -60,9 +75,24 @@ function candidate(action: PendingToolAction): string {
 </script>
 
 <template>
-  <!-- 没有进度、没有待审批动作时整块不渲染，避免消息流末尾常驻一个空盒子。 -->
-  <section v-if="visible().length || agent.progress || agent.error" class="controls">
+  <!-- 没有进度、计划、待审批动作时整块不渲染，避免消息流末尾常驻一个空盒子。 -->
+  <section v-if="visible().length || agent.progress || agent.error || agent.plan" class="controls">
     <span v-if="agent.progress" class="controls__progress">{{ agent.progress }}</span>
+
+    <div v-if="agent.plan" class="controls__plan">
+      <div class="controls__plan-head">
+        <span class="controls__plan-title">任务计划 v{{ agent.plan.version }}</span>
+        <span v-if="agent.plan.reason" class="controls__plan-reason">
+          已重规划：{{ agent.plan.reason }}
+        </span>
+      </div>
+      <div v-for="step in agent.plan.steps" :key="step.id" class="controls__step">
+        <NTag size="small" :bordered="false" :type="planTagType(step.status)">
+          {{ PLAN_STATUS_LABEL[step.status] }}
+        </NTag>
+        <span class="controls__step-title" :title="step.intent">{{ step.title }}</span>
+      </div>
+    </div>
 
     <div v-for="action in visible()" :key="action.id" class="controls__action">
       <div class="controls__row">
@@ -133,6 +163,47 @@ function candidate(action: PendingToolAction): string {
   &__clear {
     font-size: 11px;
     color: var(--text-faint, #{t.$ink-faint});
+  }
+
+  &__plan {
+    display: flex;
+    flex-direction: column;
+    gap: t.$space-1;
+    min-width: 0;
+  }
+
+  &__plan-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: t.$space-2;
+    min-width: 0;
+  }
+
+  &__plan-title {
+    font-size: 12px;
+    color: var(--text-primary, #{t.$ink});
+  }
+
+  &__plan-reason {
+    min-width: 0;
+    font-size: 11px;
+    color: var(--text-faint, #{t.$ink-faint});
+    @include m.ellipsis;
+  }
+
+  &__step {
+    display: flex;
+    align-items: center;
+    gap: t.$space-2;
+    min-width: 0;
+  }
+
+  &__step-title {
+    min-width: 0;
+    font-size: 12px;
+    color: var(--text-soft, #{t.$ink-soft});
+    @include m.ellipsis;
   }
 
   &__clear {

@@ -1,10 +1,11 @@
 # INK-HARNESS Agent 能力落地方案
 
 > 对照《Agent运用要素.md》的差距盘点与分阶段实施计划。
-> 版本：v1.0 ｜ 日期：2026-11-19 ｜ 状态：已实施（P0~P3 全部完成）
+> 版本：v1.1 ｜ 日期：2026-11-23 ｜ 状态：已实施（P0~P3 全部完成，P4 自主规划已落地）
 >
-> 实施记录：P0 工具调用契约、P1 工具系统/执行器/审批、P2 Agent Loop、P3 会话记忆/Trace/看板。
-> 验证：`pnpm check:all` 全绿（typecheck/lint/规范/38 单测/build）；`cargo test` 全绿（120 lib + 集成测试含 IPC 契约）。
+> 实施记录：P0 工具调用契约、P1 工具系统/执行器/审批、P2 Agent Loop、P3 会话记忆/Trace/看板；
+> P4（2026-11-23）补上 Planner：任务拆解、逐步推进、按新事实重规划，见第 6 节。
+> 验证：`pnpm check:all` 全绿（typecheck/lint/规范/71 单测/build）；`cargo test --lib` 135 通过 / 0 失败。
 
 ---
 
@@ -23,7 +24,7 @@ README 自我定位为「作者主导、Agent 辅助」，工作流的推进权�
 | LLM 接入             | ✅ 已具备 | `src-tauri/src/services/gateway.rs` 多 Provider 流式代理；`src/services/modelRouter.ts:76-208` 任务路由 |
 | State 状态管理       | ✅ 已具备 | `src/services/workflowService.ts:17-82` 阶段状态持久化，State 与 Context 已分离                         |
 | Context Engineering  | ✅ 已具备 | `src/services/copilotService.ts:92-150` 提示词组装 + 字符预算 + 裁剪                                    |
-| Planner/Controller   | ⚠️ 部分   | 仅「任务→模型」路由（`modelRouter.ts:44-57`）+ 人工审批，无自主规划                                     |
+| Planner/Controller   | ✅ 已具备 | P4 落地：先拆解任务，模型用 `update_plan` 逐步推进、`replan` 按新事实重拆（见第 6 节）                    |
 | Memory               | ⚠️ 部分   | 有 Story Bible / RAG / 章节摘要，但对话历史不持久化（组件内 `messages` ref，全仓无会话表）              |
 | Session/Runtime      | ⚠️ 部分   | 有 Tauri 运行时 + `project_id` 命名空间，无 Agent 会话/线程概念                                         |
 | Guardrails           | ⚠️ 部分   | 隐私分级、钥匙串、文件白名单强；无沙箱、无输出安全过滤                                                  |
@@ -146,3 +147,42 @@ runAgentLoop(goal, tools, { maxIterations: 6, onStep }):
 ## 5. 实施顺序建议
 
 从 **P0** 开始——改动面最小、可独立验证，且是后续三期的地基。四期全部完成后，项目才从「AI 辅助写作工作台」升级为具备自主规划与执行能力的写作 Agent。
+
+---
+
+## 6. P4 · 自主规划（2026-11-23 落地）
+
+原方案把 Planner 列为「⚠️ 部分、无自主规划」：只有任务→模型路由，没有任务分解与重规划。P4 补上这一环，仍是**人在环路**——写操作照旧要作者审批，规划只决定「先做什么、后做什么」。
+
+### 6.1 结构
+
+| 文件 | 职责 |
+| ---- | ---- |
+| `src/services/agentPlanner.ts` | 计划拆解（`makePlan`）、JSON 容错（`parsePlan`）、元工具定义、步骤状态更新（`applyPlanUpdates`）、计划文本渲染（`planToText`） |
+| `src/services/agentLoop.ts` | 循环前规划、每轮注入最新计划、元工具与业务工具分流、`replan` 触发重拆 |
+| `src/services/agentLoopRules.ts` | 从 Loop 拆出的规则/解析纯函数，控制主文件在 500 行以内 |
+| `src/composables/useCopilotMessaging.ts` | 从 `useWritingCopilot` 拆出的消息编排层，持有计划状态并下发开关 |
+| `src/components/writing/AgentBar.vue` / `AgentControls.vue` | 规划开关、计划清单展示 |
+| `tests/agentPlanner.test.ts` / `tests/agentLoop.test.ts` | 解析容错、不可变更新、重规划参数与 Loop 集成 |
+
+### 6.2 运行链路
+
+1. **拆解**：规划模式下，循环前先用注入的 `chatRunner` 调一次规划器，输出 `{"steps":[{title,intent}]}`，解析成带 `id/status/result` 的计划；上限 5 步，防止小模型执行不完。
+2. **注入**：每轮 system 末尾附最新计划文本（版本号 + 各步骤状态 + 已完成事实），模型每轮都看到最新进度。
+3. **推进**：两个元工具不进全局注册表，由 Loop 拦截——`update_plan` 标记步骤完成（不可变更新计划并通知 UI），`replan` 请求重拆剩余步骤。
+4. **重规划**：`replan` 把「已完成步骤 + 原因」回传给规划器生成 v2 计划，默认最多 1 次；规划/重规划调用都记一条 `phase=plan` 的轨迹，token 与耗时照常计入看板。
+5. **降级**：规划失败、输出格式不对、作者点停止，都退回既有循环或终止，不影响普通对话与评测口径。
+
+### 6.3 关键取舍
+
+- **默认关闭**：规划是实验能力，靠 Agent 工具行的开关启用；打开开关会顺带打开 Agent 模式，避免出现「规划已开却没走循环」。
+- **元工具不落注册表**：`update_plan` / `replan` 只改循环内的计划状态，不是作品级能力，也不该出现在角色白名单里。
+- **空转豁免**：带计划元工具的轮次不参与重复调用检测——`update_plan` 每轮参数本来就不同，否则会被误判空转。
+- **首轮取数口径**：只标计划不算「已读到作品数据」，`requireToolFirst` 只在真正调了业务工具后才关闭。
+- **会话持久化**：规划步以 `iteration=0` 落轨迹，看板标为「规划」而非「第 0 轮」，成本折算照常覆盖。
+
+### 6.4 验证
+
+- 前端 `pnpm check:all` 全绿：typecheck / lint / 规范守卫 / 71 单测 / build。
+- 单测新增 16 例：代码块包裹解析、步骤上限、非法步骤拒绝、失败降级、计划注入、`update_plan` 推进、`replan` 版本递增与轨迹记录。
+- Rust `cargo test --lib` 135 通过 / 0 失败（后端未改动，回归验证）。
