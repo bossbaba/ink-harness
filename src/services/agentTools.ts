@@ -1,4 +1,5 @@
 import { runChat } from "@/services/aiChat";
+import { cachedMcpTools, toAgentTool } from "@/services/mcpService";
 import { outlineService } from "@/services/outlineService";
 import { projectService } from "@/services/projectService";
 import { ragService } from "@/services/ragService";
@@ -305,8 +306,8 @@ const proposeReview: AgentTool = {
   },
 };
 
-/** 注册表：顺序即工具列表顺序，模型看到的描述也按这个顺序。 */
-export const AGENT_TOOLS: AgentTool[] = [
+/** 内置工具注册表：顺序即工具列表顺序，模型看到的描述也按这个顺序。 */
+const BUILTIN_TOOLS: AgentTool[] = [
   getProject,
   listElements,
   readChapter,
@@ -317,9 +318,20 @@ export const AGENT_TOOLS: AgentTool[] = [
   applyEdits,
 ];
 
+/** 内置工具注册表（导出供测试与预设校验用）。 */
+export const AGENT_TOOLS: AgentTool[] = BUILTIN_TOOLS;
+
+/**
+ * 全部可用工具 = 内置 + 已发现的 MCP 外部工具。
+ * MCP 工具由 mcpService.discoverTools() 在发送前刷新进缓存，这里同步读取。
+ */
+export function allTools(): AgentTool[] {
+  return [...BUILTIN_TOOLS, ...cachedMcpTools().map(toAgentTool)];
+}
+
 /** 按名字找工具；未注册的名字返回 undefined，由执行器转成错误观察。 */
 export function findTool(name: string): AgentTool | undefined {
-  return AGENT_TOOLS.find((tool) => tool.name === name);
+  return allTools().find((tool) => tool.name === name);
 }
 
 /** 把注册表转成发给模型的 OpenAI function 定义。 */
@@ -327,7 +339,7 @@ export function toToolDefinitions(): Array<{
   type: "function";
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }> {
-  return AGENT_TOOLS.map((tool) => ({
+  return allTools().map((tool) => ({
     type: "function" as const,
     function: {
       name: tool.name,

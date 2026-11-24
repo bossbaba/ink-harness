@@ -52,6 +52,13 @@ const router = createRouter({
       meta: { title: "Agent 评测" },
     },
     {
+      // MCP 外部工具：全局配置，stdio server 对所有作品生效。
+      path: "/mcp-tools",
+      name: "mcp-tools",
+      component: () => import("@/views/McpToolsView.vue"),
+      meta: { title: "MCP 外部工具" },
+    },
+    {
       // 作品作用域的父路由：ProjectShellView 校验 projectId 并加载作品，
       // 校验通过后才渲染下面的子页面，避免无 ID 时回退到全局数据。
       // 父路由刻意不取名：它唯一的空路径子路由只做重定向，带 name 会触发

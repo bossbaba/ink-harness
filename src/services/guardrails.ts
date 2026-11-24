@@ -110,3 +110,21 @@ export function scrubText(text: string): string {
   out = maskBearer(out);
   return maskPem(out);
 }
+
+/**
+ * 递归脱敏工具参数里的所有字符串。
+ *
+ * 写工具在入队时就把参数洗一遍，审批通过后原样执行——如果等 run 落库后再脱敏，
+ * 界面上看到的「已屏蔽」只是回执文案，带凭据的原文早就写进正文了。
+ * 对象与数组都保留原结构，只替换字符串叶子；非字符串原样返回。
+ */
+export function scrubArgs(value: unknown): unknown {
+  if (typeof value === "string") return scrubText(value);
+  if (Array.isArray(value)) return value.map(scrubArgs);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) out[key] = scrubArgs(item);
+    return out;
+  }
+  return value;
+}

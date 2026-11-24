@@ -83,7 +83,9 @@ export interface ToolContext {
 
 /**
  * 工具定义：name/description/parameters 直接构成发给模型的 OpenAI function schema；
- * risk 决定执行策略，run 是真正干活的函数（只调用现有 service，不碰 IPC）。
+ * risk 决定执行策略，run 是真正干活的函数。
+ * 内置工具的 run 只调本地 service；MCP 外部工具的 run 走 IPC 调后端 spawn 的进程，
+ * 这是有意的例外——外部能力本来就只能经 Rust 侧代理。
  */
 export interface AgentTool {
   name: string;
@@ -94,6 +96,32 @@ export interface AgentTool {
   run: (args: Record<string, unknown>, ctx: ToolContext) => Promise<string>;
 }
 
+/**
+ * 写操作审批预览中的一处改动。
+ *
+ * 只描述「原文 → 替换」这一层，不试图还原整章 diff：模型提交的本来就是片段替换，
+ * 逐条列出才能对应到它的修改意图，也方便作者一眼看出哪条不对。
+ */
+export interface ToolActionPreviewItem {
+  /** 稳定短 id，与工具参数里的条目顺序对应，界面做 key 用。 */
+  id: string;
+  /** 将被替换的原文片段（可能已按显示需要截断）。 */
+  quote: string;
+  /** 替换后的文字（已脱敏，与真正写入正文的内容一致）。 */
+  replacement: string;
+  /** 原文或替换文字被截断时为 true，提示作者完整内容仍会写入。 */
+  truncated: boolean;
+}
+
+/** 写操作的逐条改动预览；没有结构化差异的工具（如 propose_text）不生成预览。 */
+export interface ToolActionPreview {
+  /** 即将被修改的目标描述，如「章节 c1」；无法判定时为空串。 */
+  target: string;
+  items: ToolActionPreviewItem[];
+  /** 因格式问题（空 quote、非字符串等）被跳过的条目数。 */
+  skipped: number;
+}
+
 /** 一个待作者审批的写操作。 */
 export interface PendingToolAction {
   /** 对应工具调用 id，界面用它做 key 与定位。 */
@@ -101,8 +129,13 @@ export interface PendingToolAction {
   toolName: string;
   /** 给作者看的简短说明，如「替换第 3 章的 2 处文字」。 */
   label: string;
-  /** 已解析的参数；审批通过后用它执行 run。 */
+  /**
+   * 已解析且**已脱敏**的参数；审批通过后原样交给 run。
+   * 脱敏必须发生在入队时而非执行后，否则真正写进正文的仍是带凭据的原文（见 actionExecutor）。
+   */
   args: Record<string, unknown>;
+  /** 逐条改动预览，仅 apply_edits 有值；审批卡片据此展示差异。 */
+  preview?: ToolActionPreview;
   /** 执行该操作的工具，审批通过后直接调用。 */
   tool: AgentTool;
   status: "pending" | "approved" | "rejected" | "applied" | "failed";

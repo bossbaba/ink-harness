@@ -1,11 +1,13 @@
 # INK-HARNESS Agent 能力落地方案
 
 > 对照《Agent运用要素.md》的差距盘点与分阶段实施计划。
-> 版本：v1.4 ｜ 日期：2026-11-23 ｜ 状态：已实施（P0~P8 完成：基础能力→规划→审批→评测→会话恢复→能力清理与注入防护）
+> 版本：v1.6 ｜ 日期：2026-11-24 ｜ 状态：已实施（P0~P10 完成：基础能力→规划→审批→评测→会话恢复→能力清理与注入防护→MCP 外部工具→审批前安全闸门）
 >
 > 实施记录：P0 工具调用契约、P1 工具系统/执行器/审批、P2 Agent Loop、P3 会话记忆/Trace/看板；
-> P4（2026-11-23）补上 Planner：任务拆解、逐步推进、按新事实重规划，见第 6 节。
-> 验证：`pnpm check:all` 全绿（typecheck/lint/规范/71 单测/build）；`cargo test --lib` 135 通过 / 0 失败。
+> P4（2026-11-23）补上 Planner：任务拆解、逐步推进、按新事实重规划，见第 6 节；
+> P9（2026-11-24）接入 MCP 外部工具协议：stdio JSON-RPC、配置页、角色白名单，见第 11 节；
+> P10（2026-11-24）补审批前安全闸门：脱敏前置 + 逐条差异预览，见第 12 节。
+> 验证：`pnpm check:all` 全绿（typecheck/lint/规范/113 单测/build）；`cargo test --lib` 146 通过 / 0 失败。
 
 ---
 
@@ -15,24 +17,24 @@
 
 当前项目是**人在环路（human-in-the-loop）的 AI 辅助写作工作台**，不是完整意义的 Agent 应用。
 README 自我定位为「作者主导、Agent 辅助」，工作流的推进权在作者手中——`pending` 必须等人工审批，`approved` 才解锁下一阶段（`src/types/workflow.ts:4-9`）。
-文档列举的 12 项要素中，让 Agent 成为 Agent 的三件核心（**Agent Loop 主循环、Tools 工具系统、Action Executor 动作执行器**）均已在 P1/P2 落地；P4 补齐自主规划，P5 修复审批闭环，P6 让评测结果可信。下表已按 2026-11-23 代码现状更新，早期版本「缺失」的标注多为过期信息。
+文档列举的 12 项要素中，让 Agent 成为 Agent 的三件核心（**Agent Loop 主循环、Tools 工具系统、Action Executor 动作执行器**）均已在 P1/P2 落地；P4 补齐自主规划，P5 修复审批闭环，P6 让评测结果可信，P9 让工具集可通过 MCP 扩展到外部进程，P10 让审批前的「看到什么就写入什么」真正成立。下表已按 2026-11-24 代码现状更新，早期版本「缺失」的标注多为过期信息。
 
-### 1.2 要素对照表（2026-11-23 现状）
+### 1.2 要素对照表（2026-11-24 现状）
 
-| 要素                 | 状态      | 关键证据                                                                                               |
-| -------------------- | --------- | ------------------------------------------------------------------------------------------------------ |
-| LLM 接入             | ✅ 已具备 | `src-tauri/src/services/gateway.rs` 多 Provider 流式代理；`src/services/modelRouter.ts` 任务路由       |
-| State 状态管理       | ✅ 已具备 | `src/services/workflowService.ts` 阶段状态持久化，State 与 Context 已分离                              |
-| Context Engineering  | ✅ 已具备 | `src/services/copilotService.ts` 提示词组装 + 字符预算 + 裁剪                                          |
-| Planner/Controller   | ✅ 已具备 | P4：`agentPlanner.ts` 拆解任务，`update_plan` / `replan` 元工具逐步推进（第 6 节）                     |
-| Memory               | ✅ 已具备 | P3 有 `agent_session` / `agent_message` / `agent_step` 三表；P7 补引用与工具痕迹，恢复后完整重建       |
-| Session/Runtime      | ✅ 已具备 | Tauri 运行时 + 会话表 + `useCopilotSession`，支持多会话切换/新建/重命名/删除                           |
-| Guardrails           | ⚠️ 部分   | 隐私分级、钥匙串、文件白名单、敏感信息脱敏、提示注入隔离齐备；无沙箱（当前无代码执行工具，非必需）     |
-| Observability        | ✅ 已具备 | P3 Trace 看板 + 评测页；`usage.rs` 已写真实输入/输出摘要（`record_writes_real_input_and_output` 单测） |
-| **Agent Loop**       | ✅ 已具备 | `src/services/agentLoop.ts` 思考→行动→观察循环，含空转检测、轮次上限、停止信号、规划注入               |
-| **Tools 工具系统**   | ⚠️ 部分   | 8 个内置工具 + 角色白名单 + 标准轨/JSON 降级轨；无 MCP 外部工具协议（未纳入 P0~P6 计划）               |
-| **Action Executor**  | ✅ 已具备 | `src/services/actionExecutor.ts` 风险分级、审批闸门、按作品/会话隔离队列、结果回执回灌（P5）           |
-| Sandbox / Evaluation | ⚠️ 部分   | 沙箱当前非必需；P3 有评估集与看板，P6 补齐章节可选、回归对比、按作品过滤，见第 8 节                    |
+| 要素                 | 状态      | 关键证据                                                                                                                                             |
+| -------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| LLM 接入             | ✅ 已具备 | `src-tauri/src/services/gateway.rs` 多 Provider 流式代理；`src/services/modelRouter.ts` 任务路由                                                     |
+| State 状态管理       | ✅ 已具备 | `src/services/workflowService.ts` 阶段状态持久化，State 与 Context 已分离                                                                            |
+| Context Engineering  | ✅ 已具备 | `src/services/copilotService.ts` 提示词组装 + 字符预算 + 裁剪                                                                                        |
+| Planner/Controller   | ✅ 已具备 | P4：`agentPlanner.ts` 拆解任务，`update_plan` / `replan` 元工具逐步推进（第 6 节）                                                                   |
+| Memory               | ✅ 已具备 | P3 有 `agent_session` / `agent_message` / `agent_step` 三表；P7 补引用与工具痕迹，恢复后完整重建                                                     |
+| Session/Runtime      | ✅ 已具备 | Tauri 运行时 + 会话表 + `useCopilotSession`，支持多会话切换/新建/重命名/删除                                                                         |
+| Guardrails           | ⚠️ 部分   | 隐私分级、钥匙串、文件白名单、敏感信息脱敏、提示注入隔离齐备；P10 把脱敏前移到写操作入队时（第 12 节）；无沙箱（P9 的 MCP 是外部进程，仍待独立防护） |
+| Observability        | ✅ 已具备 | P3 Trace 看板 + 评测页；`usage.rs` 已写真实输入/输出摘要（`record_writes_real_input_and_output` 单测）                                               |
+| **Agent Loop**       | ✅ 已具备 | `src/services/agentLoop.ts` 思考→行动→观察循环，含空转检测、轮次上限、停止信号、规划注入                                                             |
+| **Tools 工具系统**   | ✅ 已具备 | 内置工具 + 角色白名单 + 标准轨/JSON 降级轨；P9 接入 MCP 外部工具（stdio JSON-RPC，见第 11 节）                                                       |
+| **Action Executor**  | ✅ 已具备 | `src/services/actionExecutor.ts` 风险分级、审批闸门、按作品/会话隔离队列、结果回执回灌（P5）                                                         |
+| Sandbox / Evaluation | ⚠️ 部分   | 沙箱当前非必需；P3 有评估集与看板，P6 补齐章节可选、回归对比、按作品过滤，见第 8 节                                                                  |
 
 ### 1.3 有利条件（不是从零造轮子）
 
@@ -294,3 +296,65 @@ P3 接通了会话持久化，但恢复时只重建消息正文：@引用 标记
 
 - `pnpm exec biome check .` 224 文件全绿；`pnpm test` **89 例**通过（新增 5 例：资料包裹、注入文本保留、空资料无空标签、能力声明无死字段、tools 默认值）；`pnpm check:all` 全绿。
 - Rust `cargo test --lib` 135 通过 / 0 失败（后端未改动，回归验证）。
+
+---
+
+## 11. P9 · MCP 外部工具协议（2026-11-24）
+
+内置工具覆盖的是已有 Tauri command，作者想让 Agent 调用外部能力（文件系统、数据库、自建脚本）时没有扩展点。MCP（Model Context Protocol）给出了标准答案：外部进程作为 stdio server，通过 JSON-RPC 暴露工具，宿主按需 spawn 并调用。
+
+### 11.1 落地范围
+
+| 层       | 文件                                                               | 职责                                                                                      |
+| -------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| 协议     | `src-tauri/src/services/mcp_protocol.rs`                           | initialize / initialized / tools/list / tools/call 请求结构，结果按 id 匹配，解析工具清单 |
+| 服务     | `src-tauri/src/services/mcp.rs`                                    | 配置存 `app_meta` 的 `mcp_servers` key（零迁移）；短连接 spawn server，15 秒超时          |
+| 命令     | `src-tauri/src/commands/mcp.rs`                                    | 5 个 Tauri 命令：配置 CRUD、发现工具、调用工具                                            |
+| 前端门面 | `src/services/mcpService.ts`                                       | 发现结果缓存优先（并发复用、失败保留上次结果）、强制刷新绕过缓存、MCP 工具转 `AgentTool`  |
+| 注册表   | `src/services/agentTools.ts`                                       | `allTools()` = 内置工具 + MCP 缓存工具；工具名带 `serverId__` 前缀避免重名                |
+| 配置页   | `src/views/McpToolsView.vue`、`src/composables/useMcpServers.ts`   | `/mcp-tools` 路由：配置 server、刷新工具清单、启停与删除                                  |
+| 白名单   | `src/composables/useAgentRoles.ts`、`src/views/AgentRolesView.vue` | 角色可勾选 MCP 工具；进入角色页时刷新一次发现结果，外部工具一律标记「需审批」             |
+
+### 11.2 关键取舍
+
+- **短连接而非长驻进程**：每次 list/call 都 spawn 一个新进程，握手后发请求即关 stdin。省掉僵尸回收、崩溃重启、pending 请求表这些状态，代价是每次调用的进程启动开销——本地 server 通常百毫秒级，可接受。
+- **外部工具一律 `risk: "write"`**：MCP server 是外部进程，无法保证它返回什么，也不能让它绕过写操作闸门。所有调用都要作者审批后才执行。
+- **配置不存密钥**：只保存 id / name / command / args / enabled，敏感凭据交给 server 自身环境。
+- **发现失败不阻塞**：`discoverTools()` 内部吞错并保留上次缓存；角色白名单页单独兜底，MCP 服务不可用时内置工具照常工作。
+- **缓存优先 + 显式强制**：Agent 每轮问答前都会调一次发现，默认命中缓存不再 spawn；配置页「刷新工具」传 `force=true` 才真正重连，配置变更走 `clearMcpCache`。
+- **命令层不跨 await 持 guard**：异步命令先同步读出 owned `Vec<McpServerConfig>`，再交给 service 层，避免 `DbState` guard 跨 await。
+
+### 11.3 验证
+
+- 前端：`pnpm check:all` 全绿（typecheck / lint / 规范守卫 / 98 单测 / build），`pnpm exec biome check .` 230 文件全绿。新增 `tests/mcpService.test.ts` 9 例：限定名、写风险标记、IPC 透传、缓存复用、并发去重、强制刷新、失败降级、清缓存重拉。
+- 后端：`cargo test --lib` **146 通过 / 0 失败**（MCP 协议 6 例 + 配置与调用 若干例），无编译警告。
+- 所有改动文件均在 500 行红线内。
+
+---
+
+## 12. P10 · 写操作审批前安全闸门（2026-11-24）
+
+原方案承诺「人在环路」：write 工具必须作者批准后才落库。盘点发现两处让这个承诺打折扣——审批卡片只显示一句 `label`，作者看不到具体替换了哪些文字；脱敏发生在 `tool.run()` 返回之后，只作用于回执卡片，带凭据的原文已经写进正文。
+
+### 12.1 改动
+
+| 项           | 处置                                                                                                                         |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| 脱敏时机     | `scrubArgs()` 在写工具**入队时**递归脱敏全部参数；`approveAction()` 执行的是这份已脱敏参数，真正落库的内容不再带凭据         |
+| 逐条预览     | 新增 `buildWritePreview()`，为 `apply_edits` 生成 `quote → replacement` 列表；超长文字截断显示并标记，格式不对的条目单独计数 |
+| 类型         | `PendingToolAction` 增加可选 `preview`；`ToolActionPreview` / `ToolActionPreviewItem` 明确「预览文字与写入文字一致」的契约   |
+| 审批 UI      | `AgentControls.vue` 用可折叠 `<details open>` 展示逐条差异，原文删除线、替换文字强调色；限高滚动，50 条也不会撑爆消息流      |
+| 描述同步脱敏 | `describeAction()` 也基于脱敏后的参数生成，避免 `label` 里残留凭据                                                           |
+
+### 12.2 关键取舍
+
+- **脱敏在入队而非执行后**：原来 `scrubText(await tool.run(...))` 只是「给回执美容」，正文早写完了。现在参数先洗一遍，预览和执行共用同一份，作者看到的与写入的严格一致。
+- **只展示结构化差异**：`propose_text` 这类整段文本工具没有「原文」可对照，不强行造 diff；直接展示完整候选内容，由现有「插入到正文」按钮处理。
+- **截断只影响显示**：预览限长 120 字并标记 `truncated`，工具参数里的完整文字不变——作者看到省略号时知道完整内容仍会写入。
+- **不动乐观锁**：`apply_edits` 原本就用 `expectedContentRevision` 防覆盖，审批期间正文被改会失败，这里不重复造机制。
+
+### 12.3 验证
+
+- 前端：`pnpm check:all` 全绿（typecheck / lint / 规范守卫 / **113 单测** / build），`pnpm exec biome check .` 全绿。
+- 新增 `tests/guardrails.test.ts` 8 例（凭据前缀 / Bearer / PEM / 不误伤正文 / 递归脱敏 / 幂等）、`tests/actionPreview.test.ts` 5 例（逐条差异 / 目标 / 非 apply_edits 跳过 / 无效条目计数 / 超长截断）、`tests/actionExecutor.test.ts` 2 例（预览生成 / 落库内容确实已脱敏）。
+- 所有改动文件均在 500 行红线内。

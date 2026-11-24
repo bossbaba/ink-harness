@@ -18,6 +18,8 @@ import type {
   Foreshadow,
   IdeationDraftRow,
   IdeationDraftRowInput,
+  McpServerConfig,
+  McpToolInfo,
   MoveChapterInput,
   MoveSceneInput,
   NewAgentEvalRun,
@@ -174,6 +176,14 @@ export const tauriApi = {
   listAgentRoles: () => call<AgentRole[]>("list_agent_roles"),
   saveAgentRole: (input: NewAgentRole) => call<AgentRole>("save_agent_role", { input }),
   deleteAgentRole: (id: string) => call<void>("delete_agent_role", { id }),
+
+  // MCP 外部工具：配置走 app_meta，工具发现/调用由后端 spawn stdio server。
+  listMcpServers: () => call<McpServerConfig[]>("list_mcp_servers"),
+  saveMcpServer: (input: McpServerConfig) => call<McpServerConfig[]>("save_mcp_server", { input }),
+  removeMcpServer: (id: string) => call<McpServerConfig[]>("remove_mcp_server", { id }),
+  listMcpTools: () => call<McpToolInfo[]>("list_mcp_tools"),
+  callMcpTool: (name: string, args: Record<string, unknown>) =>
+    call<string>("call_mcp_tool", { name, arguments: args }),
 
   // 评测结果：跑分在前端做，这里只存取汇总与明细。
   saveAgentEvalRun: (input: NewAgentEvalRun) =>

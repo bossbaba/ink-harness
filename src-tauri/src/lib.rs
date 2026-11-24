@@ -105,6 +105,11 @@ pub fn run() {
             commands::agent::list_agent_eval_runs,
             commands::ideation::load_ideation_draft,
             commands::ideation::save_ideation_draft,
+            commands::mcp::list_mcp_servers,
+            commands::mcp::save_mcp_server,
+            commands::mcp::remove_mcp_server,
+            commands::mcp::list_mcp_tools,
+            commands::mcp::call_mcp_tool,
         ])
         .build(tauri::generate_context!());
 

@@ -8,6 +8,7 @@ pub mod agent;
 pub mod draft;
 pub mod ideation;
 pub mod keychain;
+pub mod mcp;
 pub mod model;
 pub mod ollama;
 pub mod outline;

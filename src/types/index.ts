@@ -3,6 +3,7 @@ export * from "./assist";
 export * from "./copilot";
 export * from "./draft";
 export * from "./ideation";
+export * from "./mcp";
 export * from "./model";
 export * from "./outline";
 export * from "./project";

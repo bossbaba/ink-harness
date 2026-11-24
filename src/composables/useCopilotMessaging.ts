@@ -7,6 +7,7 @@ import {
   buildCopilotSystem,
   buildReferenceBlock,
 } from "@/services/copilotService";
+import { discoverTools } from "@/services/mcpService";
 import { modelRouter } from "@/services/modelRouter";
 import { outlineService } from "@/services/outlineService";
 import { loadRelatedNotes } from "@/services/ragService";
@@ -286,6 +287,9 @@ export function useCopilotMessaging(options: CopilotMessagingOptions) {
       retrievedCount.value = notes.hits.length;
 
       await modelRouter.refresh();
+      if (seq !== requestSeq) return;
+      // MCP 外部工具在每轮 Agent 问答前发现一次：失败只保留上次缓存，不挡内置工具。
+      await discoverTools();
       if (seq !== requestSeq) return;
       const selected = modelRouter.select({ task: "copilot", privacy: project.privacy });
       const supportsTools = selected?.capabilities.tools === true;

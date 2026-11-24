@@ -33,6 +33,7 @@ export const GLOBAL_NAV: GlobalNavItem[] = [
   // Agent 的两个全局配置页与模型管理同级：它们对所有作品生效，不属于某部作品。
   { key: "agent-roles", label: "Agent 角色", icon: "models", path: "/agent-roles" },
   { key: "agent-eval", label: "Agent 评测", icon: "stats", path: "/agent-eval" },
+  { key: "mcp-tools", label: "MCP 工具", icon: "models", path: "/mcp-tools" },
 ];
 
 /** 作品内二级导航：每一项都有对应子路由，不存在禁用占位。 */

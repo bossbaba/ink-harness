@@ -1,5 +1,6 @@
+import { buildWritePreview } from "@/services/actionPreview";
 import { findTool } from "@/services/agentTools";
-import { scrubText } from "@/services/guardrails";
+import { scrubArgs, scrubText } from "@/services/guardrails";
 import type {
   AgentTool,
   CollectedToolCall,
@@ -96,11 +97,15 @@ async function executeOne(call: CollectedToolCall, ctx: ToolContext): Promise<To
     return { ...base, content: `参数校验失败：${invalid}`, isError: true };
   }
   if (tool.risk === "write") {
+    // 脱敏必须在入队时做：审批通过后执行的是这份参数，真正写进正文的内容才不会带凭据。
+    // 预览同样基于它生成，保证作者「看到的」与「写入的」是同一份文字。
+    const args = scrubArgs(call.arguments) as Record<string, unknown>;
     const action: PendingToolAction = {
       id: call.id || `pending-${++pendingSeq}`,
       toolName: call.name,
-      label: describeAction(call),
-      args: call.arguments,
+      label: describeAction({ ...call, arguments: args }),
+      args,
+      preview: buildWritePreview(call.name, args),
       tool,
       status: "pending",
       error: "",
@@ -133,6 +138,7 @@ export function listPending(ctx: ToolContext): PendingToolAction[] {
  *
  * 先落到 approved 再执行：工具可能要写库而耗时，也可能抛错——
  * 「作者已批准」与「修改真的落地」是两件事，失败时作者需要看到区分。
+ * args 在入队时已脱敏，这里原样执行；不能再脱敏一次结果文案，那样只会改卡片不改正文。
  */
 export async function approveAction(
   id: string,

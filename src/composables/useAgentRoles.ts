@@ -2,7 +2,8 @@ import { computed, ref } from "vue";
 import type { AgentRolePreset } from "@/services/agentRolePresets";
 import { agentRoleService, parseRoleTools } from "@/services/agentRoleService";
 import { AGENT_TOOLS } from "@/services/agentTools";
-import type { AgentRole } from "@/types";
+import { discoverTools, mcpQualifiedName } from "@/services/mcpService";
+import type { AgentRole, McpToolInfo } from "@/types";
 
 /** 角色编辑表单：把「全部工具」与「勾选白名单」两种状态收敛成一个布尔值。 */
 export interface AgentRoleDraft {
@@ -47,8 +48,23 @@ export function useAgentRoles() {
   const loading = ref(false);
   const saving = ref(false);
   const error = ref("");
+  /** 已发现的 MCP 工具；进程通信较慢，仅在进入角色页时刷新一次。 */
+  const mcpTools = ref<McpToolInfo[]>([]);
 
   const isEmpty = computed(() => !loading.value && roles.value.length === 0);
+
+  /**
+   * 工具白名单选项：内置工具 + MCP 工具。
+   * MCP 工具名带 server 前缀（与后端限定名一致），且一律需审批，避免重名和越权。
+   */
+  const toolOptions = computed(() => [
+    ...AGENT_TOOL_OPTIONS,
+    ...mcpTools.value.map((tool) => ({
+      name: mcpQualifiedName(tool),
+      description: `[MCP:${tool.serverId}] ${tool.description || tool.name}`,
+      risk: "write" as const,
+    })),
+  ]);
 
   async function load(): Promise<void> {
     loading.value = true;
@@ -59,6 +75,12 @@ export function useAgentRoles() {
       error.value = `读取角色失败：${String(err)}`;
     } finally {
       loading.value = false;
+    }
+    // MCP 工具只用于填充白名单选项；发现失败不能影响角色列表本身。
+    try {
+      mcpTools.value = await discoverTools();
+    } catch {
+      mcpTools.value = [];
     }
   }
 
@@ -131,5 +153,17 @@ export function useAgentRoles() {
     });
   }
 
-  return { roles, loading, saving, error, isEmpty, roleNames, load, save, addPreset, remove };
+  return {
+    roles,
+    loading,
+    saving,
+    error,
+    isEmpty,
+    roleNames,
+    toolOptions,
+    load,
+    save,
+    addPreset,
+    remove,
+  };
 }

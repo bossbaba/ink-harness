@@ -6,7 +6,6 @@ import LoadingState from "@/components/common/LoadingState.vue";
 import PageHeader from "@/components/common/PageHeader.vue";
 import RolePresetGrid from "@/components/roles/RolePresetGrid.vue";
 import {
-  AGENT_TOOL_OPTIONS,
   type AgentRoleDraft,
   emptyRoleDraft,
   toRoleDraft,
@@ -23,8 +22,19 @@ import { MODAL_WIDTH, modalStyle } from "@/utils/modal";
  * 只改变系统提示与下发的工具集，模型仍由任务路由决定。
  * 页面顶部给出一组预设模板，点「添加」即复制成普通角色，之后随作者编辑。
  */
-const { roles, loading, saving, error, isEmpty, roleNames, load, save, addPreset, remove } =
-  useAgentRoles();
+const {
+  roles,
+  loading,
+  saving,
+  error,
+  isEmpty,
+  roleNames,
+  toolOptions,
+  load,
+  save,
+  addPreset,
+  remove,
+} = useAgentRoles();
 
 const editing = ref(false);
 const draft = ref<AgentRoleDraft>(emptyRoleDraft());
@@ -162,7 +172,7 @@ onMounted(() => void load());
 
           <NCheckboxGroup v-if="!draft.allTools" v-model:value="draft.toolNames">
             <div class="roles__tools">
-              <label v-for="tool in AGENT_TOOL_OPTIONS" :key="tool.name" class="roles__tool">
+              <label v-for="tool in toolOptions" :key="tool.name" class="roles__tool">
                 <NCheckbox :value="tool.name" />
                 <span class="roles__tool-name">{{ tool.name }}</span>
                 <NTag

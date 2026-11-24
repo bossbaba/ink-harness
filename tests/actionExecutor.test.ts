@@ -31,6 +31,8 @@ import {
   rejectAction,
   resetPendingForTest,
 } from "@/services/actionExecutor";
+import { MASK } from "@/services/guardrails";
+import { writingService } from "@/services/writingService";
 import type { CollectedToolCall } from "@/types";
 
 const ctx = { projectId: "p1", chapterId: "c1" };
@@ -152,5 +154,63 @@ describe("actionExecutor", () => {
       ctx,
     );
     expect(results[0].isError).toBe(false);
+  });
+
+  it("apply_edits 入队时生成逐条预览，纯文本工具不生成", async () => {
+    resetPendingForTest();
+    await executeCalls(
+      [
+        call({
+          name: "apply_edits",
+          arguments: {
+            chapterId: "c1",
+            edits: [{ quote: "旧句", replacement: "新句" }],
+          },
+        }),
+        call({ id: "call-2", name: "propose_text", arguments: { content: "候选" } }),
+      ],
+      ctx,
+    );
+    const actions = listPending(ctx);
+    expect(actions[0].preview?.items[0]).toMatchObject({ quote: "旧句", replacement: "新句" });
+    expect(actions[0].preview?.target).toBe("章节 c1");
+    expect(actions[1].preview).toBeUndefined();
+  });
+
+  it("脱敏发生在入队时：预览与真正写入正文的内容都是脱敏后的文字", async () => {
+    resetPendingForTest();
+    const secret = "sk-abcdefghijklmnopqrstu";
+    // 让正文包含 quote，applyReviewEdits 才能定位到替换位置；必须是合法 TipTap JSON。
+    const doc = {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "这是一段原文" }] }],
+    };
+    vi.mocked(writingService.getContent).mockResolvedValueOnce({
+      content: JSON.stringify(doc),
+      contentRevision: 1,
+      wordCount: 6,
+    });
+    await executeCalls(
+      [
+        call({
+          name: "apply_edits",
+          arguments: {
+            chapterId: "c1",
+            edits: [{ quote: "这是一段原文", replacement: `密钥 ${secret}` }],
+          },
+        }),
+      ],
+      ctx,
+    );
+    const action = listPending(ctx)[0];
+    expect(action.preview?.items[0].replacement).toBe(`密钥 ${MASK}`);
+    const edits = action.args.edits as Array<{ replacement: string }>;
+    expect(edits[0].replacement).toBe(`密钥 ${MASK}`);
+
+    const result = await approveAction(action.id, ctx);
+    expect(result?.status).toBe("applied");
+    const saved = vi.mocked(writingService.saveContent).mock.calls.at(-1)?.[0];
+    expect(saved?.content).toContain(MASK);
+    expect(saved?.content).not.toContain(secret);
   });
 });

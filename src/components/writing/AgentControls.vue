@@ -105,6 +105,33 @@ function candidate(action: PendingToolAction): string {
         </NTag>
         <span class="controls__label">{{ action.label }}</span>
       </div>
+      <!-- 逐条列出即将写入正文的改动：作者批准前能核对到具体文字，而不只是一句摘要。 -->
+      <details v-if="action.preview?.items.length" class="controls__preview" open>
+        <summary class="controls__preview-head">
+          逐条改动（{{ action.preview.items.length }} 处）
+          <span v-if="action.preview.target" class="controls__preview-target">
+            {{ action.preview.target }}
+          </span>
+        </summary>
+        <div class="controls__diff">
+          <div v-for="item in action.preview.items" :key="item.id" class="controls__diff-item">
+            <p class="controls__diff-line">
+              <span class="controls__diff-tag">原文</span>
+              <span class="controls__diff-quote">{{ item.quote }}</span>
+            </p>
+            <p class="controls__diff-line">
+              <span class="controls__diff-tag">改为</span>
+              <span class="controls__diff-replacement">{{ item.replacement }}</span>
+            </p>
+            <span v-if="item.truncated" class="controls__diff-truncated">
+              显示已截断，完整内容仍会写入
+            </span>
+          </div>
+        </div>
+        <p v-if="action.preview.skipped" class="controls__diff-truncated">
+          {{ action.preview.skipped }} 条格式不对的修改会被跳过
+        </p>
+      </details>
       <p v-if="action.error" class="controls__error">{{ action.error }}</p>
       <div class="controls__buttons">
         <template v-if="action.status === 'pending'">
@@ -237,6 +264,75 @@ function candidate(action: PendingToolAction): string {
     font-size: 12px;
     color: var(--text-primary, #{t.$ink});
     @include m.ellipsis;
+  }
+
+  &__preview {
+    min-width: 0;
+    padding-top: t.$space-2;
+    border-top: 1px solid var(--divider, #{t.$divider});
+  }
+
+  &__preview-head {
+    font-size: 11px;
+    color: var(--text-soft, #{t.$ink-soft});
+    cursor: pointer;
+  }
+
+  &__preview-target {
+    color: var(--text-faint, #{t.$ink-faint});
+  }
+
+  &__diff {
+    display: flex;
+    flex-direction: column;
+    gap: t.$space-2;
+    // 一次最多 50 条改动，限高内滚动，避免把整条消息流撑长。
+    max-height: 200px;
+    overflow: auto;
+    margin-top: t.$space-2;
+  }
+
+  &__diff-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    padding: t.$space-2;
+    background: var(--bg-surface, #{t.$paper-raised});
+    border-radius: t.$radius-sm;
+  }
+
+  &__diff-line {
+    display: flex;
+    align-items: flex-start;
+    gap: t.$space-2;
+    margin: 0;
+    min-width: 0;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+
+  &__diff-tag {
+    flex-shrink: 0;
+    color: var(--text-faint, #{t.$ink-faint});
+  }
+
+  &__diff-quote {
+    min-width: 0;
+    color: var(--text-faint, #{t.$ink-faint});
+    text-decoration: line-through;
+    word-break: break-word;
+  }
+
+  &__diff-replacement {
+    min-width: 0;
+    color: var(--accent, #{t.$accent});
+    word-break: break-word;
+  }
+
+  &__diff-truncated {
+    font-size: 11px;
+    color: var(--text-faint, #{t.$ink-faint});
   }
 
   &__error {
