@@ -14,15 +14,23 @@ fn count_biz(state: &DbState, sql: &str) -> i64 {
     conn.query_row(sql, [], |row| row.get(0)).unwrap()
 }
 
-/// 读向量表行数：vec0 虚拟表必须走加载了扩展的连接，业务连接打不开它。
+/// 读所有向量表行数之和：按维度分表后每张表都可能在用，清片段必须逐张生效。
+/// vec0 虚拟表必须走加载了扩展的连接，业务连接打不开它。
 fn count_vec(state: &DbState) -> i64 {
     let conn = state.vec();
-    conn.query_row("select count(*) from vec_rag", [], |row| row.get(0))
-        .unwrap()
+    let mut total = 0;
+    for name in vector::all_table_names(&conn).unwrap() {
+        let sql = format!("select count(*) from {name}");
+        total += conn.query_row(&sql, [], |row| row.get::<_, i64>(0)).unwrap();
+    }
+    total
 }
 
 /// status 是前端「未建索引 / 索引过期」提示的唯一依据：
 /// 片段数、维度、建索引时的模型、内容纪元都必须如实反映。
+///
+/// 同时是 D-36 的回归：判定用整数纪元而不是毫秒时间戳，
+/// 「同一毫秒内保存 + 建索引」既不会漏判，也不会把刚建好的索引误报成过期。
 #[test]
 fn status_reports_chunks_dim_and_staleness() {
     let (state, dir) = temp_state("status");
@@ -167,6 +175,7 @@ fn replace_chunks_rejects_count_mismatch() {
         &[draft("甲", "A"), draft("乙", "B")],
         &[vec![0.0, 1.0, 0.0]],
         false,
+        3,
     );
     assert!(result.is_err(), "数量不一致应当报错");
 
@@ -178,7 +187,7 @@ fn replace_chunks_rejects_count_mismatch() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// 向量表重建后旧向量已被物理删除，此时必须能一次性清掉所有作品的片段，
+/// 全量清理要跨作品生效，且每张维度表里的对应向量都要删掉，
 /// 否则会留下「有片段、无向量」的作品被 status 误判成索引新鲜。
 #[test]
 fn clear_chunks_all_clears_every_project() {
@@ -189,7 +198,7 @@ fn clear_chunks_all_clears_every_project() {
     write_chunks(&state, "p-1", &[draft("甲", "A")], &[vec![1.0, 0.0, 0.0]]).unwrap();
     write_chunks(&state, "p-2", &[draft("乙", "B")], &[vec![0.0, 1.0, 0.0]]).unwrap();
 
-    clear_chunks(&state, "p-1", true).unwrap();
+    purge::clear_chunks(&state, "p-1", true).unwrap();
 
     assert_eq!(
         count_biz(&state, "select count(*) from rag_chunk"),
@@ -201,10 +210,10 @@ fn clear_chunks_all_clears_every_project() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// 换 embedding 模型导致向量表重建时，旧向量是被 drop 掉的物理删除：
-/// 片段表完全没有变化。reindex 因此必须在重建后调用 clear_chunks(all=true)。
+/// 换 embedding 模型导致维度变化时，旧维度表必须原样保留：
+/// 其它作品可能还用它检索，切回旧模型也不该要求重建。
 #[test]
-fn rebuilding_vec_table_drops_old_vectors_only() {
+fn rebuilding_vec_table_keeps_old_dimension_vectors() {
     let (state, dir) = temp_state("rebuild");
     seed_project(&state, "p-1");
     ensure_vec_table(&state, 3).unwrap();
@@ -216,13 +225,50 @@ fn rebuilding_vec_table_drops_old_vectors_only() {
     )
     .unwrap();
 
-    assert!(ensure_vec_table(&state, 4).unwrap(), "换维度必须重建");
-    assert_eq!(count_vec(&state), 0, "旧向量随建表一起消失");
+    ensure_vec_table(&state, 4).unwrap();
+    {
+        let conn = state.vec();
+        assert!(vector::vec_table_in(&conn, 3).unwrap(), "3 维表必须保留");
+        assert!(vector::vec_table_in(&conn, 4).unwrap(), "4 维表已建立");
+    }
+    assert_eq!(count_vec(&state), 2, "旧向量仍在 3 维表里");
     assert_eq!(
         count_biz(&state, "select count(*) from rag_chunk"),
         2,
-        "片段表不受影响，需要调用方自己清"
+        "片段表不受影响"
     );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// 换维度重建 A 的索引后，B 仍能从自己的维度表检索到片段（D-33 的核心场景）。
+#[test]
+fn dimension_switch_keeps_other_project_searchable() {
+    let (state, dir) = temp_state("dim-isolation");
+    seed_project(&state, "p-1");
+    seed_project(&state, "p-2");
+    ensure_vec_table(&state, 3).unwrap();
+    write_chunks(&state, "p-1", &[draft("甲", "A")], &[vec![1.0, 0.0, 0.0]]).unwrap();
+    {
+        let conn = state.biz();
+        setting::set_in(&conn, &indexed_dim_key("p-1"), "3").unwrap();
+    }
+
+    // 换成 4 维建新表；老作品的表、片段与维度记录都不能被动过。
+    ensure_vec_table(&state, 4).unwrap();
+    write_chunks(&state, "p-2", &[draft("乙", "B")], &[vec![1.0, 0.0, 0.0, 0.0]]).unwrap();
+    {
+        let conn = state.biz();
+        setting::set_in(&conn, &indexed_dim_key("p-2"), "4").unwrap();
+    }
+
+    let conn = state.vec();
+    assert!(vector::vec_table_in(&conn, 3).unwrap());
+    drop(conn);
+    let hits = load_hits(&state, "p-1", &knn(&state, &[1.0, 0.0, 0.0], 3).unwrap(), 3).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].title, "甲");
+    assert_eq!(status(&state, "p-1").unwrap().dim, Some(3));
+    assert_eq!(status(&state, "p-2").unwrap().dim, Some(4));
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -291,7 +337,7 @@ fn load_hits_skips_orphans_and_respects_limit() {
     {
         let conn = state.vec();
         conn.execute(
-            "insert into vec_rag (rowid, embedding) values (999999, '[1,0,0]')",
+            "insert into vec_rag_3 (rowid, embedding) values (999999, '[1,0,0]')",
             [],
         )
         .unwrap();

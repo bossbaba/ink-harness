@@ -1,3 +1,5 @@
+import type { SaveContentInput } from "./draft";
+
 /** 工作流的五个阶段，顺序即流水线的推进顺序。 */
 export type WorkflowStage = "ideation" | "writing" | "editing" | "review" | "publish";
 
@@ -34,6 +36,20 @@ export interface WorkflowState {
   selectedChapterId: string;
   stages: Record<WorkflowStage, WorkflowStageState>;
   updatedAt: string;
+}
+
+/**
+ * 审批落地入参：正文写入与阶段状态一并交给 Rust，在一个事务里提交。
+ * 以前是前端先写正文再写状态，中途失败会留下半写状态。
+ */
+export interface ApplyWorkflowInput {
+  projectId: string;
+  stage: WorkflowStage;
+  decision: WorkflowDecision;
+  /** 前端决定完阶段后的整份状态，Rust 侧校验版本与目标阶段后才落库。 */
+  workflowJson: string;
+  /** 写作/编辑审批通过时的正文写入；其它阶段省略。 */
+  contentWrite?: SaveContentInput;
 }
 
 export const WORKFLOW_STAGES: Array<{

@@ -214,42 +214,48 @@ pub fn update(state: &DbState, element: &StoryElement) -> Result<(), AppError> {
     let detail = serde_json::to_string(&element.detail).map_err(AppError::from)?;
     let tx = conn.unchecked_transaction().map_err(AppError::from)?;
     // 乐观锁：element.updated_at 是前端加载时的版本，库里已变说明别的窗口先保存了。
-    // 返回 conflict 让作者决定覆盖还是放弃，避免 last-writer-wins 静默吃掉对方的修改；
-    // 与正文的 content_revision 同一心智，这里直接拿时间戳本身当版本号。
+    // 先查一次只为区分「条目不存在」与「版本冲突」，真正的并发保护在下面的 UPDATE WHERE。
+    // 只在事务里预检是不够的：预检与 UPDATE 之间仍可能被别的进程插一脚（check-then-use 竞态）。
     // 基准为空（旧调用方没带）时跳过校验，保持兼容。
     let baseline = element.updated_at.trim();
-    if !baseline.is_empty() {
-        let current: Option<String> = tx
-            .query_row(
-                "select updated_at from story_element where id = ?1",
-                params![element.id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(AppError::from)?;
-        match current {
-            None => return Err(AppError::not_found("设定条目不存在")),
-            Some(ts) if ts != baseline => {
-                return Err(AppError::conflict("该设定已在其它窗口被修改"));
-            }
-            Some(_) => {}
-        }
+    let current: Option<String> = tx
+        .query_row(
+            "select updated_at from story_element where id = ?1",
+            params![element.id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(AppError::from)?;
+    let Some(current) = current else {
+        return Err(AppError::not_found("设定条目不存在"));
+    };
+    if !baseline.is_empty() && current != baseline {
+        return Err(AppError::conflict("该设定已在其它窗口被修改"));
     }
     let changed = tx
         .execute(
             r#"update story_element set kind=?2, name=?3, summary=?4, detail_json=?5,
-               updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') where id=?1"#,
+               updated_at = case
+                 when coalesce(strftime('%Y-%m-%dT%H:%M:%fZ','now'), '') > updated_at
+                   then strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                 else coalesce(
+                   strftime('%Y-%m-%dT%H:%M:%fZ', updated_at, '+0.001 seconds'),
+                   strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                 )
+               end
+               where id=?1 and (?6 = '' or updated_at = ?6)"#,
             params![
                 element.id,
                 element.kind,
                 element.name.trim(),
                 element.summary,
-                detail
+                detail,
+                baseline
             ],
         )
         .map_err(AppError::from)?;
     if changed == 0 {
-        return Err(AppError::not_found("设定条目不存在"));
+        return Err(AppError::conflict("该设定已在其它窗口被修改，请刷新后再保存"));
     }
     // 设定文本参与索引，改动即过期（纪元按作品分键，只影响当前作品）。
     crate::services::rag::bump_content_epoch(&tx, &element.project_id)?;

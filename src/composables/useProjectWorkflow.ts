@@ -6,6 +6,7 @@ import { projectService } from "@/services/projectService";
 import { parsePublicationBrief } from "@/services/publicationBriefService";
 import { parseReviewIssues, reviewToMarkdown } from "@/services/reviewService";
 import {
+  applyWorkflow,
   buildStageMessages,
   decideStage,
   loadWorkflowState,
@@ -19,6 +20,7 @@ import type {
   Chapter,
   Project,
   ReviewReport,
+  SaveContentInput,
   WorkflowDecision,
   WorkflowStage,
   WorkflowState,
@@ -237,22 +239,24 @@ export function useProjectWorkflow(projectId: string) {
   }
 
   /** 审稿落地：把 JSON 问题数组整理成 Markdown 报告存回产物，方便复制与阅读。 */
-  function applyReview(raw: string): void {
+  function applyReview(raw: string, targetState: WorkflowState): void {
     const issues = parseReviewIssues(raw);
     if (issues.length === 0) return;
     const report: ReviewReport = {
       scope: "book",
       target: `全书（${chapters.value.length} 章）`,
       issues,
-      model: state.value?.stages.review.model ?? "",
+      model: targetState.stages.review.model,
       raw: "",
       createdAt: new Date().toISOString(),
     };
-    const markdown = reviewToMarkdown(report);
-    if (state.value) state.value.stages.review.artifact = markdown;
+    targetState.stages.review.artifact = reviewToMarkdown(report);
   }
 
-  /** 审批：通过后先落地副作用，再写决定；落地失败则保留待审批，不推进流水线。 */
+  /**
+   * 审批：正文与阶段状态交给后端一次事务写入，落库成功才更新前端内存。
+   * 以前是前端先写正文再写状态，中途失败会留下半写状态（正文已覆盖但阶段仍待审批）。
+   */
   async function approve(
     stage: WorkflowStage,
     decision: WorkflowDecision,
@@ -268,6 +272,12 @@ export function useProjectWorkflow(projectId: string) {
     error.value = "";
     notice.value = "";
     try {
+      // 在副本上改阶段：后端校验通过后才会替换 state，失败时页面仍停在待审批。
+      const next = JSON.parse(JSON.stringify(workflow)) as WorkflowState;
+      decideStage(next, stage, decision, note);
+      next.updatedAt = new Date().toISOString();
+
+      let contentWrite: SaveContentInput | undefined;
       if (decision === "approved") {
         if (stage === "ideation") await applyIdeation(target.artifact);
         else if (stage === "writing" || stage === "editing") {
@@ -276,35 +286,46 @@ export function useProjectWorkflow(projectId: string) {
           const chapter = chapters.value.find((item) => item.id === workflow.selectedChapterId);
           if (!chapter) throw new Error("目标章节已不存在，请重新选择章节后再通过。");
           const doc = plainTextToDocument(target.artifact);
-          const words = countCharacters(target.artifact);
           // 先读一次正文拿到版本号：作者在这期间手改过就报冲突，不能悄悄覆盖。
-          const current = await writingService.getContent(chapter.id);
-          // 这一步是「整篇覆盖正文」：必须留一版旧稿，否则作者手写的内容被替换后无法恢复。
-          await writingService.saveContent({
+          const saved = await writingService.getContent(chapter.id);
+          contentWrite = {
             chapterId: chapter.id,
             content: JSON.stringify(doc),
-            wordCount: words,
+            wordCount: countCharacters(target.artifact),
             snapshot: true,
-            expectedContentRevision: current.contentRevision,
-          });
-          // 写作台可能还缓存着旧正文：递增版本号，让它回来时重读，
-          // 否则作者在写作台敲一个字就会用旧稿覆盖掉刚写回的正文。
-          draftSync.bump(chapter.id);
-          chapters.value = chapters.value.map((item) =>
-            item.id === chapter.id ? { ...item, wordCount: words, status: "drafting" } : item,
-          );
+            expectedContentRevision: saved.contentRevision,
+          };
         } else if (stage === "review") {
-          applyReview(target.artifact);
+          applyReview(target.artifact, next);
         } else if (stage === "publish") {
           const brief = parsePublicationBrief(target.artifact);
           if (!brief) notice.value = "物料解析失败，原文已保留，请手动整理。";
-          const next: Project = { ...current, status: "published" };
-          await projectService.update(next);
-          project.value = next;
+          const updated: Project = { ...current, status: "published" };
+          await projectService.update(updated);
+          project.value = updated;
         }
       }
-      decideStage(workflow, stage, decision, note);
-      await saveWorkflowState(projectId, workflow);
+
+      // 正文 + 阶段在同一次 IPC、同一个 SQLite 事务里完成；失败整体回滚。
+      await applyWorkflow({
+        projectId: current.id,
+        stage,
+        decision,
+        workflowJson: JSON.stringify(next),
+        contentWrite,
+      });
+
+      state.value = next;
+      if (contentWrite) {
+        // 写作台可能还缓存着旧正文：递增版本号让它回来时重读，
+        // 否则作者在写作台敲一个字就会用旧稿覆盖掉刚写回的正文。
+        draftSync.bump(contentWrite.chapterId);
+        chapters.value = chapters.value.map((item) =>
+          item.id === contentWrite?.chapterId
+            ? { ...item, wordCount: contentWrite.wordCount, status: "drafting" }
+            : item,
+        );
+      }
       // 解析失败等落地提示要留着，不能只显示「已通过」——作者需要知道产物没完全写回。
       const done =
         decision === "approved"

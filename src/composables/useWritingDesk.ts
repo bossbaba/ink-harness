@@ -251,11 +251,11 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
   }
 
   /**
-   * 关窗守卫（审计 D-34）：关窗瞬间只有 `void flush()`，进程可能在 IPC 返回前结束，
-   * 正文既没落库也没备份。这里拦截关闭请求：有未保存内容就先等 flush 成为真屏障，
-   * 完成后再销毁窗口；没有未保存内容直接放行。
-   * flush 失败也不拦着关——saveOnce 的错误路径已把内容写进本地草稿备份。
-   * 仅 Tauri 环境注册；浏览器 dev 下没有窗口 API。
+   * 关窗守卫：有未保存内容时先等 flush 这个真屏障完成，再销毁窗口。
+   *
+   * 正常关窗靠这里的拦截保证落库；强杀/崩溃绕过 close 事件，真正的兜底是
+   * saveOnce 在发 IPC 之前就写下的本地备份（审计 D-34 的原始缺口）。
+   * flush 失败也不拦着关——失败路径同样会保留备份。仅在 Tauri 环境注册。
    */
   let closeUnlisten: (() => void) | null = null;
   if ("__TAURI_INTERNALS__" in window) {
@@ -284,6 +284,10 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
     wordCount: number;
   }): Promise<boolean> {
     const chapterId = payload.chapterId;
+    // 发 IPC 之前先写本地备份：进程若在请求返回前被强杀，正文至少还在本地，
+    // 下次载入该章会提示恢复。保存成功后 clearDraftBackup 会把它清掉。
+    // 只在失败后才写不够——正在飞的那一次恰好是关窗场景最容易丢的那份。
+    writeDraftBackup(chapterId, payload);
     try {
       const saved = await writingService.saveContent({
         chapterId,

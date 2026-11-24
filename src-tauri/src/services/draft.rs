@@ -118,11 +118,30 @@ fn insert_version(
 ///
 /// 自动保存（snapshot=false）只更新正文；首次写入有内容时自动把章节从「待写」推进到「写作中」。
 pub fn save_content(state: &DbState, input: SaveContentInput) -> Result<ChapterContent, AppError> {
+    let conn = state.biz();
+    let tx = conn.unchecked_transaction().map_err(AppError::from)?;
+    let saved = save_content_in(&tx, &input)?;
+    tx.commit().map_err(AppError::from)?;
+    Ok(saved)
+}
+
+/// 在调用方给的连接（必须已处于事务中）里写正文，自身不再开事务。
+///
+/// 抽出来是为了让工作流审批把「正文 + 阶段状态」放进同一个事务：原来前端分两次 IPC
+/// （save_chapter_content + set_app_setting），中途失败会留下「正文已覆盖但阶段仍待审批」
+/// 或「界面显示已通过但正文没写」的半写状态。乐观锁规则与独立保存完全一致：
+/// 预检加条件 UPDATE 双重判定，冲突仍返回 `conflict`。
+///
+/// 注意：SQLite 不支持嵌套事务，独立保存由 `save_content` 负责开事务，
+/// 工作流审批由 `workflow::apply_workflow` 负责，本函数只执行写入。
+pub fn save_content_in(
+    conn: &Connection,
+    input: &SaveContentInput,
+) -> Result<ChapterContent, AppError> {
     if input.word_count < 0 {
         return Err(AppError::validation("字数不能为负数"));
     }
-    let conn = state.biz();
-    let current = query_draft_state(&conn, &input.chapter_id)?;
+    let current = query_draft_state(conn, &input.chapter_id)?;
 
     // 乐观锁：前端带着「我读到的正文版本」提交，库里已经变了就拒绝，
     // 否则写作台/审稿/工作流之间会互相静默覆盖（谁最后写谁赢）。
@@ -144,7 +163,7 @@ pub fn save_content(state: &DbState, input: SaveContentInput) -> Result<ChapterC
         .map_err(AppError::from)?;
 
     let content_changed = current.content != input.content;
-    let previous = last_version(&conn, &input.chapter_id)?;
+    let previous = last_version(conn, &input.chapter_id)?;
 
     // 手动「保存快照」时内容没变就不重复留版；自动保存则按字数差异阈值判断。
     // 首次落笔（还没有任何版本、且已有正文）也给一版底稿，用户误删才有东西可回。
@@ -158,10 +177,9 @@ pub fn save_content(state: &DbState, input: SaveContentInput) -> Result<ChapterC
             || (previous.is_none() && input.word_count > 0)
             || (input.word_count - last_words).abs() >= AUTO_SNAPSHOT_CHARS);
 
-    let tx = conn.unchecked_transaction().map_err(AppError::from)?;
     // 校验与写入之间仍可能被别的进程插一脚，条件里再带一次版本判定，
-    // 影响行数为 0 就说明这期间被改过，回滚并报冲突。
-    let changed = tx
+    // 影响行数为 0 就说明这期间被改过，由调用方回滚并报冲突。
+    let changed = conn
         .execute(
             r#"update chapter set content = ?2, word_count = ?3,
                  status = case when status = 'planned' and ?3 > 0 then 'drafting' else status end,
@@ -184,14 +202,13 @@ pub fn save_content(state: &DbState, input: SaveContentInput) -> Result<ChapterC
     }
 
     if should_snapshot {
-        insert_version(&tx, &input.chapter_id, &input.content, input.word_count)?;
+        insert_version(conn, &input.chapter_id, &input.content, input.word_count)?;
     }
     // 正文变了，RAG 索引随之过期；和正文写在同一个事务里，避免纪元漏加。
-    crate::services::rag::bump_content_epoch(&tx, &project_id)?;
-    tx.commit().map_err(AppError::from)?;
-    drop(conn);
+    crate::services::rag::bump_content_epoch(conn, &project_id)?;
 
-    get_content(state, &input.chapter_id)
+    // 在同一个连接上重读，由调用方提交事务后返回给前端。
+    query_content(conn, &input.chapter_id)?.ok_or_else(|| AppError::not_found("章节不存在"))
 }
 
 /// 版本列表：新的在前，不带正文，避免一次拉回整章全文。

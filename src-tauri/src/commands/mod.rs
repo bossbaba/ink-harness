@@ -19,6 +19,7 @@ pub mod setting;
 pub mod stats;
 pub mod story_element;
 pub mod usage;
+pub mod workflow;
 
 use tauri::Manager;
 

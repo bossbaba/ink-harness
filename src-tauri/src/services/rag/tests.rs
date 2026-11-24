@@ -53,7 +53,9 @@ pub(super) fn write_chunks(
     drafts: &[ChunkDraft],
     vectors: &[Vec<f32>],
 ) -> Result<(), AppError> {
-    replace_chunks(state, project_id, drafts, vectors, false)
+    // 测试片段的向量维度从数据本身推断，省得每个用例都手写一遍。
+    let dim = vectors.first().map_or(3, |vector| vector.len() as i64);
+    replace_chunks(state, project_id, drafts, vectors, false, dim)
 }
 
 /// 测试专用：像业务代码那样在处理函数自己的事务里清来源片段。
@@ -111,7 +113,7 @@ fn search_is_scoped_to_project() {
     assert_eq!(hits[0].title, "甲");
 
     // 重建 p-1 的索引只影响 p-1，p-2 的片段应当原样保留。
-    clear_chunks(&state, "p-1", false).unwrap();
+    purge::clear_chunks(&state, "p-1", false).unwrap();
     let candidates = knn(&state, &[1.0, 0.0, 0.0], 3).unwrap();
     let remaining = load_hits(&state, "p-2", &candidates, 3).unwrap();
     assert_eq!(remaining.len(), 1);
@@ -154,13 +156,23 @@ fn local_only_project_rejects_cloud_embedding() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// 维度变了必须换表，否则写进去就会报维度不匹配。
+/// 维度变了必须换表，但旧表要留着：其它作品可能还停留在旧维度上。
 #[test]
-fn ensure_vec_table_rebuilds_on_dim_change() {
+fn ensure_vec_table_keeps_both_dimensions() {
     let (state, dir) = temp_state("dim");
-    assert!(ensure_vec_table(&state, 3).unwrap(), "首次建表");
-    assert!(!ensure_vec_table(&state, 3).unwrap(), "同维度不重建");
-    assert!(ensure_vec_table(&state, 4).unwrap(), "换维度必须重建");
+    ensure_vec_table(&state, 3).unwrap();
+    {
+        let conn = state.vec();
+        assert!(vector::vec_table_in(&conn, 3).unwrap(), "3 维表已建立");
+        assert!(!vector::vec_table_in(&conn, 4).unwrap(), "4 维表尚未建立");
+    }
+    ensure_vec_table(&state, 3).unwrap();
+    ensure_vec_table(&state, 4).unwrap();
+    {
+        let conn = state.vec();
+        assert!(vector::vec_table_in(&conn, 3).unwrap(), "换维度后 3 维表仍保留");
+        assert!(vector::vec_table_in(&conn, 4).unwrap(), "4 维表已建立");
+    }
     assert_eq!(current_dim(&state).unwrap(), Some(4));
     std::fs::remove_dir_all(&dir).ok();
 }

@@ -10,6 +10,7 @@ pub mod rag;
 pub mod stats;
 pub mod story_element;
 pub mod usage;
+pub mod workflow;
 
 pub use agent::{
     AgentEvalRun, AgentMessage, AgentOutcomeStats, AgentRole, AgentSession, AgentStepRecord,
@@ -31,3 +32,4 @@ pub use rag::{RagHit, RagStatus};
 pub use stats::{CountItem, WorkspaceStats};
 pub use story_element::{ConsistencyIssue, NewStoryElement, StoryElement, StoryElementOverview};
 pub use usage::{ModelUsage, TaskUsage, UsageStats};
+pub use workflow::ApplyWorkflowInput;

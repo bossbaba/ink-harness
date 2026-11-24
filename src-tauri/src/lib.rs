@@ -110,6 +110,7 @@ pub fn run() {
             commands::mcp::remove_mcp_server,
             commands::mcp::list_mcp_tools,
             commands::mcp::call_mcp_tool,
+            commands::workflow::apply_workflow,
         ])
         .build(tauri::generate_context!());
 

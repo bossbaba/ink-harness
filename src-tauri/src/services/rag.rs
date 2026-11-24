@@ -1,8 +1,8 @@
 //! RAG 索引与检索：把设定条目与章节正文切成片段、向量化后写入 vec0 表，
 //! 提问时按问题向量取最近的若干片段，作为「参考资料」注入提示词。
 //!
-//! 两条连接分工：`rag_chunk`（业务库）存片段正文与来源，`vec_rag`（向量库）存向量，
-//! rowid 一一对应。向量维度由 embedding 模型决定，换模型时整表重建（旧向量作废）。
+//! 两条连接分工：`rag_chunk`（业务库）存片段正文与来源，向量表（向量库）按维度分表
+//! `vec_rag_{dim}` 存向量，rowid 一一对应。换模型只建新表，旧维度作品的表原样保留。
 
 use rusqlite::{OptionalExtension, params};
 
@@ -12,9 +12,11 @@ use crate::models::{RagHit, RagStatus};
 use crate::services::{embed, project, setting};
 
 mod chunk;
+mod purge;
 mod vector;
 
-use vector::{current_dim, ensure_vec_table, knn, vec_table_exists, vec_table_in, vector_literal};
+pub(crate) use purge::{purge_project_in, purge_source_in};
+use vector::{current_dim, ensure_vec_table, indexed_dim_key, knn, table_name, vector_literal};
 
 /// 建索引时用的 embedding 模型；与该作品当前可用的模型不一致说明索引该重建。
 fn indexed_model_key(project_id: &str) -> String {
@@ -141,11 +143,20 @@ pub fn status(state: &DbState, project_id: &str) -> Result<RagStatus, AppError> 
             (&indexed_model, &current_model),
             (Some(indexed), Some(current)) if indexed != current
         );
+    // 维度按作品记：换模型后其它作品仍留在自己的维度表，不能拿全局键冒充它们的维度。
+    // 老库没有作品级键时才回退到全局记录。
+    let scoped_dim = setting::get(state, &indexed_dim_key(project_id))?
+        .and_then(|value| value.trim().parse::<i64>().ok());
+    let dim = if scoped_dim.is_some() {
+        scoped_dim
+    } else {
+        current_dim(state)?
+    };
 
     Ok(RagStatus {
         chunks,
         indexed_at,
-        dim: current_dim(state)?,
+        dim,
         // 界面里显示「实际建索引时用的模型」，比显示当前选择更有意义。
         model: indexed_model.or(current_model.clone()),
         stale: content_changed || model_changed,
@@ -167,7 +178,7 @@ pub async fn reindex(state: &DbState, project_id: &str) -> Result<RagStatus, App
     };
     let drafts = collect_chunks(state, project_id)?;
     if drafts.is_empty() {
-        clear_chunks(state, project_id, false)?;
+        purge::clear_chunks(state, project_id, false)?;
         return status(state, project_id);
     }
 
@@ -187,15 +198,13 @@ pub async fn reindex(state: &DbState, project_id: &str) -> Result<RagStatus, App
         return Err(AppError::internal("embedding 返回空向量，无法建立索引"));
     }
 
-    let rebuilt = ensure_vec_table(state, dim)?;
-    if rebuilt {
-        // 换模型导致向量表重建时，其它作品的向量已经被物理删掉。
-        // 先把所有片段清空并单独提交，再写当前作品：这样即便随后写库失败，
-        // 也不会有项目顶着「有片段、无向量」被误判成新鲜索引（宁可显示未建索引）。
-        clear_chunks(state, project_id, true)?;
-    }
-    // 清旧片段与写新片段在同一个事务里完成：中途失败时旧索引仍然可用。
-    replace_chunks(state, project_id, &drafts, &embedded.vectors, false)?;
+    ensure_vec_table(state, dim)?;
+    // 换维度只建新表，不再 drop 旧表：其它作品仍能从自己的维度表里检索。
+    // replace_chunks 会先删当前作品在所有维度表中的旧 rowid 再写目标表，
+    // 因此当前作品不会同时有两份索引，其它作品则完全不受影响。
+    replace_chunks(state, project_id, &drafts, &embedded.vectors, false, dim)?;
+    // 记下本作品实际使用的维度：搜索据此选表，状态页据此展示。
+    setting::set(state, &indexed_dim_key(project_id), &dim.to_string())?;
     // 记下这次用的是哪个模型：换模型后 status 会提示「需要重建」。
     setting::set(state, &indexed_model_key(project_id), &embedded.reference)?;
     // 记下这次索引覆盖到的内容纪元，status 据此判断是否过期。
@@ -211,7 +220,15 @@ pub async fn search(
     limit: Option<usize>,
 ) -> Result<Vec<RagHit>, AppError> {
     let query = query.trim();
-    if query.is_empty() || !vec_table_exists(state)? {
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    // 本作品的维度决定查哪张表；老库没有作品级键时回退全局记录。
+    // 从没建过索引（没有维度或对应表不存在）时直接返回空，不必白跑一次 embedding。
+    let indexed_dim = setting::get(state, &indexed_dim_key(project_id))?
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .or(current_dim(state)?);
+    if indexed_dim.is_none() || !vector::vec_table_exists(state, indexed_dim.unwrap_or(0))? {
         return Ok(Vec::new());
     }
     // 索引过期时直接返回空：正文改过之后旧片段就是错的参考资料，
@@ -224,7 +241,8 @@ pub async fn search(
     let local_only = local_only_project(state, project_id)?;
     let embedded = embed::embed_texts(state, &[query.to_string()], local_only).await?;
     let dim = embedded.vectors[0].len() as i64;
-    if current_dim(state)? != Some(dim) {
+    // 维度对不上就明确要求重建，不拿旧表里的向量冒充当前模型的语义空间。
+    if indexed_dim != Some(dim) {
         return Err(AppError::validation("检索模型已更换，请先重建索引"));
     }
 
@@ -300,17 +318,19 @@ fn collect_chunks(state: &DbState, project_id: &str) -> Result<Vec<ChunkDraft>, 
     Ok(drafts)
 }
 
-/// 用新片段整体替换索引（`all_projects` 为真时连同其它作品的旧片段一起清）。
+/// 用新片段整体替换某作品的索引，向量写入 `dim` 对应的维度表。
 ///
-/// `rag_chunk` 与 `vec_rag` 同处一个数据库文件，所以能放进**同一个事务**：
+/// `rag_chunk` 与各维度表同处一个数据库文件，所以能放进**同一个事务**：
 /// 要么「旧片段旧向量一起消失、新的一起写入」，要么什么都不变。
-/// 早期实现用两条连接先清后写，中途失败会让索引彻底丢掉且无法恢复。
+/// 清旧向量时会遍历所有维度表，所以换维度后当前作品不会留下两份索引，
+/// 而其它作品的向量因为在其它表里，完全不受影响。
 fn replace_chunks(
     state: &DbState,
     project_id: &str,
     drafts: &[ChunkDraft],
     vectors: &[Vec<f32>],
     all_projects: bool,
+    dim: i64,
 ) -> Result<(), AppError> {
     if drafts.len() != vectors.len() {
         return Err(AppError::internal(format!(
@@ -321,8 +341,8 @@ fn replace_chunks(
     }
     let mut conn = state.biz();
     let tx = conn.transaction().map_err(AppError::from)?;
-    let old_ids = collect_ids(&tx, all_projects, project_id)?;
-    delete_rows(&tx, &old_ids)?;
+    let old_ids = purge::collect_ids(&tx, all_projects, project_id)?;
+    purge::delete_rows(&tx, &old_ids)?;
     for (draft, vector) in drafts.iter().zip(vectors.iter()) {
         tx.execute(
             "insert into rag_chunk (project_id, kind, source_id, title, content, indexed_at)
@@ -337,117 +357,13 @@ fn replace_chunks(
         )
         .map_err(AppError::from)?;
         let id = tx.last_insert_rowid();
-        tx.execute(
-            "insert into vec_rag (rowid, embedding) values (?1, ?2)",
-            params![id, vector_literal(vector)],
-        )
-        .map_err(AppError::from)?;
+        let sql = format!(
+            "insert into {} (rowid, embedding) values (?1, ?2)",
+            table_name(dim)
+        );
+        tx.execute(&sql, params![id, vector_literal(vector)]).map_err(AppError::from)?;
     }
     tx.commit().map_err(AppError::from)?;
-    Ok(())
-}
-
-/// 清空片段。`all` 为真时连通所有作品一起清（向量表刚重建，旧向量已不存在）。
-fn clear_chunks(state: &DbState, project_id: &str, all: bool) -> Result<(), AppError> {
-    let mut conn = state.biz();
-    let tx = conn.transaction().map_err(AppError::from)?;
-    let ids = collect_ids(&tx, all, project_id)?;
-    delete_rows(&tx, &ids)?;
-    tx.commit().map_err(AppError::from)?;
-    Ok(())
-}
-
-/// 在调用方已经开启的事务里清掉某个来源的片段与向量。
-///
-/// `rag_chunk.source_id` 是裸 TEXT，没有外键约束：删章节、删设定条目都不会自动清理，
-/// 不清理的话被删掉的正文仍会作为「参考资料」被检索出来（既是错误结果也是隐私问题）。
-/// 清理必须复用业务删除自己的事务：先提交删除再清索引的话，清理失败只能记日志、
-/// 等下次启动兜底，这期间已经删掉的正文仍可能被检索出来。
-///
-/// 不再提供「自己开事务」的版本：清理逻辑只有这一条路径，
-/// 避免以后有人绕过事务调用，又把原子性丢掉。
-pub(crate) fn purge_source_in(
-    conn: &rusqlite::Connection,
-    source_id: &str,
-) -> Result<(), AppError> {
-    delete_by_cond(conn, "source_id = ?1", params![source_id])
-}
-
-/// 同上，按作品清（删作品时与 `delete from project` 放同一事务）。
-///
-/// 删作品时 `rag_chunk` 靠外键级联走了，但 `vec_rag` 没有外键，必须在 project
-/// 被删之前先清向量，否则 rowid 再也对不上，残留向量永远无法回收。
-pub(crate) fn purge_project_in(
-    conn: &rusqlite::Connection,
-    project_id: &str,
-) -> Result<(), AppError> {
-    delete_by_cond(conn, "project_id = ?1", params![project_id])
-}
-
-/// 按条件删片段：先查出 rowid，再删向量、删片段。
-///
-/// 事务由调用方负责（业务删除直接复用它的写事务）。
-/// `cond` 只允许传本文件内的字面量（不接收外部输入），因此这里的 `format!` 不构成注入面。
-fn delete_by_cond<P: rusqlite::Params>(
-    conn: &rusqlite::Connection,
-    cond: &str,
-    params: P,
-) -> Result<(), AppError> {
-    let ids = {
-        let sql = format!("select id from rag_chunk where {cond}");
-        let mut stmt = conn.prepare(&sql).map_err(AppError::from)?;
-        let rows = stmt
-            .query_map(params, |row| row.get::<_, i64>(0))
-            .map_err(AppError::from)?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(AppError::from)?
-    };
-    delete_rows(conn, &ids)?;
-    Ok(())
-}
-
-fn collect_ids(
-    conn: &rusqlite::Connection,
-    all: bool,
-    project_id: &str,
-) -> Result<Vec<i64>, AppError> {
-    if all {
-        let mut stmt = conn
-            .prepare("select id from rag_chunk")
-            .map_err(AppError::from)?;
-        let rows = stmt
-            .query_map([], |row| row.get::<_, i64>(0))
-            .map_err(AppError::from)?;
-        return rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from);
-    }
-    let mut stmt = conn
-        .prepare("select id from rag_chunk where project_id = ?1")
-        .map_err(AppError::from)?;
-    let rows = stmt
-        .query_map(params![project_id], |row| row.get::<_, i64>(0))
-        .map_err(AppError::from)?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
-}
-
-/// 按 rowid 批量删向量与片段。向量表可能从未建过（没做过 embedding），此时跳过。
-fn delete_rows(conn: &rusqlite::Connection, ids: &[i64]) -> Result<(), AppError> {
-    if ids.is_empty() {
-        return Ok(());
-    }
-    if vec_table_in(conn)? {
-        let mut stmt = conn
-            .prepare("delete from vec_rag where rowid = ?1")
-            .map_err(AppError::from)?;
-        for id in ids {
-            stmt.execute(params![id]).map_err(AppError::from)?;
-        }
-    }
-    let mut stmt = conn
-        .prepare("delete from rag_chunk where id = ?1")
-        .map_err(AppError::from)?;
-    for id in ids {
-        stmt.execute(params![id]).map_err(AppError::from)?;
-    }
     Ok(())
 }
 

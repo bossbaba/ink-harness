@@ -104,6 +104,43 @@ fn update_rejects_stale_baseline_with_conflict() {
     assert_eq!(err.code, crate::error::ErrorCode::Conflict);
 }
 
+/// 同一毫秒内连着保存两次，updated_at 也必须前进，
+/// 否则第二次仍拿着第一次的基准就能通过校验，乐观锁会静默失效。
+#[test]
+fn updated_at_advances_within_same_millisecond() {
+    let (state, project_id) = temp_state("same-ms");
+    let created = create(
+        &state,
+        NewStoryElement {
+            project_id,
+            kind: "character".into(),
+            name: "沈夜".into(),
+            summary: "".into(),
+            detail: json!({}),
+        },
+    )
+    .unwrap();
+    let first = get(&state, &created.id).unwrap().expect("条目仍在");
+
+    let mut second = first.clone();
+    second.summary = "第二次保存".into();
+    update(&state, &second).unwrap();
+    let after = get(&state, &created.id).unwrap().expect("条目仍在");
+    assert_ne!(
+        after.updated_at, first.updated_at,
+        "同一毫秒写入也必须让版本前进"
+    );
+
+    let mut stale = first.clone();
+    stale.summary = "用旧基准覆盖".into();
+    let err = update(&state, &stale).expect_err("旧基准必须被拒");
+    assert_eq!(err.code, crate::error::ErrorCode::Conflict);
+
+    let mut third = after.clone();
+    third.summary = "第三次保存".into();
+    update(&state, &third).expect("最新基准可以保存");
+}
+
 #[test]
 fn deleting_project_cascades_story_elements() {
     let (state, project_id) = temp_state("cascade");

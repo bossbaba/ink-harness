@@ -25,6 +25,14 @@ pub fn get(state: &DbState, key: &str) -> Result<Option<String>, AppError> {
 
 pub fn set(state: &DbState, key: &str, value: &str) -> Result<(), AppError> {
     let conn = state.biz();
+    set_in(&conn, key, value)
+}
+
+/// 在调用方给的连接（通常是已开好的事务）里写设置。
+///
+/// 工作流审批要把阶段状态与正文一起提交，不能在事务中途另开连接写 `app_meta`，
+/// 否则正文已落库而阶段状态还是旧的。
+pub fn set_in(conn: &rusqlite::Connection, key: &str, value: &str) -> Result<(), AppError> {
     conn.execute(
         "insert into app_meta(key, value) values (?1, ?2) \
          on conflict(key) do update set value = excluded.value",

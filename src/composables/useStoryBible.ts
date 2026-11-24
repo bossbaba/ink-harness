@@ -208,7 +208,8 @@ export function useStoryBible(projectIdFromRoute: string) {
         // 别的窗口先保存了：只刷新列表基准（selected 换成库里最新、表单草稿保留），
         // 作者再点一次保存即用当前表单覆盖——覆盖与否由人决定，不静默吃掉对方的修改。
         await loadElements(true);
-        error.value = `${info.message}。已载入最新版本——再点一次「保存」将用当前表单覆盖对方的修改。`;
+        // 把覆盖范围说清楚：草稿只管这些字段，库里新增的其它 detail 扩展字段仍会保留。
+        error.value = `${info.message}。库中最新版本已载入，本地草稿仍留在表单里；再点一次「保存」会用草稿覆盖类型/名称/摘要/别名/备注/关系/时间，其它扩展字段保留。`;
       } else {
         error.value = info.message;
       }

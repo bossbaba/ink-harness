@@ -1,7 +1,9 @@
+import { tauriApi } from "@/api/tauri";
 import { EMPTY_REPLY_MESSAGE, runChat } from "@/services/aiChat";
 import { fitContext } from "@/services/aiContext";
 import { settingsService } from "@/services/settingsService";
 import type {
+  ApplyWorkflowInput,
   Chapter,
   ChatMessage,
   PrivacyScope,
@@ -79,6 +81,14 @@ export async function loadWorkflowState(projectId: string): Promise<WorkflowStat
 export async function saveWorkflowState(projectId: string, state: WorkflowState): Promise<void> {
   state.updatedAt = new Date().toISOString();
   await settingsService.setString(`${STATE_PREFIX}${projectId}`, JSON.stringify(state));
+}
+
+/**
+ * 审批落地：把「写正文 + 写阶段状态」交给后端一次事务完成。
+ * 单独的状态写仍用于运行阶段/选章等不涉及正文的场景。
+ */
+export async function applyWorkflow(input: ApplyWorkflowInput): Promise<void> {
+  await tauriApi.applyWorkflow(input);
 }
 
 function clip(text: string): string {

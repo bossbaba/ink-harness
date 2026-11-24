@@ -6,6 +6,7 @@ import type {
   AgentRole,
   AgentSession,
   AgentStepRecord,
+  ApplyWorkflowInput,
   Chapter,
   ChapterContent,
   ChatChunk,
@@ -91,6 +92,9 @@ export const tauriApi = {
   // 应用级设置：存在 app_meta 键值表，布尔值统一用 "1"/"0"。
   getAppSetting: (key: string) => call<string | null>("get_app_setting", { key }),
   setAppSetting: (key: string, value: string) => call<void>("set_app_setting", { key, value }),
+
+  // 工作流审批：正文与阶段状态在 Rust 侧同一事务提交，失败整体回滚。
+  applyWorkflow: (input: ApplyWorkflowInput) => call<void>("apply_workflow", { input }),
 
   // 系统钥匙串：只有写入与删除。读取明文的命令在后端刻意不提供，
   // 前端一律通过 apiKeyRef 交由 Rust 侧使用，避免密钥泄漏到渲染进程。
