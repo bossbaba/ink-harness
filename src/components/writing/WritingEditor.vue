@@ -6,8 +6,8 @@ import { NButton, NTooltip } from "naive-ui";
 import { computed, ref, watch } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import type { AppIconName } from "@/components/common/appIcons";
-import type { EditorPayload } from "@/composables/useWritingDesk";
 import type { AssistApplyMode, AssistSelection, AssistTask } from "@/types";
+import type { EditorPayload } from "@/utils/draftPayload";
 import { parseDocument } from "@/utils/tiptap";
 
 /**
@@ -39,8 +39,9 @@ const editor = useEditor({
     attributes: { class: "writing-prose", spellcheck: "false" },
   },
   onUpdate: ({ editor: instance }) => {
-    // 把 JSON 直接串化落库；纯文本一并回传，用于前端实时算字数。
-    emit("update", { content: JSON.stringify(instance.getJSON()), text: instance.getText() });
+    // 只回传文档对象与纯文本：长篇正文每敲一个字就 stringify 一整篇会卡输入，
+    // 落库前的防抖窗口里由写作台统一序列化一次即可。
+    emit("update", { doc: instance.getJSON(), text: instance.getText() });
   },
 });
 

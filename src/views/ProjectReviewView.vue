@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NButton, NEmpty, NSelect } from "naive-ui";
 import { computed, onMounted, ref, watch } from "vue";
+import ErrorBoundary from "@/components/common/ErrorBoundary.vue";
 import LoadingState from "@/components/common/LoadingState.vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import type { SegmentOption } from "@/components/common/segmentedControl";
@@ -227,17 +228,24 @@ async function copyReport(): Promise<void> {
 
       <p v-if="applyNotice" class="review__notice">{{ applyNotice }}</p>
 
-      <ReviewLayerSection
+      <!-- 三层独立降级：某一层的问题卡片渲染失败，不影响另外两层与「应用修改」。 -->
+      <ErrorBoundary
         v-for="layer in REVIEW_LAYER_ORDER"
         :key="layer"
-        :layer="layer"
-        :issues="grouped[layer]"
-        :running="false"
-        :note="layer === 'language' ? languageNote : undefined"
-        :can-apply="report.scope === 'chapter'"
-        @decide="decide"
-        @comment="setComment"
-      />
+        title="这一层的问题没能显示"
+        description="其它两层仍可查看；重试只重新载入这一层。"
+        variant="inline"
+      >
+        <ReviewLayerSection
+          :layer="layer"
+          :issues="grouped[layer]"
+          :running="false"
+          :note="layer === 'language' ? languageNote : undefined"
+          :can-apply="report.scope === 'chapter'"
+          @decide="decide"
+          @comment="setComment"
+        />
+      </ErrorBoundary>
     </template>
   </div>
 </template>

@@ -5,6 +5,7 @@ import { projectService } from "@/services/projectService";
 import { writingService } from "@/services/writingService";
 import { useDraftSyncStore } from "@/stores/draftSync";
 import { clearDraftBackup, readDraftBackup, writeDraftBackup } from "@/utils/draftBackup";
+import { type EditorPayload, type PendingDraft, serializeDraft } from "@/utils/draftPayload";
 import { normalizeError } from "@/utils/errors";
 import { onReactivated } from "@/utils/lifecycle";
 import { countCharacters } from "@/utils/text";
@@ -15,14 +16,6 @@ import { useWritingVersions } from "./useWritingVersions";
 const AUTOSAVE_DELAY = 1200;
 
 export type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
-
-/** 编辑器每次输入回调的内容载体。 */
-export interface EditorPayload {
-  /** TipTap 文档 JSON 字符串，直接落库。 */
-  content: string;
-  /** 编辑器纯文本，用来算字数。 */
-  text: string;
-}
 
 /**
  * 写作台：章节列表 + 当前章正文 + 自动保存 + 版本快照。
@@ -64,7 +57,7 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
    * 待落库的正文。带上 chapterId：切章时上一章的字还在队列里，
    * 若只记内容，切章后的循环会把新章的正文写进旧章（或反过来丢字）。
    */
-  let pending: { chapterId: string; content: string; wordCount: number } | null = null;
+  let pending: PendingDraft | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   /**
    * 在飞的那一轮保存。`flush()` 靠它串行：后到的调用者先等前一轮写完，
@@ -205,14 +198,18 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
     if (!chapterId) return;
     pending = {
       chapterId,
-      content: payload.content,
+      doc: payload.doc,
       wordCount: countCharacters(payload.text),
     };
     wordCount.value = pending.wordCount;
     clearTimer();
     if (halted) {
       // 冲突未解决前不再排保存：新敲的字同样写进本地备份，别让「继续写」变成「继续丢」。
-      writeDraftBackup(chapterId, pending);
+      // 这里每敲一次都要备份，序列化开销只出现在冲突这种异常路径上。
+      writeDraftBackup(chapterId, {
+        content: serializeDraft(pending),
+        wordCount: pending.wordCount,
+      });
       saveState.value = "error";
       return;
     }
@@ -278,20 +275,17 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
    * 失败时不抛异常（避免 `void flush()` 变成 unhandled rejection），
    * 而是把内容放回 pending 并标记 error，等下一次输入/切章/离开页面再试。
    */
-  async function saveOnce(payload: {
-    chapterId: string;
-    content: string;
-    wordCount: number;
-  }): Promise<boolean> {
+  async function saveOnce(payload: PendingDraft): Promise<boolean> {
     const chapterId = payload.chapterId;
+    const content = serializeDraft(payload);
     // 发 IPC 之前先写本地备份：进程若在请求返回前被强杀，正文至少还在本地，
     // 下次载入该章会提示恢复。保存成功后 clearDraftBackup 会把它清掉。
     // 只在失败后才写不够——正在飞的那一次恰好是关窗场景最容易丢的那份。
-    writeDraftBackup(chapterId, payload);
+    writeDraftBackup(chapterId, { content, wordCount: payload.wordCount });
     try {
       const saved = await writingService.saveContent({
         chapterId,
-        content: payload.content,
+        content,
         wordCount: payload.wordCount,
         // 带上基准版本：库里已被别处改过时后端返回 conflict，避免静默覆盖。
         expectedContentRevision: contentRevisions.get(chapterId),
@@ -318,7 +312,7 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
       // 期间用户又输入了新内容时优先保留新的那份，别让旧 payload 把它盖掉。
       if (!pending) pending = payload;
       // 写库失败时把正文留在本地，否则关窗/崩溃就真的丢了；下次载入该章会提示恢复。
-      writeDraftBackup(chapterId, payload);
+      writeDraftBackup(chapterId, { content, wordCount: payload.wordCount });
       saveState.value = "error";
       if (info.code === "conflict") {
         halted = true;
@@ -341,7 +335,15 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
     contentRevisions,
     error,
     flush: () => flush(),
-    getPending: () => pending,
+    // 版本模块只关心可落库的字符串；留一版快照时才在这里序列化一次。
+    getPending: () =>
+      pending
+        ? {
+            chapterId: pending.chapterId,
+            content: serializeDraft(pending),
+            wordCount: pending.wordCount,
+          }
+        : null,
     clearPending: () => {
       pending = null;
     },

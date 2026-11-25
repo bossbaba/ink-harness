@@ -3,6 +3,7 @@ import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import AppEmpty from "@/components/common/AppEmpty.vue";
+import ErrorBoundary from "@/components/common/ErrorBoundary.vue";
 import LoadingState from "@/components/common/LoadingState.vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import type { SegmentOption } from "@/components/common/segmentedControl";
@@ -113,7 +114,13 @@ function updateBrief(field: keyof PublicationBrief, value: string | string[]): v
     />
 
     <LoadingState v-if="loading && !doc" text="正在读取作品与章节…" />
-    <template v-else-if="doc">
+    <!-- 标签内容出错时只降级这一栏，四个标签与导出操作仍可切换使用。 -->
+    <ErrorBoundary
+      v-else-if="doc"
+      title="这一栏没能显示"
+      description="换一个标签页仍可继续排版与导出；若反复出现，请重新进入出版中心。"
+      variant="inline"
+    >
       <PublishPreview
         v-if="tab === 'preview'"
         :template="template"
@@ -149,7 +156,7 @@ function updateBrief(field: keyof PublicationBrief, value: string | string[]): v
         @update:field="updateBrief"
       />
       <PlatformPanel v-else :plan="plan" @toggle="togglePlatform" @entry="setEntry" />
-    </template>
+    </ErrorBoundary>
     <AppEmpty
       v-else
       class="publish__empty"
