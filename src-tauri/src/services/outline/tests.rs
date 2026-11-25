@@ -1,6 +1,8 @@
 use super::*;
 use crate::infrastructure::db;
-use crate::models::{MoveScene, NewForeshadow, NewProject, NewScene, NewStoryElement};
+use crate::models::{
+    MoveScene, NewForeshadow, NewProject, NewScene, NewStoryElement, SaveContentInput,
+};
 use crate::services::{outline_context, project, story_element};
 
 fn temp_state(tag: &str) -> (DbState, String) {
@@ -352,27 +354,55 @@ fn delete_chapter_renumbers_siblings() {
     assert_eq!(orders, vec![(a.id, 0), (c.id, 1)]);
 }
 
-/// 章节元数据乐观锁：拿旧 `updated_at` 提交必须被拒绝，避免缓存副本把新状态盖回去。
+/// 章节元数据乐观锁：拿旧 `meta_revision` 提交必须被拒绝，避免缓存副本把新状态盖回去。
 #[test]
 fn stale_chapter_metadata_is_rejected() {
     let (state, project_id) = temp_state("chapter-conflict");
     let created = add_chapter(&state, &project_id, 1, "第一章");
 
-    // 模拟别处已经改过：推进状态并刷新时间戳。
+    // 模拟别处已经改过：推进状态，元数据版本应随之递增。
     let mut fresh = get_chapter(&state, &created.id).unwrap().unwrap();
     fresh.status = "drafting".into();
     update_chapter(&state, &fresh).unwrap();
+    assert_eq!(
+        get_chapter(&state, &created.id).unwrap().unwrap().meta_revision,
+        created.meta_revision + 1
+    );
 
-    // 模拟一份明显过期的副本（时间戳精度是毫秒，同一毫秒内的两次写可能相等，
-    // 所以这里把基准直接改成老时间，测的是「版本不一致必须拒绝」这条逻辑本身）。
+    // 旧副本的基准仍是初版，必须拒绝；时间戳相同也不影响判断。
     let mut stale = created.clone();
-    stale.updated_at = "2000-01-01T00:00:00.000Z".into();
     stale.title = "改个标题".into();
     assert!(update_chapter(&state, &stale).is_err());
     assert_eq!(
         get_chapter(&state, &created.id).unwrap().unwrap().title,
         "第一章"
     );
+}
+
+/// 正文自动保存只推进 content_revision，不能顶掉大纲页的元数据基准。
+#[test]
+fn draft_save_does_not_bump_meta_revision() {
+    let (state, project_id) = temp_state("meta-vs-draft");
+    let created = add_chapter(&state, &project_id, 1, "第一章");
+
+    crate::services::draft::save_content(
+        &state,
+        SaveContentInput {
+            chapter_id: created.id.clone(),
+            content: "{}".into(),
+            word_count: 10,
+            snapshot: false,
+            expected_content_revision: None,
+        },
+    )
+    .unwrap();
+
+    let after = get_chapter(&state, &created.id).unwrap().unwrap();
+    assert_eq!(after.meta_revision, created.meta_revision);
+    // 用改动前的那份副本提交元数据仍然有效，正是这一项要修复的误报冲突。
+    let mut cached = created.clone();
+    cached.title = "改个标题".into();
+    update_chapter(&state, &cached).unwrap();
 }
 
 /// 删章要连带清掉 RAG 片段：`rag_chunk.source_id` 没有外键，

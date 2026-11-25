@@ -42,6 +42,7 @@ const {
   applyableCount,
   applying,
   applyNotice,
+  layerNotice,
   load,
   run,
   stop,
@@ -52,6 +53,22 @@ const {
 } = useProjectReview(props.projectId);
 
 const copied = ref(false);
+// 每层单独记一个重建序号：点「重试」或生成了新报告时，必须换一棵全新的
+// ReviewLayerSection，否则确定性数据错误会让点重试必然再次失败。
+const layerRetryKeys = ref<Record<string, number>>({});
+
+/** 同一层在不同报告之间也算新作用域，createdAt 变了就要清掉旧的降级态。 */
+function layerScopeKey(layer: string): string {
+  return `${report.value?.createdAt ?? ""}:${layer}`;
+}
+
+/** ErrorBoundary 的重试回调：只递增出问题那一层的序号，不影响另外两层。 */
+function retryLayer(layer: string): void {
+  layerRetryKeys.value = {
+    ...layerRetryKeys.value,
+    [layer]: (layerRetryKeys.value[layer] ?? 0) + 1,
+  };
+}
 
 /** 审读范围只有两种，用分段控件比 RadioButton 更贴近原生 macOS 工具栏。 */
 const scopeOptions: SegmentOption[] = [
@@ -226,17 +243,21 @@ async function copyReport(): Promise<void> {
         </RouterLink>
       </div>
 
+      <p v-if="layerNotice" class="review__notice">{{ layerNotice }}</p>
       <p v-if="applyNotice" class="review__notice">{{ applyNotice }}</p>
 
       <!-- 三层独立降级：某一层的问题卡片渲染失败，不影响另外两层与「应用修改」。 -->
       <ErrorBoundary
         v-for="layer in REVIEW_LAYER_ORDER"
         :key="layer"
+        :reset-key="layerScopeKey(layer)"
         title="这一层的问题没能显示"
         description="其它两层仍可查看；重试只重新载入这一层。"
         variant="inline"
+        @retry="retryLayer(layer)"
       >
         <ReviewLayerSection
+          :key="`${layerScopeKey(layer)}:${layerRetryKeys[layer] ?? 0}`"
           :layer="layer"
           :issues="grouped[layer]"
           :running="false"

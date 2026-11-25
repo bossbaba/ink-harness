@@ -52,6 +52,8 @@ export function useProjectReview(projectId: string) {
   const applying = ref(false);
   /** 应用结果要说明「改了几处、几处没定位到」，而不是只弹一句成功。 */
   const applyNotice = ref("");
+  /** 不阻断审读的提示：确定性检查失败时告诉作者这一层结果缺失，而不是假装没问题。 */
+  const layerNotice = ref("");
 
   // 取消或重新审读时自增：旧请求迟到的分片直接丢弃。
   let requestSeq = 0;
@@ -163,6 +165,7 @@ export function useProjectReview(projectId: string) {
 
     const seq = ++requestSeq;
     error.value = "";
+    layerNotice.value = "";
     report.value = null;
     received.value = 0;
     running.value = true;
@@ -170,7 +173,11 @@ export function useProjectReview(projectId: string) {
     try {
       // 一致性检查是确定性的、不花钱，先跑；失败了也不该拦住模型审稿。
       progress.value = "检查设定一致性…";
-      const consistency = await storyElementService.checkConsistency(projectId).catch(() => []);
+      const consistency = await storyElementService.checkConsistency(projectId).catch(() => {
+        // 保持「不阻断模型审稿」的原行为，但不能把失败伪装成「没有一致性问题」。
+        layerNotice.value = "设定一致性检查未能完成，本次报告不含这一层结果。";
+        return [];
+      });
       if (seq !== requestSeq) return;
       const baseIssues = consistencyToIssues(consistency);
 
@@ -181,7 +188,7 @@ export function useProjectReview(projectId: string) {
         if (!chapter) throw new Error("请先选择要审读的章节。");
         target = `第${chapter.act}幕 · ${chapter.title}`;
         progress.value = "读取本章正文…";
-        const content = await writingService.getContent(chapter.id);
+        const content = await writingService.getContent(chapter.id, projectId);
         const text = documentToPlainText(content.content);
         chapterText = text === EMPTY_DOCUMENT_TEXT ? "" : text;
         if (!chapterText.trim()) throw new Error("这一章还没有正文，先写一点再来审。");
@@ -292,17 +299,20 @@ export function useProjectReview(projectId: string) {
     applying.value = true;
     applyNotice.value = "";
     try {
-      const data = await writingService.getContent(chapterId.value);
+      const data = await writingService.getContent(chapterId.value, projectId);
       const result = applyReviewEdits(data.content, edits);
       if (result.appliedIds.length > 0) {
-        await writingService.saveContent({
-          chapterId: chapterId.value,
-          content: result.content,
-          wordCount: result.wordCount,
-          snapshot: true,
-          // 以「刚才读到的那一版」为基准：写作台在这期间又存过，就不要再覆盖它的新内容。
-          expectedContentRevision: data.contentRevision,
-        });
+        await writingService.saveContent(
+          {
+            chapterId: chapterId.value,
+            content: result.content,
+            wordCount: result.wordCount,
+            snapshot: true,
+            // 以「刚才读到的那一版」为基准：写作台在这期间又存过，就不要再覆盖它的新内容。
+            expectedContentRevision: data.contentRevision,
+          },
+          projectId,
+        );
         // 写作台可能还停在缓存里的旧正文，这里递增版本让它回来时重读。
         draftSync.bump(chapterId.value);
         // 本页章节列表也要跟上：重新审读时目录里带的是这里的字数与状态。
@@ -360,6 +370,7 @@ export function useProjectReview(projectId: string) {
     applyableCount,
     applying,
     applyNotice,
+    layerNotice,
     load,
     run,
     stop,

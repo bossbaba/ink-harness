@@ -19,6 +19,8 @@ export interface Chapter {
   status: ChapterStatus;
   /** 正文非空白字符数；后端只回计数，不回正文。 */
   wordCount: number;
+  /** 大纲元数据版本：改标题/幕次/状态时递增，正文自动保存不碰它。 */
+  metaRevision: number;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;

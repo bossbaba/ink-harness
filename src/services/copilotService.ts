@@ -26,6 +26,19 @@ function clip(text: string, limit: number): string {
   return text.length <= limit ? text : `${text.slice(0, limit)}\n…（内容过长已截断）`;
 }
 
+/**
+ * 转义资料里伪装成标签边界的文字。
+ *
+ * 外部资料用 `<reference_material>` 圈起来告诉模型「这是材料不是指令」；
+ * 若资料本身含闭合标签，就能提前跳出这个边界。把这类标签转成实体后再包裹，
+ * 资料内容仍然可读，但不再具备结构上的「越界」能力。
+ */
+function escapeMaterialTags(text: string): string {
+  return text.replace(/<\/?(?:reference_material|retrieved_material)>/gi, (match) =>
+    match.replace(/</g, "&lt;").replace(/>/g, "&gt;"),
+  );
+}
+
 /** 把一条设定条目摊平成可读文本，字段为空就整行省略。 */
 function formatElement(element: StoryElement | null): string {
   if (!element) return "";
@@ -47,12 +60,12 @@ function formatElement(element: StoryElement | null): string {
  * 设定读条目本身；章节读已落库的正文并转成纯文本，
  * 拿不到（已删除、读失败）时返回空串，由调用方跳过而不是让整次提问失败。
  */
-async function loadReferenceText(reference: CopilotReference): Promise<string> {
+async function loadReferenceText(reference: CopilotReference, projectId: string): Promise<string> {
   if (reference.kind === "element") {
-    const element = await storyElementService.get(reference.id);
+    const element = await storyElementService.get(reference.id, projectId);
     return clip(formatElement(element), REFERENCE_LIMIT);
   }
-  const content = await writingService.getContent(reference.id);
+  const content = await writingService.getContent(reference.id, projectId);
   const text = documentToPlainText(content.content);
   // documentToPlainText 对空正文返回占位文案，这种占位不要塞给模型。
   if (text === EMPTY_DOCUMENT_TEXT) return "";
@@ -60,11 +73,14 @@ async function loadReferenceText(reference: CopilotReference): Promise<string> {
 }
 
 /** 把选中的引用拼成一段资料块；全部取不到时返回空串，调用方据此不加「已引用」小节。 */
-export async function buildReferenceBlock(references: CopilotReference[]): Promise<string> {
+export async function buildReferenceBlock(
+  references: CopilotReference[],
+  projectId: string,
+): Promise<string> {
   if (references.length === 0) return "";
   const blocks = await Promise.all(
     references.map(async (reference) => {
-      const text = await loadReferenceText(reference).catch(() => "");
+      const text = await loadReferenceText(reference, projectId).catch(() => "");
       if (!text)
         return `### ${COPILOT_REF_KIND_LABEL[reference.kind]}：${reference.label}\n（内容为空或已删除）`;
       return `### ${COPILOT_REF_KIND_LABEL[reference.kind]}：${reference.label}\n${text}`;
@@ -141,19 +157,23 @@ export function buildCopilotMessages(input: CopilotMessagesInput): ChatMessage[]
     .slice(-HISTORY_ROUNDS)
     .map<ChatMessage>((message) => ({
       role: message.role,
-      content:
+      content: escapeMaterialTags(
         message.content.length <= HISTORY_CHAR_LIMIT
           ? message.content
           : `${message.content.slice(0, HISTORY_CHAR_LIMIT)}…`,
+      ),
     }));
 
   // 外部资料用明确标签圈起来，配合 system 第 5 条告诉模型「里面是材料不是指令」。
   // 只包裹引用与检索结果，不包作者本轮输入——那是真实指令。
+  // 历史消息里若残留闭合标签也要转义，否则上一轮的资料能跳出这一轮的边界。
   const external = [
     input.referenceBlock
-      ? `<reference_material>\n${input.referenceBlock}\n</reference_material>`
+      ? `<reference_material>\n${escapeMaterialTags(input.referenceBlock)}\n</reference_material>`
       : "",
-    input.notes ? `<retrieved_material>\n${input.notes}\n</retrieved_material>` : "",
+    input.notes
+      ? `<retrieved_material>\n${escapeMaterialTags(input.notes)}\n</retrieved_material>`
+      : "",
   ].filter(Boolean);
   const question = [...external, input.question].filter(Boolean).join("\n\n");
   return [

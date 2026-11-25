@@ -11,16 +11,10 @@
 /// 脱敏后统一展示的占位文本；保留「为何被替换」的信息，作者能自己判断。
 pub const MASK: &str = "[已屏蔽:疑似凭据]";
 
-/// 逐块脱敏：用于流式输出的每一段 delta。
-///
-/// 已知局限：凭据被切在两个 chunk 的边界上时单块都匹配不到。
-/// 流式场景无法等全文再发（会失去逐字体验），只能接受这一取舍；
-/// 落库的审计文本走 [`scrub`] 对完整输出再过一遍，补上边界漏网。
-pub fn scrub_chunk(text: &str) -> String {
-    scrub(text)
-}
-
 /// 对完整文本做脱敏，返回替换后的字符串。
+///
+/// 流式输出不再逐块调用这里：凭据可能被切在两个 chunk 的边界上，
+/// 网关会保留尾部缓冲，和下一块拼起来后再统一走本函数。
 /// 命中规则按「越具体越先替换」排序，避免短规则把长凭据切碎后剩下半截。
 pub fn scrub(text: &str) -> String {
     if text.is_empty() {
@@ -74,12 +68,19 @@ fn mask_prefixed(text: &str, prefix: &str, min_len: usize) -> String {
 }
 
 /// 脱敏 `Authorization: Bearer xxx` 与裸 `Bearer xxx` 里的令牌。
+///
+/// HTTP 认证头大小写不敏感，`bearer <token>` 同样是合法写法。用一份 ASCII
+/// 小写副本来定位，索引仍落回原串切片：替换时保留原文大小写，不会改动正文。
 fn mask_bearer(text: &str) -> String {
+    const NEEDLE: &str = "bearer ";
+    let lower = text.to_ascii_lowercase();
     let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(at) = rest.find("Bearer ") {
-        out.push_str(&rest[..at + "Bearer ".len()]);
-        let after = &rest[at + "Bearer ".len()..];
+    let mut pos = 0usize;
+    while let Some(relative) = lower.get(pos..).and_then(|rest| rest.find(NEEDLE)) {
+        let at = pos + relative;
+        let after_at = at + NEEDLE.len();
+        out.push_str(&text[pos..after_at]);
+        let after = &text[after_at..];
         let token: String = after
             .chars()
             .take_while(|c| !c.is_whitespace() && *c != '"' && *c != '\'')
@@ -87,12 +88,14 @@ fn mask_bearer(text: &str) -> String {
         // 少于 12 个字符的多半是正文里的英文单词，不当凭据处理。
         if token.len() >= 12 {
             out.push_str(MASK);
-            rest = &after[token.len()..];
-        } else {
-            rest = after;
         }
+        pos = if token.len() >= 12 {
+            after_at + token.len()
+        } else {
+            after_at
+        };
     }
-    out.push_str(rest);
+    out.push_str(&text[pos..]);
     out
 }
 
@@ -158,5 +161,16 @@ mod tests {
         // 正文里出现「sk-」但后面不足凭据长度，不应误伤。
         let text = "文件名是 sk-note.md";
         assert_eq!(scrub(text), text);
+    }
+
+    #[test]
+    fn bearer_matching_is_case_insensitive() {
+        let text = " headers: bearer abcdefghijklmnop and BEARER qwertyuiopasdfgh ";
+        let masked = scrub(text);
+        assert!(!masked.contains("abcdefghijklmnop"));
+        assert!(!masked.contains("qwertyuiopasdfgh"));
+        // 原文里的前缀写法要保留，只替换令牌本体。
+        assert!(masked.contains("bearer "));
+        assert!(masked.contains("BEARER "));
     }
 }

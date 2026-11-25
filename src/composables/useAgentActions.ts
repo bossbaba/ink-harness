@@ -2,10 +2,13 @@ import { type Ref, ref } from "vue";
 import {
   approveAction,
   clearFinished,
+  discardPending,
   listPending,
   rejectAction,
   resetPendingForTest,
 } from "@/services/actionExecutor";
+import { issueApprovalToken } from "@/services/mcpService";
+import { useDraftSyncStore } from "@/stores/draftSync";
 import type { PendingToolAction, ToolContext } from "@/types";
 
 /**
@@ -33,7 +36,28 @@ export function useAgentActions(ctx: () => ToolContext) {
     busyId.value = id;
     error.value = "";
     try {
-      const action = await approveAction(id, ctx());
+      const currentCtx = ctx();
+      // 外部 MCP 工具会 spawn 本地进程：由后端签发一次性令牌，
+      // 没有令牌的 IPC 调用（比如绕过界面的脚本）在 spawn 之前就被拒。
+      let runCtx = currentCtx;
+      const target = pending.value.find((item) => item.id === id);
+      if (target?.tool.external) {
+        const token = await issueApprovalToken(
+          target.toolName,
+          target.args,
+          currentCtx.projectId,
+          currentCtx.sessionId ?? "",
+        );
+        runCtx = { ...currentCtx, approvalToken: token };
+      }
+      const action = await approveAction(id, runCtx);
+      // apply_edits 直接落库正文，必须和审稿/工作流写回一样递增同步版本：
+      // 否则 keep-alive 的写作台回来仍显示旧稿，作者一保存就触发乐观锁冲突。
+      if (action?.status === "applied" && action.toolName === "apply_edits") {
+        const rawId = action.args.chapterId;
+        const chapterId = typeof rawId === "string" && rawId ? rawId : (ctx().chapterId ?? "");
+        if (chapterId) useDraftSyncStore().bump(chapterId);
+      }
       refresh();
       return action;
     } catch (err) {
@@ -57,6 +81,12 @@ export function useAgentActions(ctx: () => ToolContext) {
     refresh();
   }
 
+  /** 作废本会话全部待审批授权；重启后不想继续上次的动作时调用。 */
+  function discardAll(): void {
+    discardPending(ctx());
+    refresh();
+  }
+
   function reset(): void {
     resetPendingForTest();
     refresh();
@@ -65,5 +95,5 @@ export function useAgentActions(ctx: () => ToolContext) {
   /** 当前是否有待作者审批的操作。 */
   const hasPending = () => pending.value.some((item) => item.status === "pending");
 
-  return { pending, busyId, error, hasPending, refresh, approve, reject, clear, reset };
+  return { pending, busyId, error, hasPending, refresh, approve, reject, clear, discardAll, reset };
 }

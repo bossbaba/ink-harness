@@ -15,7 +15,8 @@ use super::init_schema;
 /// 6：Agent 角色（prompt + 工具白名单）与评测结果表——补齐「角色管理」与「回归评估」。
 /// 7：构思向导草稿表——访谈答案与生成方案落库，切页/关应用不再丢。
 /// 8：Agent 消息记引用与工具调用摘要——恢复会话时能重建「问了哪些设定/章节、动过哪些工具」。
-pub(super) const SCHEMA_VERSION: i64 = 8;
+/// 9：章节元数据独立版本号——正文自动保存不再顶掉大纲页的乐观锁基准。
+pub(super) const SCHEMA_VERSION: i64 = 9;
 
 /// 顺序迁移：从 `pragma user_version` 记录的位置往后执行。
 ///
@@ -161,6 +162,19 @@ pub(super) fn migrate(conn: &Connection) -> Result<(), AppError> {
             .map_err(AppError::from)?;
     }
 
+    if current < 9 {
+        // 大纲改标题/幕次原先拿 `updated_at` 当基准，而正文自动保存也推进这一列，
+        // 于是缓存的大纲页保存时会误报冲突。给元数据单独一个计数器，正文保存不碰它。
+        ensure_column(
+            conn,
+            "chapter",
+            "meta_revision",
+            "meta_revision integer not null default 0",
+        )?;
+        conn.pragma_update(None, "user_version", 9)
+            .map_err(AppError::from)?;
+    }
+
     Ok(())
 }
 
@@ -290,6 +304,12 @@ fn backfill_columns(conn: &Connection) -> Result<(), AppError> {
         "chapter",
         "content_revision",
         "content_revision integer not null default 0",
+    )?;
+    ensure_column(
+        conn,
+        "chapter",
+        "meta_revision",
+        "meta_revision integer not null default 0",
     )?;
     ensure_column(
         conn,

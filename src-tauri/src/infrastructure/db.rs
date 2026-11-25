@@ -105,15 +105,12 @@ fn purge_orphan_chunks(biz: &Connection, vec: &Connection) -> Result<(), AppErro
         return Ok(());
     }
 
-    let has_vec: i64 = vec.query_row(
-        "select count(*) from sqlite_master where name = 'vec_rag'",
-        [],
-        |row| row.get(0),
-    )?;
-    if has_vec > 0 {
-        let mut stmt = vec
-            .prepare("delete from vec_rag where rowid = ?1")
-            .map_err(AppError::from)?;
+    // 按维度分表后向量散落在 vec_rag_{dim} 里，只清旧表会留下幽灵向量：
+    // 既占空间，又会在 KNN 里挤掉有效候选。
+    let vec_tables = crate::services::rag::all_table_names(vec)?;
+    for table in vec_tables {
+        let sql = format!("delete from {table} where rowid = ?1");
+        let mut stmt = vec.prepare(&sql).map_err(AppError::from)?;
         for id in &ids {
             stmt.execute(params![id]).map_err(AppError::from)?;
         }
@@ -159,6 +156,7 @@ fn init_schema(conn: &Connection) -> Result<(), AppError> {
             content     text not null default '',     -- TipTap 文档 JSON，列表查询不读这一列
             word_count  integer not null default 0,   -- 正文非空白字符数，列表页直接显示
             content_revision integer not null default 0, -- 正文保存计数，正文乐观锁专用
+            meta_revision integer not null default 0,    -- 大纲元数据计数，改标题/幕次专用
             created_at  text not null,
             updated_at  text not null
         );

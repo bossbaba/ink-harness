@@ -194,13 +194,16 @@ export function useStoryBible(projectIdFromRoute: string) {
     error.value = "";
     try {
       const detail = buildDetail();
-      await storyElementService.update({
-        ...selected.value,
-        kind: draft.value.kind,
-        name: draft.value.name,
-        summary: draft.value.summary,
-        detail,
-      });
+      await storyElementService.update(
+        {
+          ...selected.value,
+          kind: draft.value.kind,
+          name: draft.value.name,
+          summary: draft.value.summary,
+          detail,
+        },
+        projectId.value,
+      );
       await loadElements();
     } catch (err) {
       const info = normalizeError(err);
@@ -250,7 +253,7 @@ export function useStoryBible(projectIdFromRoute: string) {
     if (!selected.value) return;
     removing.value = true;
     try {
-      await storyElementService.remove(selected.value.id);
+      await storyElementService.remove(selected.value.id, projectId.value);
       selectedId.value = "";
       await loadElements();
     } catch (err) {

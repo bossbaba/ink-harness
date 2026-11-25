@@ -162,6 +162,15 @@ function candidate(action: PendingToolAction): string {
         >
       </div>
     </div>
+    <!-- 待授权卡片会跨重启保留，给作者一个明确的作废入口，不让上一轮的授权悬着。 -->
+    <button
+      type="button"
+      v-if="agent.actions.some((a) => a.status === 'pending')"
+      class="controls__clear"
+      @click="agent.onAction({ type: 'discard' })"
+    >
+      作废待授权
+    </button>
     <button
       type="button"
       v-if="agent.actions.some((a) => a.status !== 'pending')"

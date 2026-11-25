@@ -35,10 +35,28 @@ pub fn list_servers(state: &DbState) -> Result<Vec<McpServerConfig>, AppError> {
     }
 }
 
+/// server id 会作为工具名前缀 `id__tool` 出现在模型可见的注册表里。
+/// 含 `__` 时无法唯一判断前缀在哪结束；其它特殊字符也会让工具名解析产生歧义。
+fn valid_server_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && !id.contains("__")
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
 /// 保存 MCP server 配置（按 id 覆盖或追加）。
-pub fn save_server(state: &DbState, input: McpServerConfig) -> Result<Vec<McpServerConfig>, AppError> {
-    if input.id.trim().is_empty() || input.command.trim().is_empty() {
+pub fn save_server(
+    state: &DbState,
+    mut input: McpServerConfig,
+) -> Result<Vec<McpServerConfig>, AppError> {
+    input.id = input.id.trim().to_string();
+    if input.id.is_empty() || input.command.trim().is_empty() {
         return Err(AppError::validation("MCP server 的 id 与命令不能为空"));
+    }
+    if !valid_server_id(&input.id) {
+        return Err(AppError::validation(
+            "MCP server id 只能包含字母、数字、下划线和连字符，且不能出现连续下划线",
+        ));
     }
     let mut servers = list_servers(state)?;
     if let Some(existing) = servers.iter_mut().find(|item| item.id == input.id) {
@@ -60,11 +78,6 @@ pub fn remove_server(state: &DbState, id: &str) -> Result<Vec<McpServerConfig>, 
 
 fn persist_servers(state: &DbState, servers: &[McpServerConfig]) -> Result<(), AppError> {
     super::setting::set(state, MCP_SERVERS_KEY, &serde_json::to_string(servers)?)
-}
-
-/// 启用中的 server 才参与工具发现。
-fn enabled_servers(state: &DbState) -> Result<Vec<McpServerConfig>, AppError> {
-    Ok(list_servers(state)?.into_iter().filter(|item| item.enabled).collect())
 }
 
 /// 列出所有启用 server 的工具。单个 server 失败只跳过它，不影响其它 server。
@@ -101,32 +114,24 @@ pub fn qualified_name(server_id: &str, tool_name: &str) -> String {
     format!("{server_id}__{tool_name}")
 }
 
-/// 从启用 server 的引用列表里定位工具；带前缀精确匹配，无前缀退回第一个 server。
+/// 从启用 server 的引用列表里定位工具。
+///
+/// 只接受 `serverId__toolName` 这种明确前缀；无前缀一律拒绝。
+/// 旧实现会退回第一个 server，模型凭空编一个工具名就可能打到某个外部进程上。
 fn resolve_refs<'a, 'b>(
     servers: &[&'a McpServerConfig],
     qualified: &'b str,
 ) -> Option<(&'a McpServerConfig, &'b str)> {
     for server in servers {
-        let prefix = format!("{}__", server.id);
+        // 复用唯一的拼接规则：空工具名得到的就是前缀本身。
+        let prefix = qualified_name(&server.id, "");
         if let Some(rest) = qualified.strip_prefix(&prefix) {
-            return Some((*server, rest));
+            if !rest.is_empty() {
+                return Some((*server, rest));
+            }
         }
     }
-    servers.first().map(|server| (*server, qualified))
-}
-
-/// 测试用：从拥有所有权的切片里定位工具。
-fn resolve_tool<'a, 'b>(
-    servers: &'a [McpServerConfig],
-    qualified: &'b str,
-) -> Option<(&'a McpServerConfig, &'b str)> {
-    for server in servers {
-        let prefix = format!("{}__", server.id);
-        if let Some(rest) = qualified.strip_prefix(&prefix) {
-            return Some((server, rest));
-        }
-    }
-    servers.first().map(|server| (server, qualified))
+    None
 }
 
 async fn fetch_tools(server: &McpServerConfig) -> Result<Vec<McpToolInfo>, AppError> {
@@ -269,11 +274,30 @@ mod tests {
     #[test]
     fn qualified_name_and_resolve_roundtrip() {
         let servers = vec![sample("srv1"), sample("srv2")];
+        let refs: Vec<&McpServerConfig> = servers.iter().collect();
         let name = qualified_name("srv2", "read_file");
         assert_eq!(name, "srv2__read_file");
-        let (server, actual) = resolve_tool(&servers, &name).unwrap();
+        let (server, actual) = resolve_refs(&refs, &name).unwrap();
         assert_eq!(server.id, "srv2");
         assert_eq!(actual, "read_file");
+    }
+
+    #[test]
+    fn unqualified_tool_name_is_rejected() {
+        let servers = vec![sample("srv1"), sample("srv2")];
+        let refs: Vec<&McpServerConfig> = servers.iter().collect();
+        // 不再「退回第一个 server」：裸工具名无法判定归属，必须拒绝。
+        assert!(resolve_refs(&refs, "read_file").is_none());
+        assert!(resolve_refs(&refs, "srv1__").is_none());
+    }
+
+    #[test]
+    fn server_id_with_double_underscore_is_rejected() {
+        let state = temp_state("bad-id");
+        // `a__b__tool` 无法唯一解析出 server 边界。
+        assert!(save_server(&state, sample("a__b")).is_err());
+        assert!(save_server(&state, sample("带空格 id")).is_err());
+        assert!(save_server(&state, sample("ok-id_2")).is_ok());
     }
 
     #[test]
@@ -283,7 +307,11 @@ mod tests {
         off.enabled = false;
         save_server(&state, off).unwrap();
         save_server(&state, sample("on")).unwrap();
-        let enabled = enabled_servers(&state).unwrap();
+        let enabled: Vec<_> = list_servers(&state)
+            .unwrap()
+            .into_iter()
+            .filter(|item| item.enabled)
+            .collect();
         assert_eq!(enabled.len(), 1);
         assert_eq!(enabled[0].id, "on");
     }

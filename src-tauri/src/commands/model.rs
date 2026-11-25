@@ -30,8 +30,11 @@ pub async fn remove_provider(app: tauri::AppHandle, id: String) -> Result<(), Ap
 
 /// 探测连接并拉取模型列表；允许在保存前用未落库的 API Key 测试。
 #[tauri::command]
-pub async fn probe_provider(input: ProbeProviderInput) -> Result<Vec<String>, AppError> {
-    provider::probe(&input).await
+pub async fn probe_provider(
+    state: tauri::State<'_, crate::infrastructure::db::DbState>,
+    input: ProbeProviderInput,
+) -> Result<Vec<String>, AppError> {
+    provider::probe(&state, &input).await
 }
 
 #[tauri::command]

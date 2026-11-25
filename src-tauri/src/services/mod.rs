@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod agent_eval;
 pub mod agent_role;
+pub mod approval;
 pub mod cancel;
 pub mod chat;
 pub mod draft;

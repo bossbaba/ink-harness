@@ -133,7 +133,8 @@ export async function runAgentLoop(
   const maxReplans = Math.max(0, input.maxReplans ?? 1);
   let plan: AgentPlan | null = null;
   let replans = 0;
-  // 角色白名单只裁剪下发与可见的工具；执行器仍按注册表校验，未下发的名字也调不通。
+  // 角色白名单既裁剪下发定义，也会原样传给执行器做二次校验：
+  // JSON 降级轨能凭空写出任意工具名，只在下发时过滤是拦不住的。
   const baseTools = filterToolDefinitions(toToolDefinitions(), input.toolNames ?? []);
   // 规划元工具不进全局注册表：它们在循环里被拦截，用来推进/重拆计划而非执行业务。
   // 关闭规划时完全不下发，老角色与评测口径不受影响。
@@ -353,7 +354,9 @@ export async function runAgentLoop(
       }
     }
 
-    const workObservations = workCalls.length ? await executeCalls(workCalls, input.ctx) : [];
+    const workObservations = workCalls.length
+      ? await executeCalls(workCalls, input.ctx, input.toolNames ?? [])
+      : [];
     let workIndex = 0;
     const observations = calls.map((call) => {
       const planned = planObservations.get(call.id);

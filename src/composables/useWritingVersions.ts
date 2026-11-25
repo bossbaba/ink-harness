@@ -12,6 +12,8 @@ import type { SaveState } from "./useWritingDesk";
  * 不自行持有自动保存状态，避免两处各写一份导致冲突。
  */
 export interface WritingVersionDeps {
+  /** 当前作品 id：按 id 访问正文/版本时后端要核对该资源属于这部作品。 */
+  projectId: string;
   /** 当前已载入正文的章节 id。 */
   loadedChapterId: Ref<string>;
   /** 编辑器正文（含未保存改动）。 */
@@ -59,7 +61,7 @@ export function useWritingVersions(deps: WritingVersionDeps) {
     }
     versionsLoading.value = true;
     try {
-      versions.value = await writingService.listVersions(chapterId);
+      versions.value = await writingService.listVersions(chapterId, deps.projectId);
     } catch (err) {
       deps.error.value = `读取版本失败：${String(err)}`;
     } finally {
@@ -92,13 +94,16 @@ export function useWritingVersions(deps: WritingVersionDeps) {
               content: deps.content.value,
               wordCount: deps.wordCount.value,
             };
-      const saved = await writingService.saveContent({
-        chapterId,
-        content: payload.content,
-        wordCount: payload.wordCount,
-        snapshot: true,
-        expectedContentRevision: deps.contentRevisions.get(chapterId),
-      });
+      const saved = await writingService.saveContent(
+        {
+          chapterId,
+          content: payload.content,
+          wordCount: payload.wordCount,
+          snapshot: true,
+          expectedContentRevision: deps.contentRevisions.get(chapterId),
+        },
+        deps.projectId,
+      );
       deps.contentRevisions.set(chapterId, saved.contentRevision);
       deps.clearPending();
       clearDraftBackup(chapterId);
@@ -122,7 +127,7 @@ export function useWritingVersions(deps: WritingVersionDeps) {
     if (previewBusy.value) return;
     previewBusy.value = true;
     try {
-      previewVersion.value = await writingService.getVersion(versionId);
+      previewVersion.value = await writingService.getVersion(versionId, deps.projectId);
     } catch (err) {
       deps.error.value = `读取版本失败：${String(err)}`;
     } finally {
@@ -145,7 +150,11 @@ export function useWritingVersions(deps: WritingVersionDeps) {
       // 否则这段文字会被恢复操作无声吃掉。
       await deps.flush();
       deps.clearPending();
-      const restored = await writingService.restoreVersion(versionId);
+      const restored = await writingService.restoreVersion(
+        versionId,
+        deps.projectId,
+        deps.contentRevisions.get(chapterId),
+      );
       deps.content.value = restored.content;
       deps.wordCount.value = restored.wordCount;
       deps.contentRevisions.set(chapterId, restored.contentRevision);

@@ -31,7 +31,7 @@ pub(super) fn table_name(dim: i64) -> String {
 ///
 /// sqlite-vec 会为虚拟表建 `vec_rag_3_data` / `vec_rag_3_index` 之类的影子表，
 /// 这里只保留纯数字后缀的实体表名，否则会把影子表当成向量表去删。
-pub(super) fn all_table_names(conn: &Connection) -> Result<Vec<String>, AppError> {
+pub(crate) fn all_table_names(conn: &Connection) -> Result<Vec<String>, AppError> {
     let mut stmt = conn
         .prepare("select name from sqlite_master where type = 'table' and name like 'vec_rag%'")
         .map_err(AppError::from)?;

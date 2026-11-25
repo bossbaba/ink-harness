@@ -26,17 +26,98 @@ import type {
 let pendingSeq = 0;
 const pendingByScope = new Map<string, PendingToolAction[]>();
 
+/** 本地持久化前缀：只存「待审批」，终态和已批准执行中的动作重启后不再恢复。 */
+const PENDING_STORAGE_PREFIX = "ink:pending-actions:";
+
+/** 可序列化的动作快照；`tool`（含 run 函数）不能 JSON 化，恢复时按工具名重建。 */
+interface StoredAction {
+  id: string;
+  toolName: string;
+  label: string;
+  args: Record<string, unknown>;
+  error: string;
+}
+
+function storage(): Storage | null {
+  // 单测跑在 node 环境，没有 localStorage；此时自动退化为纯内存队列。
+  return typeof localStorage === "undefined" ? null : localStorage;
+}
+
+/** 读取某作用域的待审批快照；结构不对或损坏时当作空队列。 */
+function readStored(key: string): StoredAction[] {
+  const store = storage();
+  if (!store) return [];
+  try {
+    const raw = store.getItem(PENDING_STORAGE_PREFIX + key);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is StoredAction => {
+      if (!item || typeof item !== "object") return false;
+      const value = item as Partial<StoredAction>;
+      return (
+        typeof value.id === "string" &&
+        typeof value.toolName === "string" &&
+        Boolean(value.args) &&
+        typeof value.args === "object"
+      );
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** 写回快照；没有待审批项时直接删键，避免留空壳占用存储。 */
+function persistQueue(key: string, queue: PendingToolAction[]): void {
+  const store = storage();
+  if (!store) return;
+  const pending = queue.filter((item) => item.status === "pending");
+  try {
+    if (pending.length === 0) {
+      store.removeItem(PENDING_STORAGE_PREFIX + key);
+      return;
+    }
+    const snapshot: StoredAction[] = pending.map((item) => ({
+      id: item.id,
+      toolName: item.toolName,
+      label: item.label,
+      args: item.args,
+      error: item.error,
+    }));
+    store.setItem(PENDING_STORAGE_PREFIX + key, JSON.stringify(snapshot));
+  } catch {
+    // 配额满或隐私模式：丢失持久化不影响本轮审批。
+  }
+}
+
 /** 生成队列键；老调用方不传 sessionId 时用空串，保持兼容。 */
 function scopeKey(ctx: ToolContext): string {
   return `${ctx.projectId}::${ctx.sessionId ?? ""}`;
 }
 
-/** 取（必要时创建）当前上下文的队列。 */
+/** 取（必要时创建）当前上下文的队列；首次访问时从本地快照恢复。 */
 function queueOf(ctx: ToolContext): PendingToolAction[] {
   const key = scopeKey(ctx);
   let queue = pendingByScope.get(key);
   if (!queue) {
-    queue = [];
+    queue = readStored(key)
+      .map((item): PendingToolAction | null => {
+        const tool = findTool(item.toolName);
+        // 工具可能在版本升级后被移除；这类旧卡片直接丢弃，不能留下点不动的僵尸审批。
+        if (tool?.risk !== "write") return null;
+        const args = scrubArgs(item.args) as Record<string, unknown>;
+        return {
+          id: item.id,
+          toolName: item.toolName,
+          label: item.label,
+          args,
+          preview: buildWritePreview(item.toolName, args),
+          tool,
+          status: "pending",
+          error: item.error,
+        };
+      })
+      .filter((item): item is PendingToolAction => item !== null);
     pendingByScope.set(key, queue);
   }
   return queue;
@@ -70,23 +151,41 @@ function approvalPrompt(action: PendingToolAction): string {
   return `工具 ${action.toolName} 已提交作者审批，当前未执行。作者通过或驳回后，结果会以「工具回执」出现在对话中；请基于已有信息继续或结束回答，不要假设它已经执行。`;
 }
 
-/** 执行一批工具调用，返回与之一一对应的观察结果（供下一轮请求作为 tool 消息）。 */
+/**
+ * 执行一批工具调用，返回与之一一对应的观察结果（供下一轮请求作为 tool 消息）。
+ *
+ * `allowedToolNames` 是本轮生效的角色白名单：只裁剪下发定义不够，JSON 降级轨
+ * 可以凭空写出任意工具名，执行前必须按同一份白名单再拦一次。
+ */
 export async function executeCalls(
   calls: CollectedToolCall[],
   ctx: ToolContext,
+  allowedToolNames: string[] = [],
 ): Promise<ToolObservation[]> {
+  const allowed = allowedToolNames.length > 0 ? new Set(allowedToolNames) : null;
   const results: ToolObservation[] = [];
   for (const call of calls) {
-    results.push(await executeOne(call, ctx));
+    results.push(await executeOne(call, ctx, allowed));
   }
   return results;
 }
 
-/** 执行单个调用：解析错误/未知工具/校验失败都转成 isError 观察，不中断整批。 */
-async function executeOne(call: CollectedToolCall, ctx: ToolContext): Promise<ToolObservation> {
+/** 执行单个调用：解析错误/未授权/未知工具/校验失败都转成 isError 观察，不中断整批。 */
+async function executeOne(
+  call: CollectedToolCall,
+  ctx: ToolContext,
+  allowed: Set<string> | null,
+): Promise<ToolObservation> {
   const base = { toolCallId: call.id, toolName: call.name };
   if (call.parseError) {
     return { ...base, content: call.parseError, isError: true };
+  }
+  if (allowed && !allowed.has(call.name)) {
+    return {
+      ...base,
+      content: `工具 ${call.name} 不在当前角色允许的工具列表中，已拒绝执行。`,
+      isError: true,
+    };
   }
   const tool = findTool(call.name);
   if (!tool) {
@@ -101,7 +200,9 @@ async function executeOne(call: CollectedToolCall, ctx: ToolContext): Promise<To
     // 预览同样基于它生成，保证作者「看到的」与「写入的」是同一份文字。
     const args = scrubArgs(call.arguments) as Record<string, unknown>;
     const action: PendingToolAction = {
-      id: call.id || `pending-${++pendingSeq}`,
+      // 审批 id 不能采信模型给的 call.id：重复 id 会让后一个动作覆盖前一个，
+      // 模型也能猜中别人的 id 去错批。本地生成保证唯一，call.id 仍用于工具回执配对。
+      id: `pending-${++pendingSeq}-${Date.now().toString(36)}`,
       toolName: call.name,
       label: describeAction({ ...call, arguments: args }),
       args,
@@ -110,7 +211,9 @@ async function executeOne(call: CollectedToolCall, ctx: ToolContext): Promise<To
       status: "pending",
       error: "",
     };
-    queueOf(ctx).push(action);
+    const queue = queueOf(ctx);
+    queue.push(action);
+    persistQueue(scopeKey(ctx), queue);
     return { ...base, content: approvalPrompt(action), isError: false };
   }
   try {
@@ -153,10 +256,13 @@ export async function approveAction(
     const result = scrubText(await action.tool.run(action.args, ctx));
     action.status = "applied";
     action.error = "";
+    // 已批准的动作不再持久化：重启后回执无处可回灌，留着只会变成僵尸审批。
+    persistQueue(scopeKey(ctx), queue);
     return { ...action, label: result };
   } catch (err) {
     action.status = "failed";
     action.error = String(err);
+    persistQueue(scopeKey(ctx), queue);
     return { ...action };
   }
 }
@@ -166,19 +272,51 @@ export function rejectAction(id: string, ctx: ToolContext): PendingToolAction | 
   const action = queueOf(ctx).find((item) => item.id === id);
   if (action?.status !== "pending") return null;
   action.status = "rejected";
+  persistQueue(scopeKey(ctx), queueOf(ctx));
   return { ...action };
 }
 
-/** 清空当前上下文里已完成（通过/驳回/失败）的动作，保留 pending 供下次审批。 */
+/**
+ * 清空当前上下文里已完成（通过/驳回/失败）的动作，保留 pending 供下次审批。
+ *
+ * approved 表示「作者已点通过、工具还在执行」，此时清掉会让审批回执丢给模型，
+ * 因此只清真正终态的 applied / rejected / failed。
+ */
 export function clearFinished(ctx: ToolContext): void {
   const queue = queueOf(ctx);
+  const finished = new Set(["applied", "rejected", "failed"]);
   for (let i = queue.length - 1; i >= 0; i -= 1) {
-    if (queue[i].status !== "pending") queue.splice(i, 1);
+    if (finished.has(queue[i].status)) queue.splice(i, 1);
   }
+  persistQueue(scopeKey(ctx), queue);
 }
 
-/** 仅测试用：清空全部上下文的队列。 */
+/**
+ * 显式作废当前上下文的全部待审批动作。
+ *
+ * 重启后作者可能已经不记得上一轮留了什么授权，与其给一个含糊的「恢复」状态，
+ * 不如让界面提供明确的作废入口；作废后本地快照同步删除。
+ */
+export function discardPending(ctx: ToolContext): void {
+  const key = scopeKey(ctx);
+  pendingByScope.delete(key);
+  persistQueue(key, []);
+}
+
+/** 仅测试用：清空全部上下文的队列与本地快照。 */
 export function resetPendingForTest(): void {
   pendingByScope.clear();
   pendingSeq = 0;
+  const store = storage();
+  if (!store) return;
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < store.length; i += 1) {
+      const key = store.key(i);
+      if (key?.startsWith(PENDING_STORAGE_PREFIX)) keys.push(key);
+    }
+    for (const key of keys) store.removeItem(key);
+  } catch {
+    // 测试环境清理失败可忽略，不影响断言。
+  }
 }

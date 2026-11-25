@@ -24,6 +24,14 @@ describe("scrubText", () => {
     expect(scrubText(pem)).toBe(MASK);
   });
 
+  it("Bearer 匹配大小写不敏感且保留原文前缀写法", () => {
+    const masked = scrubText("headers: bearer abcdefghijklmnop and BEARER qwertyuiopasdfgh");
+    expect(masked).not.toContain("abcdefghijklmnop");
+    expect(masked).not.toContain("qwertyuiopasdfgh");
+    expect(masked).toContain("bearer ");
+    expect(masked).toContain("BEARER ");
+  });
+
   it("手机号、邮箱等正文内容原样保留", () => {
     const text = "联系 13800138000 或 writer@example.com";
     expect(scrubText(text)).toBe(text);

@@ -4,17 +4,26 @@ import type { ChapterContent, DraftVersion, DraftVersionBrief, SaveContentInput 
 /**
  * 写作台领域服务：页面与组合式函数只依赖这个门面，不直接调 IPC。
  * 正文读写与版本快照是写作台独有能力，章节元数据的增删改仍归 outlineService。
+ *
+ * 每个按 id 定位资源的方法都要求显式传 `projectId`，由后端再核一次归属。
  */
 export const writingService = {
-  getContent: (chapterId: string): Promise<ChapterContent> => tauriApi.getChapterContent(chapterId),
+  getContent: (chapterId: string, projectId: string): Promise<ChapterContent> =>
+    tauriApi.getChapterContent(chapterId, projectId),
 
-  saveContent: (input: SaveContentInput): Promise<ChapterContent> =>
-    tauriApi.saveChapterContent(input),
+  saveContent: (input: SaveContentInput, projectId: string): Promise<ChapterContent> =>
+    tauriApi.saveChapterContent(input, projectId),
 
-  listVersions: (chapterId: string): Promise<DraftVersionBrief[]> =>
-    tauriApi.listDraftVersions(chapterId),
+  listVersions: (chapterId: string, projectId: string): Promise<DraftVersionBrief[]> =>
+    tauriApi.listDraftVersions(chapterId, projectId),
 
-  getVersion: (id: string): Promise<DraftVersion> => tauriApi.getDraftVersion(id),
+  getVersion: (id: string, projectId: string): Promise<DraftVersion> =>
+    tauriApi.getDraftVersion(id, projectId),
 
-  restoreVersion: (id: string): Promise<ChapterContent> => tauriApi.restoreDraftVersion(id),
+  restoreVersion: (
+    id: string,
+    projectId: string,
+    expectedContentRevision?: number,
+  ): Promise<ChapterContent> =>
+    tauriApi.restoreDraftVersion(id, projectId, expectedContentRevision),
 };

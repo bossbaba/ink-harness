@@ -105,13 +105,26 @@ fn restore_version_rolls_back_content() {
 
     let versions = list_versions(&state, &chapter_id).unwrap();
     let oldest = versions.last().unwrap();
-    let restored = restore_version(&state, &oldest.id).unwrap();
+    let restored = restore_version(&state, &oldest.id, None).unwrap();
 
     assert_eq!(restored.content, "旧正文");
     assert_eq!(restored.word_count, 30);
     // 「新正文」在第 2 版里已经存过，恢复时不再补重复底稿。
     let after = list_versions(&state, &chapter_id).unwrap();
     assert_eq!(after.len(), 2);
+}
+
+/// 陈旧基准必须报冲突，不能让恢复操作覆盖另一处刚保存的新稿。
+#[test]
+fn restore_version_rejects_stale_revision() {
+    let (state, chapter_id) = temp_chapter("restore-stale");
+    save(&state, &chapter_id, "旧正文", 30, true);
+    let version_id = list_versions(&state, &chapter_id).unwrap()[0].id.clone();
+    let stale = get_content(&state, &chapter_id).unwrap().content_revision + 1;
+
+    let error = restore_version(&state, &version_id, Some(stale)).unwrap_err();
+    assert!(error.to_string().contains("冲突") || error.to_string().contains("重新载入"));
+    assert_eq!(get_content(&state, &chapter_id).unwrap().content, "旧正文");
 }
 
 /// 恢复时若当前正文从未存过快照（例如只靠自动保存写进去的），先补一版再覆盖。
@@ -123,7 +136,7 @@ fn restore_version_backs_up_unsaved_snapshot() {
     save(&state, &chapter_id, "自动保存的正文", 100, false);
 
     let version_id = list_versions(&state, &chapter_id).unwrap()[0].id.clone();
-    let restored = restore_version(&state, &version_id).unwrap();
+    let restored = restore_version(&state, &version_id, None).unwrap();
     assert_eq!(restored.content, "底稿");
 
     let after = list_versions(&state, &chapter_id).unwrap();

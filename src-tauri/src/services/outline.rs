@@ -24,7 +24,7 @@ pub(super) const ACT_MIN: i64 = 1;
 pub(super) const ACT_MAX: i64 = 99;
 
 const CHAPTER_COLUMNS: &str =
-    "id, project_id, act, title, summary, status, word_count, sort_order, created_at, updated_at";
+    "id, project_id, act, title, summary, status, word_count, meta_revision, sort_order, created_at, updated_at";
 
 fn row_to_chapter(row: &rusqlite::Row<'_>) -> rusqlite::Result<Chapter> {
     Ok(Chapter {
@@ -35,9 +35,10 @@ fn row_to_chapter(row: &rusqlite::Row<'_>) -> rusqlite::Result<Chapter> {
         summary: row.get(4)?,
         status: row.get(5)?,
         word_count: row.get(6)?,
-        sort_order: row.get(7)?,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        meta_revision: row.get(7)?,
+        sort_order: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 
@@ -206,21 +207,21 @@ pub fn update_chapter(state: &DbState, chapter: &Chapter) -> Result<(), AppError
     validate_status(&chapter.status, &CHAPTER_STATUSES, "章节")?;
 
     let conn = state.biz();
-    let existing: Option<(i64, i64, String)> = conn
+    let existing: Option<(i64, i64, i64)> = conn
         .query_row(
-            "select act, sort_order, updated_at from chapter where id = ?1",
+            "select act, sort_order, meta_revision from chapter where id = ?1",
             params![chapter.id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()
         .map_err(AppError::from)?;
-    let (old_act, old_order, db_updated_at) =
+    let (old_act, old_order, db_meta_revision) =
         existing.ok_or_else(|| AppError::not_found("章节不存在"))?;
 
-    // 乐观锁：前端提交的是它读到的整份章节，`updated_at` 就是基准版本。
-    // 不带（空串）视为「不校验」，保持老调用方兼容。
-    let expected = chapter.updated_at.as_str();
-    if !expected.is_empty() && expected != db_updated_at {
+    // 乐观锁用元数据自己的计数器：正文自动保存只推进 content_revision / updated_at，
+    // 不再顶掉大纲页读到的基准。`meta_revision = -1` 表示调用方明确放弃校验。
+    let expected = chapter.meta_revision;
+    if expected >= 0 && expected != db_meta_revision {
         return Err(AppError::conflict("章节已在其他页面被修改，请刷新后再保存"));
     }
 
@@ -233,18 +234,12 @@ pub fn update_chapter(state: &DbState, chapter: &Chapter) -> Result<(), AppError
     let tx = conn.unchecked_transaction().map_err(AppError::from)?;
     let changed = tx
         .execute(
-            // updated_at 同时充当元数据版本号，必须严格递增：同一毫秒内连着改两次
-            // （脚本/连点保存）时，若不进位下一次的基准就和这次相同，乐观锁会失效。
+            // 元数据版本在事务内递增，条件更新兜住「读到基准后又有人改过」的并发窗口。
+            // updated_at 只用于界面排序/展示，不再承担乐观锁职责。
             r#"update chapter set act=?2, title=?3, summary=?4, status=?5, sort_order=?6,
-               updated_at = case
-                 when coalesce(strftime('%Y-%m-%dT%H:%M:%fZ','now'), '') > updated_at
-                   then strftime('%Y-%m-%dT%H:%M:%fZ','now')
-                 else coalesce(
-                   strftime('%Y-%m-%dT%H:%M:%fZ', updated_at, '+0.001 seconds'),
-                   strftime('%Y-%m-%dT%H:%M:%fZ','now')
-                 )
-               end
-               where id=?1 and (?7 = '' or updated_at = ?7)"#,
+               meta_revision = meta_revision + 1,
+               updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+               where id=?1 and (?7 < 0 or meta_revision = ?7)"#,
             params![
                 chapter.id,
                 chapter.act,

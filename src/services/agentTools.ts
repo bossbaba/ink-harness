@@ -24,12 +24,19 @@ function text(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-/** 按 id 取设定，找不到时返回可读提示而不是抛异常，让模型能继续决策。 */
-async function findElement(id: unknown): Promise<string> {
+/**
+ * 按 id 取设定，找不到时返回可读提示而不是抛异常，让模型能继续决策。
+ *
+ * id 来自模型参数，必须确认条目属于当前作品：否则注入内容猜到别的作品 id，
+ * 就能借 Copilot 把别人的设定读进本次上下文。
+ */
+async function findElement(id: unknown, projectId: string): Promise<string> {
   const elementId = typeof id === "string" ? id : "";
   if (!elementId) return "未提供设定 id";
-  const element = await storyElementService.get(elementId);
-  return element ? text(element) : `设定 ${elementId} 不存在`;
+  // 归属同时由后端再核一次：前端这层给出可读提示，后端挡住绕过工具层的调用。
+  const element = await storyElementService.get(elementId, projectId);
+  if (!element) return `设定 ${elementId} 不存在或不属于当前作品`;
+  return text(element);
 }
 
 const getProject: AgentTool = {
@@ -95,7 +102,7 @@ const readChapter: AgentTool = {
     if (!chapter) return `章节 ${chapterId} 不存在`;
     const withContent = args.withContent === true || args.withContent === "true";
     if (!withContent) return `${fallbackNote}${text(chapter)}`;
-    const content = await writingService.getContent(chapter.id);
+    const content = await writingService.getContent(chapter.id, ctx.projectId);
     return `${fallbackNote}${text({ chapter, content })}`;
   },
 };
@@ -189,6 +196,11 @@ const applyEdits: AgentTool = {
     const chapterId =
       typeof args.chapterId === "string" && args.chapterId ? args.chapterId : ctx.chapterId;
     if (!chapterId) return "尚未选择章节，且未提供 chapterId";
+    // chapterId 来自模型参数：先确认它属于当前作品，避免跨作品改正文。
+    const snapshot = await outlineService.snapshot(ctx.projectId);
+    if (!snapshot.chapters.some((item) => item.id === chapterId)) {
+      return `章节 ${chapterId} 不属于当前作品`;
+    }
     const raw = Array.isArray(args.edits) ? args.edits : [];
     const edits: ReviewEdit[] = [];
     for (const [index, item] of raw.entries()) {
@@ -201,20 +213,23 @@ const applyEdits: AgentTool = {
     if (edits.length === 0) return "没有可应用的修改（edits 为空或格式不对）";
     if (edits.length > MAX_EDITS) return `一次最多应用 ${MAX_EDITS} 处修改，请拆成多批`;
 
-    const current = await writingService.getContent(chapterId);
+    const current = await writingService.getContent(chapterId, ctx.projectId);
     const result = applyReviewEdits(current.content, edits);
     if (result.appliedIds.length === 0) {
       return `没有在正文里找到要替换的原文，未做任何改动（${result.failedIds.length} 条定位失败）`;
     }
-    await writingService.saveContent({
-      chapterId,
-      content: result.content,
-      wordCount: result.wordCount,
-      // 留一版快照，作者在版本历史里能回到这次修改之后的状态再手工调整。
-      snapshot: true,
-      // 乐观锁：审批期间正文若被改动，这里会抛冲突，执行器把它标成失败。
-      expectedContentRevision: current.contentRevision,
-    });
+    await writingService.saveContent(
+      {
+        chapterId,
+        content: result.content,
+        wordCount: result.wordCount,
+        // 留一版快照，作者在版本历史里能回到这次修改之后的状态再手工调整。
+        snapshot: true,
+        // 乐观锁：审批期间正文若被改动，这里会抛冲突，执行器把它标成失败。
+        expectedContentRevision: current.contentRevision,
+      },
+      ctx.projectId,
+    );
     return `已应用 ${result.appliedIds.length} 处修改${
       result.failedIds.length ? `，${result.failedIds.length} 处未匹配原文已跳过` : ""
     }`;
@@ -232,8 +247,8 @@ const inspectElement: AgentTool = {
     additionalProperties: false,
   },
   risk: "read",
-  async run(args) {
-    return findElement(args.id);
+  async run(args, ctx) {
+    return findElement(args.id, ctx.projectId);
   },
 };
 
@@ -279,7 +294,7 @@ const proposeReview: AgentTool = {
     const chapter = snapshot.chapters.find((item) => item.id === chapterId);
     if (!chapter) return `章节 ${chapterId} 不存在`;
     const [body, context] = await Promise.all([
-      writingService.getContent(chapterId),
+      writingService.getContent(chapterId, ctx.projectId),
       outlineService.buildContext(ctx.projectId),
     ]);
     const content = body.content;

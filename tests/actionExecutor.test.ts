@@ -8,7 +8,15 @@ vi.mock("@/services/projectService", () => ({
   projectService: { get: vi.fn().mockResolvedValue(null) },
 }));
 vi.mock("@/services/outlineService", () => ({
-  outlineService: { snapshot: vi.fn().mockResolvedValue({ chapters: [] }) },
+  // apply_edits 会按当前作品的大纲校验 chapterId 归属：c1 正常，c99 用于模拟写库失败。
+  outlineService: {
+    snapshot: vi.fn().mockResolvedValue({
+      chapters: [
+        { id: "c1", projectId: "p1" },
+        { id: "c99", projectId: "p1" },
+      ],
+    }),
+  },
 }));
 vi.mock("@/services/ragService", () => ({
   ragService: { search: vi.fn().mockResolvedValue([]) },

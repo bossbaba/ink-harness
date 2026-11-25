@@ -12,6 +12,7 @@ pub mod mcp;
 pub mod model;
 pub mod ollama;
 pub mod outline;
+mod ownership;
 pub mod project;
 pub mod publish;
 pub mod rag;

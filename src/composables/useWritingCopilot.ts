@@ -165,6 +165,7 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
       if (decided) messaging.appendToolDecision(decided);
     } else if (action.type === "insert") options.insertAtCursor?.(action.text);
     else if (action.type === "clear") agentActions.clear();
+    else if (action.type === "discard") agentActions.discardAll();
     else if (action.type === "role") roleId.value = action.id;
     else if (action.type === "toggle-planning") planning.value = !planning.value;
     else agentMode.value = !agentMode.value;

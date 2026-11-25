@@ -1,6 +1,7 @@
 import { ref } from "vue";
 import type { AgentStep } from "@/services/agentLoop";
 import { agentSessionService } from "@/services/agentSessionService";
+import { scrubArgs } from "@/services/guardrails";
 import type { AgentSession } from "@/types";
 
 /**
@@ -186,7 +187,8 @@ export function useCopilotSession(projectId: string) {
               steps.flatMap((step) =>
                 step.calls.map((call) => ({
                   name: call.name,
-                  arguments: call.arguments,
+                  // 会话会长期留在 SQLite，工具参数必须先脱敏，不能依赖上游一定洗过。
+                  arguments: scrubArgs(call.arguments),
                 })),
               ),
             )
@@ -197,7 +199,10 @@ export function useCopilotSession(projectId: string) {
         await agentSessionService.appendStep({
           sessionId: sid,
           iteration: step.iteration,
-          toolCalls: JSON.stringify(step.calls),
+          // 轨迹里的参数与观察结果同样会落库，逐项脱敏后再序列化。
+          toolCalls: JSON.stringify(
+            step.calls.map((call) => ({ ...call, arguments: scrubArgs(call.arguments) })),
+          ),
           observations: JSON.stringify(step.observations),
           tokens: step.tokens,
           latencyMs: step.latencyMs,

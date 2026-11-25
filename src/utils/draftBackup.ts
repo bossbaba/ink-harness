@@ -43,22 +43,32 @@ export function readDraftBackup(chapterId: string): DraftBackup | null {
   }
 }
 
+/**
+ * 写本地备份，返回是否真的写成功。
+ *
+ * 调用方要据此决定提示文案：写库失败又赶上 localStorage 禁用时，
+ * 不能再告诉作者「正文已留在本地备份」，那会给他错误的安全感。
+ */
 export function writeDraftBackup(
   chapterId: string,
   payload: { content: string; wordCount: number },
-): void {
+): boolean {
   try {
     const backup: DraftBackup = { ...payload, savedAt: Date.now() };
     localStorage.setItem(backupKey(chapterId), JSON.stringify(backup));
+    return true;
   } catch {
-    // 配额满或存储被禁用：兜底失效不算错误，界面上已经提示了写库失败。
+    // 配额满或存储被禁用：返回失败，由调用方改成「请手动复制」的提示。
+    return false;
   }
 }
 
-export function clearDraftBackup(chapterId: string): void {
+/** 清理已落库章节的备份；返回是否清掉，失败不影响主流程（下次成功保存会再清）。 */
+export function clearDraftBackup(chapterId: string): boolean {
   try {
     localStorage.removeItem(backupKey(chapterId));
+    return true;
   } catch {
-    // 清不掉不影响主流程，下次成功保存后还会再清一次。
+    return false;
   }
 }

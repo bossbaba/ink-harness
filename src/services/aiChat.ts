@@ -1,3 +1,4 @@
+import { scrubArgs } from "@/services/guardrails";
 import { modelRouter } from "@/services/modelRouter";
 import type {
   ChatMessage,
@@ -75,7 +76,9 @@ export function collectToolCalls(chunks: ToolCallChunk[]): CollectedToolCall[] {
         try {
           const value: unknown = JSON.parse(text);
           if (value && typeof value === "object" && !Array.isArray(value)) {
-            parsed = value as Record<string, unknown>;
+            // 工具参数会被回填进下一轮提示词并随会话落库，入口处先洗一遍，
+            // 不让 read/MCP 工具把外部资料里的凭据带进 SQLite。
+            parsed = scrubArgs(value) as Record<string, unknown>;
           } else {
             parseError = "工具参数不是 JSON 对象";
           }

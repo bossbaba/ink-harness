@@ -1,4 +1,5 @@
 import { toToolDefinitions } from "@/services/agentTools";
+import { scrubArgs } from "@/services/guardrails";
 import type { ChatMessage, CollectedToolCall } from "@/types";
 import { parseLooseJson } from "@/utils/looseJson";
 
@@ -90,24 +91,34 @@ export function parseFallbackCalls(text: string): CollectedToolCall[] {
     const raw = item as { name?: unknown; arguments?: unknown };
     if (typeof raw.name !== "string" || !raw.name) return [];
     const args = raw.arguments && typeof raw.arguments === "object" ? raw.arguments : {};
+    // 与标准轨一样，降级轨的参数也会回填并落库，先脱敏再进入后续链路。
+    const safe = scrubArgs(args) as Record<string, unknown>;
     return [
       {
         id: `fallback-${index}-${raw.name}`,
         name: raw.name,
-        arguments: args as Record<string, unknown>,
-        rawArguments: JSON.stringify(args),
+        arguments: safe,
+        rawArguments: JSON.stringify(safe),
         parseError: "",
       },
     ];
   });
 }
 
-/** 把一组调用转成 assistant 消息里的 tool_calls 字段（OpenAI 要求原样回传）。 */
+/**
+ * 把一组调用转成 assistant 消息里的 tool_calls 字段（OpenAI 要求原样回传）。
+ *
+ * 参数这里再脱敏一次是兜底：调用方可能直接构造 CollectedToolCall 而不经过
+ * collectToolCalls / parseFallbackCalls，回填进下一轮的明文凭据必须在这里被挡住。
+ */
 export function assistantToolCalls(calls: CollectedToolCall[]): ChatMessage["toolCalls"] {
   return calls.map((call) => ({
     id: call.id,
     type: "function" as const,
-    function: { name: call.name, arguments: call.rawArguments },
+    function: {
+      name: call.name,
+      arguments: JSON.stringify(scrubArgs(call.arguments)),
+    },
   }));
 }
 

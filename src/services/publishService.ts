@@ -49,7 +49,7 @@ export async function loadPublishDocument(projectId: string): Promise<PublishDoc
   const chapters = await Promise.all(
     snapshot.chapters.map(async (chapter) => {
       try {
-        const content = await writingService.getContent(chapter.id);
+        const content = await writingService.getContent(chapter.id, projectId);
         const text = documentToPlainText(content.content);
         return {
           id: chapter.id,

@@ -185,7 +185,7 @@ export function useCopilotMessaging(options: CopilotMessagingOptions) {
       // 检索与引用并行：检索失败只返回空结果，不影响这次提问。
       const [context, referenceBlock, notes, budget] = await Promise.all([
         loadContext(),
-        buildReferenceBlock(attached),
+        buildReferenceBlock(attached, options.projectId),
         loadRelatedNotes(options.projectId, text),
         getContextBudget(),
       ]);
@@ -278,7 +278,7 @@ export function useCopilotMessaging(options: CopilotMessagingOptions) {
 
       const [context, referenceBlock, notes, budget] = await Promise.all([
         loadContext(),
-        buildReferenceBlock(attached),
+        buildReferenceBlock(attached, options.projectId),
         loadRelatedNotes(options.projectId, text),
         getContextBudget(),
       ]);

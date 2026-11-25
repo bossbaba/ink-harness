@@ -5,7 +5,7 @@
 
 use crate::commands::blocking;
 use crate::error::AppError;
-use crate::services::mcp;
+use crate::services::{approval, mcp};
 use crate::services::mcp_protocol::{McpServerConfig, McpToolInfo};
 use tauri::Manager;
 
@@ -39,12 +39,28 @@ pub async fn list_mcp_tools(app: tauri::AppHandle) -> Result<Vec<McpToolInfo>, A
     Ok(mcp::list_tools_for(&servers).await)
 }
 
+/// 作者审批通过后由前端签发；后端只认这里发出的令牌，绕过界面的脚本拿不到。
+#[tauri::command]
+pub async fn issue_mcp_approval(
+    tool: String,
+    arguments: serde_json::Value,
+    project_id: String,
+    session_id: String,
+) -> Result<String, AppError> {
+    approval::issue(&tool, &arguments, &project_id, &session_id)
+}
+
 #[tauri::command]
 pub async fn call_mcp_tool(
     app: tauri::AppHandle,
     name: String,
     arguments: serde_json::Value,
+    project_id: String,
+    session_id: String,
+    approval_token: String,
 ) -> Result<String, AppError> {
+    // 闸门必须在 spawn 之前：参数不匹配、令牌重放或跨会话都直接拒绝执行外部进程。
+    approval::verify(&approval_token, &name, &arguments, &project_id, &session_id)?;
     let servers = {
         let state = app.state::<crate::infrastructure::db::DbState>();
         mcp::list_servers(state.inner())?

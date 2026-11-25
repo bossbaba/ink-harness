@@ -212,12 +212,63 @@ fn spawn_probe_server() -> u16 {
 #[tokio::test]
 async fn probe_falls_back_to_v1_models() {
     let port = spawn_probe_server();
-    let models = probe(&ProbeProviderInput {
-        base_url: format!("http://127.0.0.1:{port}"),
-        api_key: None,
-        api_key_ref: None,
-    })
+    let state = temp_state("probe");
+    let models = probe(
+        &state,
+        &ProbeProviderInput {
+            base_url: format!("http://127.0.0.1:{port}"),
+            api_key: None,
+            api_key_ref: None,
+        },
+    )
     .await
     .unwrap();
     assert_eq!(models, vec!["llama3.2"]);
+}
+
+/// 未归属的密钥引用必须被拒绝，不能拿它去探测任意地址。
+#[tokio::test]
+async fn probe_rejects_orphan_key_ref() {
+    let state = temp_state("orphan-key");
+    let error = probe(
+        &state,
+        &ProbeProviderInput {
+            base_url: "http://127.0.0.1:11434".into(),
+            api_key: None,
+            api_key_ref: Some("provider:someone-else".into()),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("不属于"));
+}
+
+/// 即便引用已归属，换到别的 host 探测也必须拒绝，避免把密钥发往仿冒地址。
+#[tokio::test]
+async fn probe_rejects_key_ref_on_another_endpoint() {
+    let state = temp_state("key-host");
+    save(
+        &state,
+        &ProviderConfig {
+            id: String::new(),
+            name: "云端".into(),
+            source: "remote".into(),
+            base_url: "https://api.example.com/v1".into(),
+            api_key_ref: Some("provider:cloud".into()),
+            enabled: true,
+            models: vec![],
+        },
+    )
+    .unwrap();
+    let error = probe(
+        &state,
+        &ProbeProviderInput {
+            base_url: "https://api.attacker.example/v1".into(),
+            api_key: None,
+            api_key_ref: Some("provider:cloud".into()),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("不一致"));
 }

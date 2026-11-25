@@ -56,7 +56,17 @@ const sourceOptions: SegmentOption[] = [
     <p v-else class="preview__status">已有正文 {{ readyCount }} 章，空章在导出里保留占位。</p>
 
     <div class="preview__paper">
-      <iframe v-if="source === 'html'" class="preview__frame" :srcdoc="html" title="排版预览" />
+      <!--
+        srcdoc 目前由 escapeXml 生成，加空 sandbox 作纵深防御：
+        将来排版模板若引入新内容，也不会在应用上下文里执行脚本。
+      -->
+      <iframe
+        v-if="source === 'html'"
+        class="preview__frame"
+        :srcdoc="html"
+        title="排版预览"
+        sandbox=""
+      />
       <pre v-else class="preview__raw">{{ markdown }}</pre>
     </div>
   </section>

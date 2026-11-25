@@ -52,27 +52,36 @@ function maskPrefixed(text: string, prefix: string, minLength: number): string {
   return out + rest;
 }
 
-/** 脱敏 `Bearer xxx` 里的令牌；短于 12 个字符的按普通英文词处理。 */
+/**
+ * 脱敏 `Bearer xxx` 里的令牌；短于 12 个字符的按普通英文词处理。
+ *
+ * 用不区分大小写的正则在原串上匹配：HTTP 认证头大小写不敏感，
+ * `bearer <token>`、`BEARER <token>` 都是合法变体。正则的 index 始终基于
+ * 原串，替换时保留原文里的前缀写法，不会把正文大小写改掉。
+ */
 function maskBearer(text: string): string {
-  const marker = "Bearer ";
+  const marker = /bearer /gi;
   let out = "";
-  let rest = text;
+  let cursor = 0;
   for (;;) {
-    const at = rest.indexOf(marker);
-    if (at < 0) break;
-    out += rest.slice(0, at + marker.length);
-    const after = rest.slice(at + marker.length);
-    let end = 0;
-    while (end < after.length && !/[\s"']/.test(after[end])) end += 1;
-    const token = after.slice(0, end);
+    const match = marker.exec(text);
+    if (!match) break;
+    const afterAt = match.index + match[0].length;
+    out += text.slice(cursor, afterAt);
+    let end = afterAt;
+    while (end < text.length && !/[\s"']/.test(text[end])) end += 1;
+    const token = text.slice(afterAt, end);
     if (token.length >= 12) {
       out += MASK;
-      rest = after.slice(end);
+      // 跳过令牌本体；短 token 时 cursor 只推进到标记之后，
+      // 让结尾的 slice 保留原文，同时不会重复输出标记本身。
+      marker.lastIndex = end;
+      cursor = end;
     } else {
-      rest = after;
+      cursor = afterAt;
     }
   }
-  return out + rest;
+  return out + text.slice(cursor);
 }
 
 /** 脱敏 PEM 私钥块：从 BEGIN 到 END 整段替换，找不到 END 就把剩余全部屏蔽。 */

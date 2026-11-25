@@ -113,11 +113,14 @@ export const tauriApi = {
   listStoryElements: (projectId: string) =>
     call<StoryElement[]>("list_story_elements", { projectId }),
   listAllStoryElements: () => call<StoryElementOverview[]>("list_all_story_elements"),
-  getStoryElement: (id: string) => call<StoryElement | null>("get_story_element", { id }),
+  getStoryElement: (id: string, projectId: string) =>
+    call<StoryElement | null>("get_story_element", { id, projectId }),
   createStoryElement: (input: NewStoryElement) =>
     call<StoryElement>("create_story_element", { input }),
-  updateStoryElement: (element: StoryElement) => call<void>("update_story_element", { element }),
-  deleteStoryElement: (id: string) => call<void>("delete_story_element", { id }),
+  updateStoryElement: (element: StoryElement, projectId: string) =>
+    call<void>("update_story_element", { element, projectId }),
+  deleteStoryElement: (id: string, projectId: string) =>
+    call<void>("delete_story_element", { id, projectId }),
   // 一致性检查按作品维度执行，返回该作品下所有可疑问题。
   checkStoryConsistency: (projectId: string) =>
     call<ConsistencyIssue[]>("check_story_consistency", { projectId }),
@@ -141,14 +144,16 @@ export const tauriApi = {
   buildProjectContext: (projectId: string) => call<string>("build_project_context", { projectId }),
 
   // 写作台：章节正文按章读取/保存，版本快照单独一组命令。
-  getChapterContent: (chapterId: string) =>
-    call<ChapterContent>("get_chapter_content", { chapterId }),
-  saveChapterContent: (input: SaveContentInput) =>
-    call<ChapterContent>("save_chapter_content", { input }),
-  listDraftVersions: (chapterId: string) =>
-    call<DraftVersionBrief[]>("list_draft_versions", { chapterId }),
-  getDraftVersion: (id: string) => call<DraftVersion>("get_draft_version", { id }),
-  restoreDraftVersion: (id: string) => call<ChapterContent>("restore_draft_version", { id }),
+  getChapterContent: (chapterId: string, projectId: string) =>
+    call<ChapterContent>("get_chapter_content", { chapterId, projectId }),
+  saveChapterContent: (input: SaveContentInput, projectId: string) =>
+    call<ChapterContent>("save_chapter_content", { input, projectId }),
+  listDraftVersions: (chapterId: string, projectId: string) =>
+    call<DraftVersionBrief[]>("list_draft_versions", { chapterId, projectId }),
+  getDraftVersion: (id: string, projectId: string) =>
+    call<DraftVersion>("get_draft_version", { id, projectId }),
+  restoreDraftVersion: (id: string, projectId: string, expectedContentRevision?: number) =>
+    call<ChapterContent>("restore_draft_version", { id, projectId, expectedContentRevision }),
 
   // 出版导出：内容在前端生成，这里只把字节写到用户选定的路径。
   writeExportFile: (path: string, data: number[]) =>
@@ -186,8 +191,26 @@ export const tauriApi = {
   saveMcpServer: (input: McpServerConfig) => call<McpServerConfig[]>("save_mcp_server", { input }),
   removeMcpServer: (id: string) => call<McpServerConfig[]>("remove_mcp_server", { id }),
   listMcpTools: () => call<McpToolInfo[]>("list_mcp_tools"),
-  callMcpTool: (name: string, args: Record<string, unknown>) =>
-    call<string>("call_mcp_tool", { name, arguments: args }),
+  callMcpTool: (
+    name: string,
+    args: Record<string, unknown>,
+    projectId: string,
+    sessionId: string,
+    approvalToken: string,
+  ) =>
+    call<string>("call_mcp_tool", {
+      name,
+      arguments: args,
+      projectId,
+      sessionId,
+      approvalToken,
+    }),
+  issueMcpApproval: (
+    tool: string,
+    args: Record<string, unknown>,
+    projectId: string,
+    sessionId: string,
+  ) => call<string>("issue_mcp_approval", { tool, arguments: args, projectId, sessionId }),
 
   // 评测结果：跑分在前端做，这里只存取汇总与明细。
   saveAgentEvalRun: (input: NewAgentEvalRun) =>

@@ -113,7 +113,7 @@ export function useProjectWorkflow(projectId: string) {
   }
 
   async function readChapterText(chapterId: string): Promise<string> {
-    const content = await writingService.getContent(chapterId);
+    const content = await writingService.getContent(chapterId, projectId);
     const text = documentToPlainText(content.content);
     return text === "（空白正文）" ? "" : text;
   }
@@ -278,32 +278,23 @@ export function useProjectWorkflow(projectId: string) {
       next.updatedAt = new Date().toISOString();
 
       let contentWrite: SaveContentInput | undefined;
-      if (decision === "approved") {
-        if (stage === "ideation") await applyIdeation(target.artifact);
-        else if (stage === "writing" || stage === "editing") {
-          if (!workflow.selectedChapterId)
-            throw new Error("目标章节已不存在，请重新选择章节后再通过。");
-          const chapter = chapters.value.find((item) => item.id === workflow.selectedChapterId);
-          if (!chapter) throw new Error("目标章节已不存在，请重新选择章节后再通过。");
-          const doc = plainTextToDocument(target.artifact);
-          // 先读一次正文拿到版本号：作者在这期间手改过就报冲突，不能悄悄覆盖。
-          const saved = await writingService.getContent(chapter.id);
-          contentWrite = {
-            chapterId: chapter.id,
-            content: JSON.stringify(doc),
-            wordCount: countCharacters(target.artifact),
-            snapshot: true,
-            expectedContentRevision: saved.contentRevision,
-          };
-        } else if (stage === "review") {
-          applyReview(target.artifact, next);
-        } else if (stage === "publish") {
-          const brief = parsePublicationBrief(target.artifact);
-          if (!brief) notice.value = "物料解析失败，原文已保留，请手动整理。";
-          const updated: Project = { ...current, status: "published" };
-          await projectService.update(updated);
-          project.value = updated;
-        }
+      if (decision === "approved" && (stage === "writing" || stage === "editing")) {
+        if (!workflow.selectedChapterId)
+          throw new Error("目标章节已不存在，请重新选择章节后再通过。");
+        const chapter = chapters.value.find((item) => item.id === workflow.selectedChapterId);
+        if (!chapter) throw new Error("目标章节已不存在，请重新选择章节后再通过。");
+        const doc = plainTextToDocument(target.artifact);
+        // 先读一次正文拿到版本号：作者在这期间手改过就报冲突，不能悄悄覆盖。
+        const saved = await writingService.getContent(chapter.id, projectId);
+        contentWrite = {
+          chapterId: chapter.id,
+          content: JSON.stringify(doc),
+          wordCount: countCharacters(target.artifact),
+          snapshot: true,
+          expectedContentRevision: saved.contentRevision,
+        };
+      } else if (decision === "approved" && stage === "review") {
+        applyReview(target.artifact, next);
       }
 
       // 正文 + 阶段在同一次 IPC、同一个 SQLite 事务里完成；失败整体回滚。
@@ -315,7 +306,23 @@ export function useProjectWorkflow(projectId: string) {
         contentWrite,
       });
 
+      // 阶段已由后端落库，先同步本地状态：后面副作用即使失败，界面也不能显示成未审批。
       state.value = next;
+
+      // 作品字段与章节创建放在事务之后：它们此前在 applyWorkflow 之前落库，
+      // 一旦审批失败就留下「阶段已回滚、章节却已建」的半写状态，重试还会重复建章。
+      // 这两处都有幂等保护（只在没有章节时建骨架、状态重复写不产生新记录）。
+      if (decision === "approved") {
+        if (stage === "ideation") await applyIdeation(target.artifact);
+        else if (stage === "publish") {
+          const brief = parsePublicationBrief(target.artifact);
+          if (!brief) notice.value = "物料解析失败，原文已保留，请手动整理。";
+          const updated: Project = { ...current, status: "published" };
+          await projectService.update(updated);
+          project.value = updated;
+        }
+      }
+
       if (contentWrite) {
         // 写作台可能还缓存着旧正文：递增版本号让它回来时重读，
         // 否则作者在写作台敲一个字就会用旧稿覆盖掉刚写回的正文。

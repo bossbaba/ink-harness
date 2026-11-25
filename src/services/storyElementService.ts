@@ -10,15 +10,19 @@ import type {
 export const storyElementService = {
   list: (projectId: string): Promise<StoryElement[]> => tauriApi.listStoryElements(projectId),
 
-  get: (id: string): Promise<StoryElement | null> => tauriApi.getStoryElement(id),
+  /** 按 id 读单条设定；跨作品时后端按「查不到」返回 null。 */
+  get: (id: string, projectId: string): Promise<StoryElement | null> =>
+    tauriApi.getStoryElement(id, projectId),
 
   listAll: (): Promise<StoryElementOverview[]> => tauriApi.listAllStoryElements(),
 
   create: (input: NewStoryElement): Promise<StoryElement> => tauriApi.createStoryElement(input),
 
-  update: (element: StoryElement): Promise<void> => tauriApi.updateStoryElement(element),
+  update: (element: StoryElement, projectId: string): Promise<void> =>
+    tauriApi.updateStoryElement(element, projectId),
 
-  remove: (id: string): Promise<void> => tauriApi.deleteStoryElement(id),
+  remove: (id: string, projectId: string): Promise<void> =>
+    tauriApi.deleteStoryElement(id, projectId),
 
   checkConsistency: (projectId: string): Promise<ConsistencyIssue[]> =>
     tauriApi.checkStoryConsistency(projectId),

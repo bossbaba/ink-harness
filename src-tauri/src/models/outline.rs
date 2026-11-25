@@ -14,6 +14,9 @@ pub struct Chapter {
     pub status: String,
     /// 正文非空白字符数；只带计数不带正文，列表页够用。
     pub word_count: i64,
+    /// 元数据乐观锁基准：只在改标题/幕次/状态时递增，正文自动保存不碰它。
+    #[serde(default)]
+    pub meta_revision: i64,
     pub sort_order: i64,
     pub created_at: String,
     pub updated_at: String,

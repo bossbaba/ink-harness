@@ -480,15 +480,18 @@ fn legacy_global_epoch_still_marks_stale() {
     crate::services::setting::set(&state, LEGACY_INDEX_EPOCH_KEY, "1").unwrap();
     assert!(status(&state, "p-1").unwrap().stale);
 
-    // 该作品自己写过后，作品级键优先，不再被旧全局键干扰。
+    // 该作品第一次写入时继承全局纪元再 +1（2 → 3）：内容确实变了，
+    // 索引纪元还停在 1 就必须继续判过期，否则老库升级后会拿旧片段回答新问题。
     {
         let conn = state.biz();
         bump_content_epoch(&conn, "p-1").unwrap();
     }
-    crate::services::setting::set(&state, &index_epoch_key("p-1"), "1").unwrap();
     assert!(
-        !status(&state, "p-1").unwrap().stale,
-        "作品级纪元已对齐，旧全局键不该再让它判过期"
+        status(&state, "p-1").unwrap().stale,
+        "迁移后内容纪元已越过索引纪元，不能误判新鲜"
     );
+    // 作品级索引纪元追上同一数值后，才恢复新鲜；旧全局键不再干扰。
+    crate::services::setting::set(&state, &index_epoch_key("p-1"), "3").unwrap();
+    assert!(!status(&state, "p-1").unwrap().stale);
     std::fs::remove_dir_all(&dir).ok();
 }

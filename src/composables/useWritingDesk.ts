@@ -147,7 +147,7 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
     }
     contentLoading.value = true;
     try {
-      const data = await writingService.getContent(chapterId);
+      const data = await writingService.getContent(chapterId, projectId);
       // 连续点两章时先发的请求可能后返回：旧响应不能再覆盖当前章。
       if (seq !== loadSeq) return;
       loadedChapterId.value = chapterId;
@@ -283,23 +283,32 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
     // 只在失败后才写不够——正在飞的那一次恰好是关窗场景最容易丢的那份。
     writeDraftBackup(chapterId, { content, wordCount: payload.wordCount });
     try {
-      const saved = await writingService.saveContent({
-        chapterId,
-        content,
-        wordCount: payload.wordCount,
-        // 带上基准版本：库里已被别处改过时后端返回 conflict，避免静默覆盖。
-        expectedContentRevision: contentRevisions.get(chapterId),
-      });
+      const saved = await writingService.saveContent(
+        {
+          chapterId,
+          content,
+          wordCount: payload.wordCount,
+          expectedContentRevision: contentRevisions.get(chapterId), // 旧基准触发 conflict，防静默覆盖
+        },
+        projectId,
+      );
       // 记下这次保存后的版本，后面的保存都以它为准。
       contentRevisions.set(chapterId, saved.contentRevision);
       // 章节列表按 id 更新，切章后也能正确反映上一章的新字数。
       patchChapter(chapterId, {
         wordCount: saved.wordCount,
-        // 首次写出内容后，章节从「待写」推进到「写作中」；后端同样做了这一步。
+        // 后端同样推进状态，这里跟着改列表避免下一帧回跳。
         status: saved.wordCount > 0 ? "drafting" : undefined,
       });
-      // 已落库，本地兜底备份就没用了，及时清掉避免下次载入误判。
-      clearDraftBackup(chapterId);
+      // 等待 IPC 期间若又有新输入，先给它补备份再覆盖旧备份，避免保存成功反留无备份窗口。
+      if (pending && pending.chapterId === chapterId) {
+        writeDraftBackup(chapterId, {
+          content: serializeDraft(pending),
+          wordCount: pending.wordCount,
+        });
+      } else {
+        clearDraftBackup(chapterId);
+      }
       // 请求返回时用户可能已切到别的章节，此时旧结果不应覆盖当前页的状态栏。
       if (loadedChapterId.value !== chapterId) return true;
       wordCount.value = saved.wordCount;
@@ -312,13 +321,16 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
       // 期间用户又输入了新内容时优先保留新的那份，别让旧 payload 把它盖掉。
       if (!pending) pending = payload;
       // 写库失败时把正文留在本地，否则关窗/崩溃就真的丢了；下次载入该章会提示恢复。
-      writeDraftBackup(chapterId, { content, wordCount: payload.wordCount });
+      const failureBackup = writeDraftBackup(chapterId, { content, wordCount: payload.wordCount });
+      const backupHint = failureBackup
+        ? "正文已留在本地备份"
+        : "本地备份也写入失败，请先手动复制正文再关闭窗口";
       saveState.value = "error";
       if (info.code === "conflict") {
         halted = true;
-        error.value = `${info.message}。当前文字已存入本地备份，请重新载入本章后再继续。`;
+        error.value = `${info.message}。${backupHint}，请重新载入本章后再继续。`;
       } else {
-        error.value = `保存失败：${info.message}（正文已留在本地备份）`;
+        error.value = `保存失败：${info.message}（${backupHint}）`;
       }
       return false;
     }
@@ -326,6 +338,7 @@ export function useWritingDesk(projectId: string, currentChapterId: () => string
 
   // 版本管理委托给独立 composable：注入自动保存桥接，避免两处各维护一份保存状态。
   const versionsApi = useWritingVersions({
+    projectId,
     loadedChapterId,
     content,
     wordCount,

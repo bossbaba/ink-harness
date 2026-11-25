@@ -113,6 +113,16 @@ pub fn save(state: &DbState, config: &ProviderConfig) -> Result<ProviderConfig, 
     if base_url.is_empty() {
         return Err(AppError::validation("服务地址不能为空"));
     }
+    provider_kind::validate_base_url(&base_url)?;
+    // 标成 local 的地址必须真的在本机，否则隐私闸门形同虚设：
+    // 用户以为「仅本地」的正文会被发往配置里填的公网服务。
+    if config.source == provider_kind::SOURCE_LOCAL
+        && !provider_kind::is_local_endpoint(&config.source, &base_url)
+    {
+        return Err(AppError::validation(
+            "本地服务的地址必须是 localhost 或 127.0.0.1 等回环地址",
+        ));
+    }
     let id = if config.id.trim().is_empty() {
         gen_id("pv")
     } else {
@@ -156,20 +166,48 @@ pub fn remove(state: &DbState, id: &str) -> Result<(), AppError> {
 }
 
 /// 依次尝试 OpenAI 兼容的 /models 与 Ollama 原生 /api/tags，返回模型 id 列表。
-pub async fn probe(input: &ProbeProviderInput) -> Result<Vec<String>, AppError> {
+///
+/// 密钥回填有严格前提：引用必须属于某个已保存的 Provider，且其地址与本次探测
+/// 完全相同（协议/主机/端口）。否则一次 IPC 就能拿别人的钥匙串密钥发往任意 URL，
+/// keychain 不提供读命令的设计也就白费了。
+pub async fn probe(state: &DbState, input: &ProbeProviderInput) -> Result<Vec<String>, AppError> {
     let base = input.base_url.trim().trim_end_matches('/');
     if base.is_empty() {
         return Err(AppError::internal("请填写服务地址"));
     }
-    // 优先用这次输入的密钥；编辑已保存的 Provider 时用户通常不会再输一遍，
-    // 此时按 api_key_ref 从钥匙串取，避免「测试连接」对云端必 401。
-    let api_key = input
+    let endpoint = provider_kind::endpoint_key(base)?;
+
+    // 优先用这次输入的密钥；只有「引用已归属 + 地址一致」时才从钥匙串回填。
+    let api_key = if let Some(key) = input
         .api_key
         .as_deref()
         .map(str::trim)
         .filter(|key| !key.is_empty())
-        .map(str::to_string)
-        .or_else(|| keychain::optional(input.api_key_ref.as_deref()));
+    {
+        Some(key.to_string())
+    } else if let Some(reference) = input
+        .api_key_ref
+        .as_deref()
+        .map(str::trim)
+        .filter(|reference| !reference.is_empty())
+    {
+        let owner = list(state)?.into_iter().find(|provider| {
+            provider.api_key_ref.as_deref() == Some(reference)
+        });
+        let Some(owner) = owner else {
+            return Err(AppError::validation(
+                "这个密钥引用不属于任何已保存的服务，请重新输入密钥",
+            ));
+        };
+        if provider_kind::endpoint_key(&owner.base_url)? != endpoint {
+            return Err(AppError::validation(
+                "密钥引用与当前服务地址不一致，请重新输入密钥",
+            ));
+        }
+        keychain::optional(Some(reference))
+    } else {
+        None
+    };
     let api_key = api_key.as_deref();
 
     // 候选地址由 provider_kind 统一给出：新增方言只改那一处。

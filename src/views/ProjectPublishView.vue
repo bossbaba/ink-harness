@@ -60,6 +60,10 @@ function goWrite(): void {
 }
 
 const tab = ref<Tab>("preview");
+// 换标签或点重试时递增，强制重建出错的面板；只把 ErrorBoundary 的失败态清掉
+// 会复用同一个坏组件实例，渲染会立刻再次失败。
+const panelRetryKey = ref(0);
+
 // 标题跟全局作品 store 走：别处改了书名，这里不必等页面刷新。
 const project = storeToRefs(useProjectStore()).current;
 const pageTitle = computed(() =>
@@ -117,12 +121,15 @@ function updateBrief(field: keyof PublicationBrief, value: string | string[]): v
     <!-- 标签内容出错时只降级这一栏，四个标签与导出操作仍可切换使用。 -->
     <ErrorBoundary
       v-else-if="doc"
+      :reset-key="tab"
       title="这一栏没能显示"
       description="换一个标签页仍可继续排版与导出；若反复出现，请重新进入出版中心。"
       variant="inline"
+      @retry="panelRetryKey += 1"
     >
       <PublishPreview
         v-if="tab === 'preview'"
+        :key="`preview:${panelRetryKey}`"
         :template="template"
         :html="previewHtml"
         :markdown="previewMarkdown"
@@ -133,6 +140,7 @@ function updateBrief(field: keyof PublicationBrief, value: string | string[]): v
       />
       <ExportPanel
         v-else-if="tab === 'export'"
+        :key="`export:${panelRetryKey}`"
         :format="format"
         :template="template"
         :author="author"
@@ -146,6 +154,7 @@ function updateBrief(field: keyof PublicationBrief, value: string | string[]): v
       />
       <BriefPanel
         v-else-if="tab === 'brief'"
+        :key="`brief:${panelRetryKey}`"
         :brief="brief"
         :raw="briefRaw"
         :generating="briefGenerating"
@@ -155,7 +164,13 @@ function updateBrief(field: keyof PublicationBrief, value: string | string[]): v
         @copy="copyBrief"
         @update:field="updateBrief"
       />
-      <PlatformPanel v-else :plan="plan" @toggle="togglePlatform" @entry="setEntry" />
+      <PlatformPanel
+        v-else
+        :key="`platform:${panelRetryKey}`"
+        :plan="plan"
+        @toggle="togglePlatform"
+        @entry="setEntry"
+      />
     </ErrorBoundary>
     <AppEmpty
       v-else

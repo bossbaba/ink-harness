@@ -260,7 +260,15 @@ pub fn get_version(state: &DbState, id: &str) -> Result<DraftVersion, AppError> 
 }
 
 /// 恢复到某个历史版本：先把当前正文留一版，再用历史内容覆盖。
-pub fn restore_version(state: &DbState, version_id: &str) -> Result<ChapterContent, AppError> {
+///
+/// `expected_content_revision` 是调用方看到的正文基准；不传则按库内当前版本做条件更新。
+/// 事务内的 `where content_revision` 保证并发保存不会被静默覆盖：
+/// A 恢复旧版、B 同时存了新稿时，先到者赢，后到者收到 conflict。
+pub fn restore_version(
+    state: &DbState,
+    version_id: &str,
+    expected_content_revision: Option<i64>,
+) -> Result<ChapterContent, AppError> {
     let conn = state.biz();
     let (chapter_id, content, word_count): (String, String, i64) = conn
         .query_row(
@@ -273,6 +281,13 @@ pub fn restore_version(state: &DbState, version_id: &str) -> Result<ChapterConte
         .ok_or_else(|| AppError::not_found("版本不存在"))?;
 
     let current = query_draft_state(&conn, &chapter_id)?;
+    if let Some(expected) = expected_content_revision {
+        if expected != current.content_revision {
+            return Err(AppError::conflict(
+                "本章正文已在其他页面被修改，请重新载入后再恢复",
+            ));
+        }
+    }
     // 恢复也会改变检索内容，纪元按作品分键，先取所属作品。
     let project_id: String = conn
         .query_row(
@@ -299,14 +314,21 @@ pub fn restore_version(state: &DbState, version_id: &str) -> Result<ChapterConte
         }
     }
     // 恢复同样是一次正文变更：递增版本号，让别处拿着的旧版本号立即失效。
-    tx.execute(
-        r#"update chapter set content = ?2, word_count = ?3,
-             content_revision = content_revision + 1,
-             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-           where id = ?1"#,
-        params![chapter_id, content, word_count],
-    )
-    .map_err(AppError::from)?;
+    // 条件更新兜住「读完当前版本到真正写入之间又有保存」的并发窗口。
+    let changed = tx
+        .execute(
+            r#"update chapter set content = ?2, word_count = ?3,
+                 content_revision = content_revision + 1,
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+               where id = ?1 and content_revision = ?4"#,
+            params![chapter_id, content, word_count, current.content_revision],
+        )
+        .map_err(AppError::from)?;
+    if changed == 0 {
+        return Err(AppError::conflict(
+            "本章正文已在其他页面被修改，请重新载入后再恢复",
+        ));
+    }
     // 恢复也是正文变更，索引同样过期。
     crate::services::rag::bump_content_epoch(&tx, &project_id)?;
     tx.commit().map_err(AppError::from)?;

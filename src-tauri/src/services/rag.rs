@@ -16,6 +16,8 @@ mod purge;
 mod vector;
 
 pub(crate) use purge::{purge_project_in, purge_source_in};
+// 启动清理孤儿向量需要枚举按维度分出的所有表，供 infrastructure/db 调用。
+pub(crate) use vector::all_table_names;
 use vector::{current_dim, ensure_vec_table, indexed_dim_key, knn, table_name, vector_literal};
 
 /// 建索引时用的 embedding 模型；与该作品当前可用的模型不一致说明索引该重建。
@@ -74,10 +76,21 @@ pub(crate) fn bump_content_epoch(
     conn: &rusqlite::Connection,
     project_id: &str,
 ) -> Result<(), AppError> {
+    let key = content_epoch_key(project_id);
+    // 老库升级时作品级键还不存在，先继承全局纪元再递增。
+    // 若直接写 1，而 index_epoch 仍回退读到全局 N（N ≥ 1），
+    // `1 > N` 为 false，正文明明变了索引却被判新鲜，检索继续用旧片段。
+    conn.execute(
+        "insert into app_meta(key, value)
+         select ?1, value from app_meta
+         where key = ?2 and not exists (select 1 from app_meta where key = ?1)",
+        params![key, LEGACY_CONTENT_EPOCH_KEY],
+    )
+    .map_err(AppError::from)?;
     conn.execute(
         "insert into app_meta(key, value) values (?1, '1')
          on conflict(key) do update set value = cast(cast(value as integer) + 1 as text)",
-        params![content_epoch_key(project_id)],
+        params![key],
     )
     .map_err(AppError::from)?;
     Ok(())

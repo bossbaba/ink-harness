@@ -66,7 +66,7 @@ export interface AgentPanelState {
 export type AgentPanelAction =
   | { type: "approve" | "reject"; id: string }
   | { type: "insert"; text: string }
-  | { type: "clear" | "toggle" | "toggle-planning" }
+  | { type: "clear" | "discard" | "toggle" | "toggle-planning" }
   | { type: "role"; id: string };
 
 /** 工具执行上下文：由调用方（Agent Loop / Copilot）注入，工具本身不直接读全局状态。 */
@@ -79,6 +79,11 @@ export interface ToolContext {
    * 老调用方不传时用空串，保持兼容。
    */
   sessionId?: string;
+  /**
+   * 作者审批通过后由后端签发的 MCP 调用令牌；只有外部工具会用到。
+   * 后端在 spawn 外部进程前验签，绕过界面的 IPC 调用没有令牌会被拒绝。
+   */
+  approvalToken?: string;
 }
 
 /**
@@ -93,6 +98,8 @@ export interface AgentTool {
   /** JSON Schema（对象形式），用于参数校验与发给模型。 */
   parameters: Record<string, unknown>;
   risk: ToolRisk;
+  /** 外部 MCP 工具：执行前必须由后端签发一次性审批令牌。 */
+  external?: boolean;
   run: (args: Record<string, unknown>, ctx: ToolContext) => Promise<string>;
 }
 

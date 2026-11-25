@@ -44,7 +44,11 @@ where
         // 没有作品上下文（工作台级请求）时只能采信调用方声明，这是已知的次要缺口。
         None => params.privacy_local_only,
     };
-    if local_only && !provider_kind::is_local(&resolved.provider.source) {
+    // 地址也要参与判定：老库里可能存着 source=local 但 base_url 指向公网的脏配置，
+    // 只看 source 会让「仅本地」的承诺在运行时被静默破坏。
+    if local_only
+        && !provider_kind::is_local_endpoint(&resolved.provider.source, &resolved.provider.base_url)
+    {
         return Err(AppError::validation(
             "该作品设为仅本地处理，拒绝发送到远端模型",
         ));
@@ -122,9 +126,12 @@ where
                     attempt += 1;
                     continue;
                 }
+                // 上游错误体可能回显请求头（含 Authorization），先脱敏再截断，
+                // 否则密钥片段会顺着 AppError.message 一直显示到界面上。
+                let clean = guardrails::scrub(&text);
                 return Err(AppError::upstream(format!(
                     "模型返回错误 {status}：{}",
-                    truncate(&text, 500)
+                    truncate(&clean, 500)
                 )));
             }
             Err(err) => {
@@ -146,6 +153,10 @@ where
         ResponseParser::Sse(SseParser::new())
     };
     let mut usage: Option<TokenUsage> = None;
+    // 凭据可能被切在两个 delta 的边界上，单块 scrub 两次都匹配不到。
+    // 留一小段尾部到下一轮和新增文本拼起来再洗，确认安全的前半部分照常逐字推送。
+    const TAIL_KEEP: usize = 32;
+    let mut pending = String::new();
     let mut stream = response.bytes_stream();
     loop {
         // 长文本生成允许整体耗时很久，但连续 120 秒收不到任何字节就视为上游假死。
@@ -169,6 +180,14 @@ where
         for event in events {
             match event {
                 SseEvent::Done => {
+                    // 流结束前把尾部缓冲洗完推掉，否则最后几十个字会丢。
+                    if !pending.is_empty() {
+                        let safe = guardrails::scrub(&pending);
+                        if !safe.is_empty() && !on_chunk(ChatChunk::delta(safe)) {
+                            return Err(AppError::internal("对话已被取消"));
+                        }
+                        pending.clear();
+                    }
                     return if on_chunk(ChatChunk::done()) {
                         Ok(usage)
                     } else {
@@ -176,14 +195,26 @@ where
                     };
                 }
                 SseEvent::Delta(text) => {
-                    // 输出脱敏：模型可能被提示词注入带去吐凭据，逐块屏蔽后再推给前端。
-                    // 完整输出的边界情况由 chat.rs 落库前的二次 scrub 兜住。
-                    let text = guardrails::scrub_chunk(&text);
-                    if !on_chunk(ChatChunk::delta(text)) {
+                    // 模型可能被提示词注入带去吐凭据，先把上一轮尾部和新文本合起来洗；
+                    // 只推送确定安全的前缀，尾部继续留着应对下一次切分。
+                    pending.push_str(&text);
+                    let safe = guardrails::scrub(&pending);
+                    let keep_from = safe
+                        .char_indices()
+                        .rev()
+                        .nth(TAIL_KEEP - 1)
+                        .map(|(index, _)| index)
+                        .unwrap_or(0);
+                    let (ready, tail) = safe.split_at(keep_from);
+                    if !ready.is_empty() && !on_chunk(ChatChunk::delta(ready.to_string())) {
                         return Err(AppError::internal("对话已被取消"));
                     }
+                    pending.clear();
+                    pending.push_str(tail);
                 }
-                SseEvent::ToolCall(call) => {
+                SseEvent::ToolCall(mut call) => {
+                    // 工具参数同样会显示到界面并进入下一轮提示词，不能只洗正文 delta。
+                    call.arguments = guardrails::scrub(&call.arguments);
                     if !on_chunk(ChatChunk::tool_call(call)) {
                         return Err(AppError::internal("对话已被取消"));
                     }
