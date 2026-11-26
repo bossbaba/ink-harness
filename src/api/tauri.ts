@@ -97,10 +97,11 @@ export const tauriApi = {
   // 工作流审批：正文与阶段状态在 Rust 侧同一事务提交，失败整体回滚。
   applyWorkflow: (input: ApplyWorkflowInput) => call<void>("apply_workflow", { input }),
 
-  // 系统钥匙串：只有写入与删除。读取明文的命令在后端刻意不提供，
+  // 系统钥匙串：明文只写不读；keychainHas 只回布尔值，用来校准界面上的「已保存密钥」。
   // 前端一律通过 apiKeyRef 交由 Rust 侧使用，避免密钥泄漏到渲染进程。
   keychainSet: (key: string, value: string) => call<void>("keychain_set", { key, value }),
   keychainDelete: (key: string) => call<void>("keychain_delete", { key }),
+  keychainHas: (key: string) => call<boolean>("keychain_has", { key }),
 
   // 作品 CRUD。getProject 找不到时返回 null，由调用方决定如何提示。
   databaseInfo: () => call<DatabaseInfo>("database_info"),

@@ -15,4 +15,12 @@ export const providerService = {
   keychainRef: (providerId: string): string => `provider:${providerId}`,
   saveApiKey: (ref: string, key: string): Promise<void> => tauriApi.keychainSet(ref, key),
   clearApiKey: (ref: string): Promise<void> => tauriApi.keychainDelete(ref),
+  /** 只判断钥匙串里是否真有这条密钥，不取回明文；查询失败按「未保存」处理，避免误报。 */
+  hasApiKey: async (ref: string): Promise<boolean> => {
+    try {
+      return await tauriApi.keychainHas(ref);
+    } catch {
+      return false;
+    }
+  },
 };

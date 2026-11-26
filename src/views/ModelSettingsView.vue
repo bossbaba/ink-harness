@@ -34,6 +34,7 @@ const {
   draft,
   apiKey,
   clearKey,
+  keyStored,
   probing,
   probeError,
   discovered,
@@ -275,6 +276,7 @@ const routeOptions: SegmentOption[] = [
       v-model:draft="draft"
       v-model:api-key="apiKey"
       v-model:clear-key="clearKey"
+      :key-stored="keyStored"
       :is-new="dialogIsNew"
       :busy="busy"
       :probing="probing"

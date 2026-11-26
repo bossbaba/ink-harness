@@ -26,13 +26,31 @@ pub fn resolve_provider(
         )
     })?;
 
-    let api_key = keychain::optional(provider.api_key_ref.as_deref());
+    let reference = provider.api_key_ref.as_deref();
+    let stored = keychain::resolve(reference)?;
+    let api_key = require_api_key(&provider.name, reference, stored)?;
 
     Ok(ResolvedProvider {
         provider,
         api_key,
         model,
     })
+}
+
+/// 数据库里写了密钥引用、钥匙串里却取不到密钥时必须在本地报错。
+/// 否则网关会不带 Authorization 直接打上游，用户只能收到看不懂的 401。
+pub fn require_api_key(
+    provider_name: &str,
+    reference: Option<&str>,
+    stored: Option<String>,
+) -> Result<Option<String>, AppError> {
+    match (reference, stored) {
+        (Some(_), Some(key)) => Ok(Some(key)),
+        (Some(_), None) => Err(AppError::validation(format!(
+            "Provider「{provider_name}」显示已保存密钥，但系统钥匙串中找不到对应条目；请在模型管理中重新填入 API Key 并保存。"
+        ))),
+        (None, _) => Ok(None),
+    }
 }
 
 /// 按模型标识找到 Provider，并给出真正要发给上游的模型名。
@@ -139,5 +157,25 @@ mod tests {
         let (found, _) =
             locate_provider(&providers, "unknown-name").expect("应回退到启用的本地 Provider");
         assert_eq!(found.id, "local-b");
+    }
+
+    #[test]
+    fn missing_keychain_entry_for_reference_is_a_validation_error() {
+        // 界面显示「已保存密钥」但钥匙串没条目时，必须先在本地报错，不能裸发请求换 401。
+        let err = require_api_key("XiaoMiMiMo", Some("provider:p-1"), None).expect_err("应报错");
+        assert_eq!(err.code, crate::error::ErrorCode::Validation);
+        assert!(err.message.contains("XiaoMiMiMo"));
+        assert!(err.message.contains("重新填入"));
+    }
+
+    #[test]
+    fn api_key_is_optional_only_when_no_reference_is_recorded() {
+        assert_eq!(require_api_key("Local", None, None).expect("无需密钥"), None);
+        assert_eq!(
+            require_api_key("Remote", Some("provider:p-1"), Some("sk-1".to_string()))
+                .expect("应取到密钥")
+                .as_deref(),
+            Some("sk-1")
+        );
     }
 }

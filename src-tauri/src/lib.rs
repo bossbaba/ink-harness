@@ -51,6 +51,7 @@ pub fn run() {
             commands::setting::set_app_setting,
             commands::keychain::keychain_set,
             commands::keychain::keychain_delete,
+            commands::keychain::keychain_has,
             commands::project::database_info,
             commands::project::list_projects,
             commands::project::get_project,

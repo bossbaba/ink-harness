@@ -23,3 +23,9 @@ pub async fn keychain_set(
 pub async fn keychain_delete(app: tauri::AppHandle, key: String) -> Result<(), AppError> {
     blocking(app, move |_state| keychain::delete(&key)).await
 }
+
+/// 只回「有没有」，不把明文取回渲染进程；编辑弹窗据此校准「已保存密钥」标签。
+#[tauri::command]
+pub async fn keychain_has(app: tauri::AppHandle, key: String) -> Result<bool, AppError> {
+    blocking(app, move |_state| keychain::exists(Some(&key))).await
+}

@@ -33,7 +33,7 @@ pub fn delete(key: &str) -> Result<(), AppError> {
 }
 
 /// 按引用键读取可选密钥：未配置返回 None；读取失败也返回 None，但在这里留下根因日志。
-/// 调用方因此不必各自重复「取密钥 + 吞错误 + 打日志」，也不会把钥匙串故障误报成上游 401。
+/// 仅用于「本来就不强制要求密钥」的场景（如本地 Ollama）。
 pub fn optional(reference: Option<&str>) -> Option<String> {
     let key = reference?;
     match get(key) {
@@ -43,4 +43,18 @@ pub fn optional(reference: Option<&str>) -> Option<String> {
             None
         }
     }
+}
+
+/// 严格按引用读取密钥：没有引用时返回 None，引用存在却读不到时把错误交给调用方。
+/// 云端 Provider 的 apiKeyRef 已经写进数据库，读不到就是配置不一致，不能静默当成「无密钥」。
+pub fn resolve(reference: Option<&str>) -> Result<Option<String>, AppError> {
+    match reference {
+        Some(key) => get(key),
+        None => Ok(None),
+    }
+}
+
+/// 只回答「这条引用现在有没有密钥」，不返回明文，供编辑弹窗校准「已保存密钥」标签。
+pub fn exists(reference: Option<&str>) -> Result<bool, AppError> {
+    Ok(resolve(reference)?.is_some())
 }

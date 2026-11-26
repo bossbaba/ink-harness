@@ -17,10 +17,21 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 sqlite-vec = "0.1.9"
-keyring = "3"
+# keyring 3 不再默认启用平台后端：不写 feature 时 macOS 会静默落到 mock 后端，
+# 每次 Entry::new 都是全新空存储，set_password 看似成功但 get_password 永远 NoEntry。
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "process", "io-util"] }
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-dialog = "2.8.4"
+
+# 各平台必须显式打开原生凭据后端，否则 keyring 3 会用内存 mock，密钥根本存不下来。
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["linux-native"] }

@@ -54,6 +54,8 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
   const draft = ref<ProviderConfig>(emptyProvider());
   const apiKey = ref("");
   const clearKey = ref(false);
+  /** 钥匙串里是否真有密钥：数据库里的 apiKeyRef 只是引用，不能据此宣称「已保存」。 */
+  const keyStored = ref(false);
   const probing = ref(false);
   const probeError = ref("");
   /** 本次探测返回的模型 id；首次探测会自动勾选全部。 */
@@ -89,13 +91,14 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
     dialogIsNew.value = true;
     apiKey.value = "";
     clearKey.value = false;
+    keyStored.value = false;
     probeError.value = "";
     discovered.value = [];
     hasProbed.value = false;
     dialogShow.value = true;
   }
 
-  function openEdit(provider: ProviderConfig): void {
+  async function openEdit(provider: ProviderConfig): Promise<void> {
     draft.value = {
       ...provider,
       models: provider.models.map((model) => ({ ...model })),
@@ -103,6 +106,10 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
     dialogIsNew.value = false;
     apiKey.value = "";
     clearKey.value = false;
+    // 引用存在不等于钥匙串里真有密钥；打开弹窗时核对一次，失效就提示重填而不是误导用户。
+    keyStored.value = provider.apiKeyRef
+      ? await providerService.hasApiKey(provider.apiKeyRef)
+      : false;
     probeError.value = "";
     discovered.value = provider.models.map((model) => model.id);
     hasProbed.value = true;
@@ -188,11 +195,13 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
       if (clearKey.value && saved.apiKeyRef) {
         await providerService.clearApiKey(saved.apiKeyRef);
         saved = await providerService.save({ ...saved, apiKeyRef: undefined });
+        keyStored.value = false;
       }
       if (apiKey.value.trim()) {
         const ref = providerService.keychainRef(saved.id);
         await providerService.saveApiKey(ref, apiKey.value.trim());
         saved = await providerService.save({ ...saved, apiKeyRef: ref });
+        keyStored.value = true;
       }
 
       dialogShow.value = false;
@@ -331,6 +340,7 @@ export function useProviderCatalog(shared: { error: Ref<string> }) {
     draft,
     apiKey,
     clearKey,
+    keyStored,
     probing,
     probeError,
     discovered,

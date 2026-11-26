@@ -24,6 +24,8 @@ const props = defineProps<{
   probeError: string;
   /** 最近一次探测返回的模型 id。 */
   discovered: string[];
+  /** 钥匙串里是否真有密钥；数据库里的 apiKeyRef 只是引用，不能据此显示「已保存」。 */
+  keyStored: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -119,8 +121,11 @@ function close(): void {
           size="small"
         />
       </label>
+      <!-- 引用存在但钥匙串缺失时明确提示重填，避免「已保存」假象导致 401 无从排查。 -->
       <div v-if="draft.apiKeyRef" class="key-state">
-        <NTag size="tiny" :bordered="false" type="success">已保存密钥</NTag>
+        <NTag size="tiny" :bordered="false" :type="props.keyStored ? 'success' : 'warning'">
+          {{ props.keyStored ? "已保存密钥" : "密钥引用失效，请重新填入" }}
+        </NTag>
         <NCheckbox v-model:checked="clearKey">清除已保存密钥</NCheckbox>
       </div>
 
