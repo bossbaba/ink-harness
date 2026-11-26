@@ -93,7 +93,9 @@ watch(projectId, loadProject, { immediate: true });
     // 专注模式下没有标题栏，macOS 红绿灯会直接压在面包屑上；
     // --page-header-inset 由 AppShell 仅在「专注 + macOS」时下发，普通模式回落到 32px。
     padding-left: var(--page-header-inset, #{t.$space-6});
-    border-bottom: 1px solid var(--divider, #{t.$divider});
+    // 设计稿把面包屑当作正文眉标而非独立工具条：去掉分隔线，让它与标题连成一体。
+    padding-top: t.$space-5;
+    padding-bottom: t.$space-2;
   }
 
   // 这里只负责「撑满剩余高度」，不能设成 flex 容器：

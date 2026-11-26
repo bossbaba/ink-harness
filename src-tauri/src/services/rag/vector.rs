@@ -26,31 +26,6 @@ pub(super) fn table_name(dim: i64) -> String {
     format!("vec_rag_{dim}")
 }
 
-/// 库里所有向量表（含升级前的 `vec_rag`）。删片段时必须按 rowid 清理每一张，
-/// 否则换过维度的作品再删章节时，其它表里的旧向量会变成永远回收不掉的幽灵数据。
-///
-/// sqlite-vec 会为虚拟表建 `vec_rag_3_data` / `vec_rag_3_index` 之类的影子表，
-/// 这里只保留纯数字后缀的实体表名，否则会把影子表当成向量表去删。
-pub(crate) fn all_table_names(conn: &Connection) -> Result<Vec<String>, AppError> {
-    let mut stmt = conn
-        .prepare("select name from sqlite_master where type = 'table' and name like 'vec_rag%'")
-        .map_err(AppError::from)?;
-    let rows = stmt
-        .query_map([], |row| row.get::<_, String>(0))
-        .map_err(AppError::from)?;
-    let names = rows.collect::<Result<Vec<String>, _>>().map_err(AppError::from)?;
-    Ok(names
-        .into_iter()
-        .filter(|name| {
-            if name == LEGACY_TABLE {
-                return true;
-            }
-            name.strip_prefix("vec_rag_")
-                .is_some_and(|suffix| !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()))
-        })
-        .collect())
-}
-
 /// 指定维度的表是否已建。传入哪个连接就查哪个库文件。
 pub(super) fn vec_table_in(conn: &Connection, dim: i64) -> Result<bool, AppError> {
     let count: i64 = conn

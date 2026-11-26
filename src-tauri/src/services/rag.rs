@@ -16,8 +16,6 @@ mod purge;
 mod vector;
 
 pub(crate) use purge::{purge_project_in, purge_source_in};
-// 启动清理孤儿向量需要枚举按维度分出的所有表，供 infrastructure/db 调用。
-pub(crate) use vector::all_table_names;
 use vector::{current_dim, ensure_vec_table, indexed_dim_key, knn, table_name, vector_literal};
 
 /// 建索引时用的 embedding 模型；与该作品当前可用的模型不一致说明索引该重建。
@@ -423,3 +421,6 @@ mod tests;
 /// 状态判定、全量清理、脏数据容错等边界用例，与主链路用例分文件（单文件行数上限）。
 #[cfg(test)]
 mod tests_bounds;
+/// 纪元隔离与老库回退用例：从边界用例文件拆出，避免单文件贴 500 行上限。
+#[cfg(test)]
+mod tests_bounds_epoch;

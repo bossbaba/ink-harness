@@ -241,11 +241,12 @@ export function useProjectOutline(projectIdFromRoute: string) {
   }
 
   async function removeChapter(chapter: Chapter): Promise<void> {
+    if (!projectId.value) return;
     removingId.value = chapter.id;
     busy.value = true;
     error.value = "";
     try {
-      await outlineService.removeChapter(chapter.id);
+      await outlineService.removeChapter(chapter.id, projectId.value);
       if (activeChapterId.value === chapter.id) activeChapterId.value = "";
       await load();
     } catch (err) {
@@ -280,6 +281,7 @@ export function useProjectOutline(projectIdFromRoute: string) {
 
   async function saveScene(): Promise<void> {
     const draft = sceneDraft.value;
+    if (!projectId.value) return;
     if (!draft.title.trim()) {
       error.value = "请输入场景标题";
       return;
@@ -288,25 +290,31 @@ export function useProjectOutline(projectIdFromRoute: string) {
     error.value = "";
     try {
       if (sceneIsNew.value) {
-        await outlineService.createScene({
-          chapterId: draft.chapterId,
-          title: draft.title,
-          pov: draft.pov,
-          location: draft.location,
-          timeMark: draft.timeMark,
-          summary: draft.summary,
-        });
+        await outlineService.createScene(
+          {
+            chapterId: draft.chapterId,
+            title: draft.title,
+            pov: draft.pov,
+            location: draft.location,
+            timeMark: draft.timeMark,
+            summary: draft.summary,
+          },
+          projectId.value,
+        );
       } else {
         const current = scenes.value.find((scene) => scene.id === draft.id);
         if (!current) return;
-        await outlineService.updateScene({
-          ...current,
-          title: draft.title,
-          pov: draft.pov,
-          location: draft.location,
-          timeMark: draft.timeMark,
-          summary: draft.summary,
-        });
+        await outlineService.updateScene(
+          {
+            ...current,
+            title: draft.title,
+            pov: draft.pov,
+            location: draft.location,
+            timeMark: draft.timeMark,
+            summary: draft.summary,
+          },
+          projectId.value,
+        );
       }
       sceneShow.value = false;
       await load();
@@ -318,11 +326,12 @@ export function useProjectOutline(projectIdFromRoute: string) {
   }
 
   async function removeScene(scene: Scene): Promise<void> {
+    if (!projectId.value) return;
     removingId.value = scene.id;
     busy.value = true;
     error.value = "";
     try {
-      await outlineService.removeScene(scene.id);
+      await outlineService.removeScene(scene.id, projectId.value);
       await load();
     } catch (err) {
       error.value = String(err);
@@ -357,14 +366,18 @@ export function useProjectOutline(projectIdFromRoute: string) {
     toChapterId: string,
     index: number,
   ): Promise<void> {
+    if (!projectId.value) return;
     busy.value = true;
     error.value = "";
     try {
-      await outlineService.moveScene({
-        sceneId,
-        targetChapterId: toChapterId,
-        targetIndex: index,
-      });
+      await outlineService.moveScene(
+        {
+          sceneId,
+          targetChapterId: toChapterId,
+          targetIndex: index,
+        },
+        projectId.value,
+      );
       await load();
     } catch (err) {
       error.value = String(err);

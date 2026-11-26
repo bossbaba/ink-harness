@@ -146,7 +146,8 @@ onReactivated(() => void load());
 
 .workflow {
   container-type: inline-size;
-  max-width: 1000px;
+  // 设计稿内容区撑满可用宽度；仅在超宽屏上限封顶。
+  max-width: 1600px;
   margin: 0 auto;
   padding: t.$space-6;
 
@@ -161,7 +162,8 @@ onReactivated(() => void load());
 
   &__title {
     margin: 0 0 t.$space-2;
-    font-size: 1.5rem;
+    // 设计稿 3:1007：工作流页标题 28px 衬线。
+    font-size: 1.75rem;
   }
 
   &__sub,

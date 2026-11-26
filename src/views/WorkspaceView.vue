@@ -77,19 +77,46 @@ function openModels(): void {
         <h1 class="hero__title serif">开始你的下一部作品</h1>
         <p class="hero__subtitle">从构思到出版，AI 全程辅助，数据留在你的电脑。</p>
         <div class="hero__actions">
-          <NButton type="primary" size="small" @click="showNew = true">新建作品</NButton>
+          <NButton type="primary" size="small" @click="showNew = true">
+            <AppIcon name="plus" :size="16" />
+            新建作品
+          </NButton>
           <span class="hero__note">本地优先 · 数据不上云</span>
         </div>
+      </div>
+      <!-- 设计稿右侧的文档插画：纯装饰，不参与交互；用 SVG 保证任意缩放下都清晰。 -->
+      <div class="hero__art" aria-hidden="true">
+        <svg viewBox="0 0 132 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <title>文档完成示意</title>
+          <rect x="14" y="10" width="104" height="76" rx="8" fill="#E8F3EC" />
+          <rect x="22" y="4" width="104" height="76" rx="8" fill="#FFFDF7" stroke="#E6E3D8" />
+          <rect x="34" y="20" width="40" height="5" rx="2.5" fill="#0A8A4B" />
+          <rect x="34" y="34" width="72" height="4" rx="2" fill="#E6E3D8" />
+          <rect x="34" y="44" width="60" height="4" rx="2" fill="#E6E3D8" />
+          <rect x="34" y="54" width="66" height="4" rx="2" fill="#E6E3D8" />
+          <rect x="34" y="64" width="44" height="4" rx="2" fill="#E6E3D8" />
+          <circle cx="104" cy="70" r="17" fill="#0A8A4B" />
+          <path
+            d="m97 70 5 5 9-10"
+            stroke="#fff"
+            stroke-width="2.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
       </div>
     </section>
 
     <p v-if="error" class="error">{{ error }}</p>
 
     <section class="section">
-      <h2 class="section__title">
-        我的作品
-        <NTag class="count" size="tiny" round :bordered="false">{{ projects.length }}</NTag>
-      </h2>
+      <div class="section__head">
+        <h2 class="section__title">
+          我的作品
+          <NTag class="count" size="tiny" round :bordered="false">{{ projects.length }}</NTag>
+        </h2>
+        <p class="section__hint">本地作品 · 点击卡片进入对应创作环节</p>
+      </div>
       <LoadingState v-if="projectsLoading" text="正在载入作品…" />
       <div v-else-if="projects.length === 0" class="empty">
         <AppEmpty
@@ -102,46 +129,40 @@ function openModels(): void {
       </div>
       <div v-else class="project-grid">
         <article v-for="p in projects" :key="p.id" class="project-card">
+          <!-- 设计稿卡片头部：42px 图标 + 17px 作品名 + 状态标签 -->
           <div class="project-card__head">
-            <h3 class="project-card__title serif">{{ p.title }}</h3>
-            <NTag size="small" :bordered="false" type="success">
+            <span class="project-card__icon" aria-hidden="true">
+              <AppIcon name="workspace" :size="22" />
+            </span>
+            <div class="project-card__heading">
+              <h3 class="project-card__title serif">{{ p.title }}</h3>
+              <p class="project-card__premise">{{ p.premise || "暂无梗概" }}</p>
+            </div>
+            <NTag size="small" :bordered="false" type="success" class="project-card__status">
               {{ PROJECT_STATUS_LABEL[p.status] }}
             </NTag>
           </div>
-          <p class="project-card__premise">{{ p.premise || "暂无梗概" }}</p>
-          <div class="project-card__meta">
-            <span>{{ p.genre || "未分类" }}</span>
-            <span v-if="p.privacy === 'local-only'">仅本地</span>
-          </div>
-          <div class="project-card__actions">
-            <NButton size="small" quaternary @click="openIdeation(p.id)">
-              构思向导 <AppIcon name="chevron-right" :size="13" />
-            </NButton>
-            <NButton size="small" quaternary @click="openOutline(p.id)">
-              进入大纲 <AppIcon name="chevron-right" :size="13" />
-            </NButton>
-            <NButton size="small" quaternary @click="openWriting(p.id)">
-              进入写作台 <AppIcon name="chevron-right" :size="13" />
-            </NButton>
-            <NButton size="small" quaternary @click="openBible(p.id)">
-              进入设定库 <AppIcon name="chevron-right" :size="13" />
-            </NButton>
-            <NButton size="small" quaternary @click="openPublish(p.id)">
-              出版中心 <AppIcon name="chevron-right" :size="13" />
-            </NButton>
-            <NButton size="small" quaternary @click="openWorkflow(p.id)">
-              创作工作流 <AppIcon name="chevron-right" :size="13" />
-            </NButton>
+          <!-- 设计稿入口行：左侧类型标签 + 右侧六个绿字文字链接（非按钮） -->
+          <div class="project-card__entry">
+            <span class="project-card__genre">{{ p.genre || "未分类" }}</span>
+            <nav class="project-card__actions" aria-label="作品创作入口">
+              <button type="button" @click="openIdeation(p.id)">构思向导 <span>›</span></button>
+              <button type="button" @click="openOutline(p.id)">进入大纲 <span>›</span></button>
+              <button type="button" @click="openWriting(p.id)">进入写作台 <span>›</span></button>
+              <button type="button" @click="openBible(p.id)">进入设定库 <span>›</span></button>
+              <button type="button" @click="openPublish(p.id)">出版中心 <span>›</span></button>
+              <button type="button" @click="openWorkflow(p.id)">创作工作流 <span>›</span></button>
+            </nav>
           </div>
         </article>
       </div>
     </section>
 
     <section class="status-grid">
-      <StatCard label="本地运行时">
+      <StatCard variant="status" label="本地运行时">
         <span class="status-runtime">{{ backend }}</span>
       </StatCard>
-      <StatCard label="Ollama 服务">
+      <StatCard variant="status" label="Ollama 服务">
         <NTag :type="ollamaRunning ? 'success' : 'default'" size="small" :bordered="false">
           {{ ollamaRunning ? "运行中" : "未运行" }}
         </NTag>
@@ -162,7 +183,11 @@ function openModels(): void {
           <NButton size="small" quaternary @click="openModels">配置模型 →</NButton>
         </template>
       </StatCard>
-      <StatCard label="主题" :value="app.appearance === 'light' ? '浅色 · 纸墨' : '深色 · 夜读'" />
+      <StatCard
+        variant="status"
+        label="主题"
+        :value="app.appearance === 'light' ? '浅色 · 纸墨' : '深色 · 夜读'"
+      />
     </section>
 
     <!-- 作品库路径可能很长，用 NTooltip 展示完整路径，避免原生 title 的样式与延迟。 -->
@@ -180,11 +205,15 @@ function openModels(): void {
 <style scoped lang="scss">
 @use "../styles/tokens" as t;
 @use "../styles/mixins" as m;
+// 作品卡片样式按设计稿拆到同目录片段，scoped 作用域仍由本页提供。
+@use "./WorkspaceView.projectCard";
 
 .workspace {
-  max-width: 900px;
+  // 设计稿内容区撑满可用宽度；仅在超宽屏上限封顶。
+  max-width: 1600px;
   margin: 0 auto;
-  padding: t.$space-8 t.$space-6;
+  // 设计稿主内容区四边 padding 均为 32px（节点 3:236）。
+  padding: t.$space-6;
   // 页面根必须声明容器：卡片栅格按「内容区宽度」而不是窗口宽度决定列数，
   // 否则侧栏/专注模式切换时会算出错误的列数。
   container-type: inline-size;
@@ -193,19 +222,40 @@ function openModels(): void {
 // 首屏 Hero：用一张带主色环境光的面板承接标题与主操作，比居中裸标题更有分量。
 .hero {
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: t.$space-6;
   overflow: hidden;
-  padding: t.$space-8 t.$space-6;
+  // 设计稿节点 3:237：Hero 卡片 236px 高、四边内边距 36px。
+  min-height: 236px;
+  padding: 36px;
   border: 1px solid var(--divider);
   border-radius: t.$radius-xl;
-  background:
-    radial-gradient(120% 180% at 88% 0%, var(--accent-soft), transparent 60%),
-    linear-gradient(135deg, var(--bg-surface), var(--bg-sunken));
+  // 设计稿 3:237：卡面是纯净纸色，纵深只由阴影承担，不叠环境光渐变。
+  background: var(--bg-surface);
   box-shadow: t.$shadow-card;
 
   &__content {
     position: relative;
     z-index: 1;
+    min-width: 0;
     max-width: 640px;
+  }
+
+  // 右侧文档插画：桌面端占位，窄容器下隐藏，避免挤压标题。
+  &__art {
+    position: relative;
+    z-index: 1;
+    flex: 0 0 auto;
+    // 设计稿插画内容 240×140，放在 Hero 右侧独立留白里。
+    width: 240px;
+
+    svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
   }
   &__eyebrow {
     margin: 0 0 t.$space-3;
@@ -216,23 +266,35 @@ function openModels(): void {
   }
   &__title {
     margin: 0;
-    font-size: 2rem;
+    // 设计稿 3:240 主标题 38px 衬线，与下方说明保持 12px 间距。
+    font-size: 2.375rem;
     font-weight: 600;
-    line-height: 1.3;
-    letter-spacing: 0.04em;
+    line-height: 1.45;
+    letter-spacing: 0.02em;
     color: var(--text-primary);
   }
   &__subtitle {
     margin: t.$space-3 0 t.$space-5;
     font-size: 13px;
     line-height: 1.7;
-    color: var(--text-soft);
+    color: var(--text-muted, #{t.$ink-muted});
   }
   &__actions {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: t.$space-3;
+
+    // 设计稿 3:243：主按钮 40px 高、13px 字，与右侧说明文字拉开距离。
+    :deep(.n-button) {
+      height: 40px;
+      padding: 0 t.$space-4;
+      font-size: 13px;
+    }
+
+    :deep(.n-button__content) {
+      gap: t.$space-2;
+    }
   }
   &__note {
     font-size: 11px;
@@ -241,14 +303,31 @@ function openModels(): void {
 }
 
 .section {
-  margin-top: t.$space-6;
+  // 设计稿主内容区区块间距 20px。
+  margin-top: t.$space-5;
+
+  &__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: t.$space-4;
+    margin-bottom: t.$space-4;
+  }
+
+  // 设计稿在段落右侧给一句轻提示，解释卡片的用途，避免用户不知道入口在哪。
+  &__hint {
+    margin: 0;
+    font-size: 11px;
+    color: var(--text-faint);
+  }
 
   &__title {
     display: flex;
     align-items: center;
     gap: t.$space-2;
-    margin: 0 0 t.$space-4;
-    font-size: 14px;
+    margin: 0;
+    // 设计稿 3:261：区块标题 15px，与 3px 主色竖标组成段落起点。
+    font-size: 15px;
     font-weight: 600;
     color: var(--text-primary);
 
@@ -276,55 +355,6 @@ function openModels(): void {
   gap: t.$space-4;
 }
 
-.project-card {
-  padding: t.$space-4;
-  @include m.card-surface(var(--bg-surface));
-  // 作品卡片可点入口密集，悬浮抬起给出「可进入」的反馈。
-  @include m.hover-lift;
-
-  &__head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: t.$space-2;
-  }
-  &__title {
-    margin: 0;
-    font-size: 15px;
-    font-weight: 600;
-    @include m.ellipsis;
-  }
-  &__premise {
-    margin: t.$space-3 0;
-    font-size: 12px;
-    line-height: 1.6;
-    color: var(--text-soft);
-    display: -webkit-box;
-    line-clamp: 2;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  &__meta {
-    display: flex;
-    gap: t.$space-3;
-    font-size: 11px;
-    color: var(--text-faint);
-  }
-  &__actions {
-    display: flex;
-    // 六个入口必须排在同一行：卡片已改单列给足宽度，这里禁止换行避免掉到第二行。
-    flex-wrap: nowrap;
-    gap: t.$space-1;
-    margin-top: t.$space-2;
-    // NButton 自带 padding，这里不再给按钮加边距，靠 gap 控制间距。
-    :deep(button) {
-      flex-shrink: 0;
-      white-space: nowrap;
-    }
-  }
-}
-
 .empty {
   display: flex;
   flex-direction: column;
@@ -341,7 +371,9 @@ function openModels(): void {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: t.$space-4;
-  margin-top: t.$space-6;
+  // 设计稿状态卡组高 148px、与上方区块间距 20px。
+  margin-top: t.$space-5;
+  min-height: 148px;
 }
 
 // 运行时状态是长句而非数字，用正文级别字号并允许换行，避免指标卡把它截断。
@@ -382,6 +414,15 @@ function openModels(): void {
   .status-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  // 窄内容区让六个入口折行，保持每个链接可读。
+  .project-card {
+    &__actions {
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      row-gap: t.$space-1;
+    }
+  }
 }
 
 @container (max-width: 620px) {
@@ -395,6 +436,14 @@ function openModels(): void {
     &__title {
       font-size: 1.6rem;
     }
+
+    &__art {
+      display: none;
+    }
+  }
+
+  .section__hint {
+    display: none;
   }
 }
 </style>

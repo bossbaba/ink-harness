@@ -163,22 +163,22 @@ function candidate(action: PendingToolAction): string {
       </div>
     </div>
     <!-- 待授权卡片会跨重启保留，给作者一个明确的作废入口，不让上一轮的授权悬着。 -->
-    <button
-      type="button"
+    <NButton
       v-if="agent.actions.some((a) => a.status === 'pending')"
+      size="tiny"
+      quaternary
       class="controls__clear"
       @click="agent.onAction({ type: 'discard' })"
+      >作废待授权</NButton
     >
-      作废待授权
-    </button>
-    <button
-      type="button"
+    <NButton
       v-if="agent.actions.some((a) => a.status !== 'pending')"
+      size="tiny"
+      quaternary
       class="controls__clear"
       @click="agent.onAction({ type: 'clear' })"
+      >清除记录</NButton
     >
-      清除记录
-    </button>
     <p v-if="agent.error" class="controls__error">{{ agent.error }}</p>
   </section>
 </template>
@@ -247,9 +247,6 @@ function candidate(action: PendingToolAction): string {
 
   &__clear {
     align-self: flex-end;
-    background: none;
-    border: none;
-    cursor: pointer;
   }
 
   &__action {

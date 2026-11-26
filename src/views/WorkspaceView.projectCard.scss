@@ -1,0 +1,111 @@
+@use "../styles/tokens" as t;
+@use "../styles/mixins" as m;
+
+// 工作台作品卡片样式拆到同目录片段，让 WorkspaceView.vue 保持在 500 行以内；
+// scoped 作用域仍由引用它的页面提供。
+// 与设计稿作品卡片一致：上下两段（头部 + 入口行），内边距 24px、圆角 16px。
+.project-card {
+  display: flex;
+  flex-direction: column;
+  gap: t.$space-4;
+  padding: t.$space-5;
+  border-radius: 16px;
+  @include m.card-surface(var(--bg-surface));
+  @include m.hover-lift;
+
+  &__head {
+    display: flex;
+    align-items: center;
+    gap: t.$space-4;
+  }
+
+  // 设计稿作品图标 42×42、圆角 12px、浅绿衬底，图标 22px。
+  &__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  &__heading {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 600;
+    @include m.ellipsis;
+  }
+
+  &__premise {
+    margin: t.$space-1 0 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-soft);
+    @include m.ellipsis;
+  }
+
+  &__status {
+    flex: 0 0 auto;
+  }
+
+  // 设计稿入口行：左类型标签 + 右六个文字链接，单行排列。
+  &__entry {
+    display: flex;
+    align-items: center;
+    gap: t.$space-3;
+    min-width: 0;
+  }
+
+  &__genre {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 0 t.$space-2;
+    border-radius: 8px;
+    background: var(--bg-sunken);
+    color: var(--text-soft);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  &__actions {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: flex-end;
+    // 设计稿入口间距 6px。
+    gap: 6px;
+    min-width: 0;
+
+    // 设计稿是 12px 绿色文字链接，不是按钮；箭头是文字 ›，无底色无边框。
+    button {
+      flex: 0 0 auto;
+      padding: 0;
+      border: none;
+      background: none;
+      color: var(--accent);
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: nowrap;
+      cursor: pointer;
+
+      span {
+        margin-left: 2px;
+        opacity: 0.7;
+      }
+
+      &:hover {
+        text-decoration: underline;
+      }
+    }
+  }
+}

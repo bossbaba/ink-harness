@@ -27,7 +27,19 @@ export type AppIconName =
   | "close"
   | "search"
   | "undo"
-  | "redo";
+  | "redo"
+  // ↓ 设计稿新增语义图标（24×24 填充/描边混合，见 designIconShapes.ts）
+  | "back"
+  | "agentRole"
+  | "agentEval"
+  | "mcp"
+  | "settings"
+  | "theme"
+  | "person"
+  | "location"
+  | "organization"
+  | "timeline"
+  | "glossary";
 
 /** 每条路径都是可独立 stroke 的线段；圆与圆弧用 path 的 A 指令表达，避免混用元素类型。 */
 export const appIconPaths: Record<AppIconName, string[]> = {
@@ -76,4 +88,17 @@ export const appIconPaths: Record<AppIconName, string[]> = {
   search: ["M7 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z", "M9.8 9.8l3.2 3.2"],
   undo: ["M6 5L3 8l3 3", "M3 8h6a3 3 0 0 1 0 6H7"],
   redo: ["M10 5l3 3-3 3", "M13 8H7a3 3 0 0 0 0 6h2"],
+  // 设计稿新增图标的路径在这里留空占位：它们由 designIconShapes.ts 的 24×24 矢量渲染，
+  // 保留键名只为让 Record<AppIconName, string[]> 的类型约束完整，实际不会走到这里。
+  back: [],
+  agentRole: [],
+  agentEval: [],
+  mcp: [],
+  settings: [],
+  theme: [],
+  person: [],
+  location: [],
+  organization: [],
+  timeline: [],
+  glossary: [],
 };

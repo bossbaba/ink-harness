@@ -1,0 +1,66 @@
+@use "../styles/tokens" as t;
+
+// 侧栏导航项沿用设计稿的浅绿药丸选中态。拆成独立样式片段后，
+// AppShell.vue 才能保持在 500 行以内；scoped 作用域仍由引用它的组件提供。
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  // 双写类名是为了压过 NButton 注入的 padding/字号样式，保留侧栏列表项的原生排版。
+  &__item.nav__item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    // 设计稿母版导航项高 42px、圆角 10px、左右内边距 12px。
+    min-height: 42px;
+    padding: 0 t.$space-3;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-soft);
+    font-size: 13px;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+    white-space: normal;
+    transition:
+      background 160ms t.$ease,
+      color 160ms t.$ease;
+
+    &:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+
+    // 选中态：设计稿用整枚浅绿药丸 + 绿字，不再叠左侧竖条；
+    // 与作品侧栏保持同一套识别语言，视觉更轻、更整齐。
+    &--active,
+    &.nav__item--active {
+      background: var(--accent-soft-strong, var(--accent-soft));
+      color: var(--accent);
+      font-weight: 600;
+    }
+  }
+
+  &__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    opacity: 0.9;
+  }
+
+  &__back {
+    margin-bottom: 0;
+  }
+
+  // 专注模式与上方导航用分隔线隔开，双写类名压过 NButton 的边框样式。
+  // margin-top:auto 对应设计稿的「弹性留白」，把专注模式推到侧栏底部。
+  &__focus.nav__item {
+    margin-top: auto;
+    border-top: 1px solid var(--divider);
+    border-radius: 0;
+  }
+}

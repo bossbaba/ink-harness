@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { onBeforeRouteLeave, useRouter } from "vue-router";
 import LoadingState from "@/components/common/LoadingState.vue";
-import ChapterEditDialog from "@/components/outline/ChapterEditDialog.vue";
+import ChapterCreateDialogHost from "@/components/writing/ChapterCreateDialogHost.vue";
 import WritingAiPanel from "@/components/writing/WritingAiPanel.vue";
 import WritingChapterList from "@/components/writing/WritingChapterList.vue";
 import WritingEditor from "@/components/writing/WritingEditor.vue";
@@ -14,7 +14,7 @@ import { useWritingAssist } from "@/composables/useWritingAssist";
 import { useWritingCopilot } from "@/composables/useWritingCopilot";
 import { useWritingDesk } from "@/composables/useWritingDesk";
 import { useAppStore } from "@/stores/app";
-import type { AssistApplyMode, AssistSelection, ChapterDraft, CopilotReference } from "@/types";
+import type { AssistApplyMode, AssistSelection, CopilotReference } from "@/types";
 import { onReactivated } from "@/utils/lifecycle";
 import { documentToPlainText, EMPTY_DOCUMENT_TEXT } from "@/utils/tiptap";
 
@@ -209,48 +209,10 @@ function goOutline(): void {
   void router.push({ name: "project-outline", params: { projectId: props.projectId } });
 }
 
-// 写作台直接建章：复用大纲的章节弹窗，保存成功后就跳到新章开始写。
-const chapterDialogShow = ref(false);
-const chapterDialogBusy = ref(false);
-const chapterDialogError = ref("");
-const chapterDialogDraft = ref<ChapterDraft>({
-  id: "",
-  act: 1,
-  title: "",
-  summary: "",
-  status: "planned",
-});
-
+// 建章弹窗的字段与保存流程在子组件里，页面只负责打开它并在建好后跳到新章。
+const chapterDialogRef = ref<InstanceType<typeof ChapterCreateDialogHost> | null>(null);
 function openCreateChapter(act: number): void {
-  chapterDialogError.value = "";
-  chapterDialogDraft.value = { id: "", act, title: "", summary: "", status: "planned" };
-  chapterDialogShow.value = true;
-}
-
-async function saveNewChapter(): Promise<void> {
-  const draft = chapterDialogDraft.value;
-  if (!draft.title.trim()) {
-    chapterDialogError.value = "请输入章节标题";
-    return;
-  }
-  chapterDialogBusy.value = true;
-  chapterDialogError.value = "";
-  try {
-    const chapter = await createChapter({
-      act: draft.act,
-      title: draft.title,
-      summary: draft.summary,
-      status: draft.status,
-    });
-    if (!chapter) {
-      chapterDialogError.value = error.value || "创建章节失败，请重试。";
-      return;
-    }
-    chapterDialogShow.value = false;
-    openChapter(chapter.id);
-  } finally {
-    chapterDialogBusy.value = false;
-  }
+  chapterDialogRef.value?.open(act);
 }
 
 function toggleFocus(): void {
@@ -388,15 +350,12 @@ async function handleRestore(versionId: string): Promise<void> {
       @close-preview="closeVersionPreview"
     />
 
-    <!-- 建章弹窗与大纲页共用：字段少、就地创建，成功后直接跳到新章开始写。 -->
-    <ChapterEditDialog
-      v-model:show="chapterDialogShow"
-      v-model:draft="chapterDialogDraft"
-      :is-new="true"
-      :busy="chapterDialogBusy"
-      :error="chapterDialogError"
+    <ChapterCreateDialogHost
+      ref="chapterDialogRef"
       :act-count="actCount"
-      @save="saveNewChapter"
+      :create-chapter="createChapter"
+      :get-error="() => error"
+      @created="openChapter"
     />
   </div>
 </template>
@@ -408,54 +367,65 @@ async function handleRestore(versionId: string): Promise<void> {
 .writing {
   display: flex;
   flex-direction: column;
+  gap: 14px;
   min-width: 0;
   height: 100%;
   min-height: 0;
+  // 设计稿 3:918：内容区四边 28px，页头与三栏之间 14px。
+  padding: 28px;
   container-type: inline-size;
   background: var(--bg-app);
 
   &__error {
-    margin: t.$space-3 t.$space-6 0;
+    margin: 0;
     font-size: 12px;
     color: var(--error, #{t.$error});
   }
 
   &__body {
     display: grid;
-    grid-template-columns: 240px minmax(0, 1fr);
+    // 设计稿 3:930：章节 196px + 编辑器弹性 + Copilot 300px，栏间 12px。
+    grid-template-columns: 196px minmax(0, 1fr);
+    gap: 12px;
     flex: 1;
     min-height: 0;
 
     // AI 面板是第三栏；辅助卡片里是要进稿的长正文，结果出来时这一栏再放宽。
     &--copilot {
-      grid-template-columns: 240px minmax(0, 1fr) 320px;
+      grid-template-columns: 196px minmax(0, 1fr) 300px;
     }
     &--assist {
-      grid-template-columns: 240px minmax(0, 1fr) 400px;
+      grid-template-columns: 196px minmax(0, 1fr) 380px;
     }
   }
 
-  &__chapters {
+  // 三栏各自是一张卡面，圆角/描边/阴影走同一套令牌；子组件只管内部排版。
+  &__chapters,
+  &__main,
+  &__copilot {
     min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid var(--divider, #{t.$divider});
+    border-radius: 14px;
+    background: var(--bg-surface);
+    box-shadow: t.$shadow-card;
+  }
+
+  // 章节列表原本自带右分隔线与底色，卡片化后交给外层，避免双描边。
+  &__chapters :deep(.chapter-list) {
+    border-right: none;
+    background: transparent;
   }
 
   &__main {
     display: flex;
     flex-direction: column;
-    min-width: 0;
-    min-height: 0;
-    background: var(--bg-surface);
   }
 
-  // AI 对话栏：常驻在编辑器右侧。这些类落在面板根节点上，纵向布局由面板自己负责，
-  // 这里只管列宽、内边距与分隔线，避免两处都设 flex 打架。
+  // AI 对话栏：常驻在编辑器右侧；自己的 flex 纵向布局不动，这里只做卡片外壳与内边距。
   &__copilot {
-    min-width: 0;
-    min-height: 0;
-    padding: t.$space-3;
-    overflow: hidden;
-    border-left: 1px solid var(--divider, #{t.$divider});
-    background: var(--bg-surface);
+    padding: t.$space-4;
   }
 }
 
@@ -470,12 +440,16 @@ async function handleRestore(versionId: string): Promise<void> {
   }
 
   .writing__body--assist {
-    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-columns: minmax(0, 1fr) 360px;
   }
-
 }
 
 @container (max-width: 620px) {
+  // 窄内容区收小页面留白，卡片本身已经提供呼吸空间。
+  .writing {
+    padding: t.$space-4;
+  }
+
   .writing__body {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -484,11 +458,6 @@ async function handleRestore(versionId: string): Promise<void> {
   .writing__body--copilot {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) minmax(0, 50%);
-  }
-
-  .writing__copilot {
-    border-top: 1px solid var(--divider, #{t.$divider});
-    border-left: none;
   }
 
   // 单栏时左侧列表让位，切章靠标题栏下拉框。

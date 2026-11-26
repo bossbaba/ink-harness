@@ -171,7 +171,8 @@ function draftLabel(): string {
 @use "../styles/mixins" as m;
 
 .ideation {
-  max-width: 1200px;
+  // 设计稿内容区撑满可用宽度；仅在超宽屏上限封顶。
+  max-width: 1600px;
   min-width: 0;
   margin: 0 auto;
   padding: t.$space-6;
@@ -186,7 +187,8 @@ function draftLabel(): string {
 
   &__title {
     margin: 0;
-    font-size: 1.5rem;
+    // 设计稿 3:729：作品内页标题 26px 衬线。
+    font-size: 1.625rem;
     font-weight: 600;
   }
 

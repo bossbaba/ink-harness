@@ -276,7 +276,8 @@ async function copyReport(): Promise<void> {
 @use "../styles/mixins" as m;
 
 .review {
-  max-width: 1000px;
+  // 设计稿内容区撑满可用宽度；仅在超宽屏上限封顶。
+  max-width: 1600px;
   min-width: 0;
   margin: 0 auto;
   padding: t.$space-6;
@@ -295,7 +296,8 @@ async function copyReport(): Promise<void> {
 
   &__title {
     margin: 0;
-    font-size: 1.5rem;
+    // 设计稿 3:976：审稿页标题 28px 衬线。
+    font-size: 1.75rem;
     font-weight: 600;
   }
 

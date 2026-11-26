@@ -81,7 +81,8 @@ export interface ToolContext {
   sessionId?: string;
   /**
    * 作者审批通过后由后端签发的 MCP 调用令牌；只有外部工具会用到。
-   * 后端在 spawn 外部进程前验签，绕过界面的 IPC 调用没有令牌会被拒绝。
+   * 签发前会弹原生确认框；后端在 spawn 外部进程前校验令牌与参数绑定，
+   * 未签发或串参的调用会被拒绝。
    */
   approvalToken?: string;
 }

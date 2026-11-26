@@ -18,7 +18,7 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check:conventions": "node scripts/check-conventions.mjs",
+    "check:conventions": "node scripts/check-conventions.mjs && node scripts/check-guardrails-sync.mjs",
     "check:ub": "bash scripts/check-ub.sh",
     "check:ub:miri": "bash scripts/check-ub.sh miri",
     "check:ub:asan": "bash scripts/check-ub.sh asan",

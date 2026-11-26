@@ -1,4 +1,4 @@
-import { save } from "@tauri-apps/plugin-dialog";
+import { saveExportPath } from "@/api/dialog";
 import { tauriApi } from "@/api/tauri";
 import { outlineService } from "@/services/outlineService";
 import { projectService } from "@/services/projectService";
@@ -266,11 +266,7 @@ export async function exportBytes(
   defaultName: string,
 ): Promise<ExportResult | null> {
   const extension = FILE_EXTENSION[format];
-  const path = await save({
-    title: "导出作品",
-    defaultPath: `${defaultName}.${extension}`,
-    filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
-  });
+  const path = await saveExportPath(defaultName, extension);
   if (!path) return null;
   return tauriApi.writeExportFile(path, Array.from(bytes));
 }

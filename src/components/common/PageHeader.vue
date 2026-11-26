@@ -2,13 +2,14 @@
 /**
  * 统一页面标题区：眉标 + 一级标题 + 副标题 + 操作区。
  * 只负责排版与插槽分发，不承接任何业务逻辑；操作按钮由使用方通过 actions 插槽放入。
- * 左侧主色竖条是全局统一的视觉锚点，避免每个页面各写一套标题样式。
+ * 对齐 Ardot 设计稿：全局页标题 30px 衬线、眉标 11px 主色、说明 12px 正文灰，
+ * 标题不再加左侧竖条——竖条只属于工作台「我的作品」这类区块标题。
  */
 withDefaults(
   defineProps<{
     /** 标题上方的小字，标明页面所属作用域，如「系统设置」「全局视角」。 */
     eyebrow?: string;
-    /** 页面标题（一级标题，统一 1.5rem 衬线）。 */
+    /** 页面标题（一级标题，设计稿全局页统一 30px 衬线）。 */
     title: string;
     /** 标题下方的一句话说明，说清页面职责与数据范围。 */
     subtitle?: string;
@@ -36,27 +37,14 @@ withDefaults(
 @use "@/styles/tokens" as t;
 
 .page-header {
-  position: relative;
   min-width: 0;
-  padding-left: t.$space-4;
 
-  // 竖条用主色标记「当前页」，比纯文字标题更有识别度。
-  &::before {
-    content: "";
-    position: absolute;
-    top: 4px;
-    bottom: 4px;
-    left: 0;
-    width: 3px;
-    border-radius: 2px;
-    background: var(--accent);
-  }
-
+  // 设计稿 3:343：眉标用紧凑字距，和 30px 标题保持 8px 呼吸。
   &__eyebrow {
     margin: 0 0 t.$space-2;
     font-size: 11px;
     font-weight: 600;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.1em;
     color: var(--accent);
   }
 
@@ -74,9 +62,10 @@ withDefaults(
 
   &__title {
     margin: 0;
-    font-size: 1.5rem;
+    // 设计稿全局页标题 30px（节点 3:345），作品内页另有 26px 档位。
+    font-size: 1.875rem;
     font-weight: 600;
-    line-height: 1.35;
+    line-height: 1.4;
     letter-spacing: 0.02em;
     color: var(--text-primary);
   }
@@ -85,7 +74,7 @@ withDefaults(
     margin: t.$space-2 0 0;
     font-size: 12px;
     line-height: 1.7;
-    color: var(--text-soft);
+    color: var(--text-muted, #{t.$ink-muted});
   }
 
   &__actions {

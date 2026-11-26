@@ -129,7 +129,8 @@ const {
 @use "../styles/tokens" as t;
 
 .project-bible {
-  max-width: 1500px;
+  // 设计稿内容区撑满可用宽度；仅在超宽屏上限封顶。
+  max-width: 1600px;
   min-width: 0;
   margin: 0 auto;
   padding: t.$space-6;
@@ -144,7 +145,8 @@ const {
 
   &__title {
     margin: 0;
-    font-size: 1.5rem;
+    // 设计稿 3:778：作品内页标题 26px 衬线。
+    font-size: 1.625rem;
     font-weight: 600;
   }
 
@@ -162,8 +164,9 @@ const {
 
 .bible-grid {
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr) 300px;
-  gap: t.$space-4;
+  // 设计稿 3:786：列表 216px / 编辑面板弹性 / 关系图 258px，栏间 14px。
+  grid-template-columns: 216px minmax(0, 1fr) 258px;
+  gap: 14px;
   margin-top: t.$space-5;
   align-items: start;
   min-width: 0;

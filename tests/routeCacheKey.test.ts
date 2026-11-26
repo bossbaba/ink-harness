@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  type Component,
   createRenderer,
   defineComponent,
   h,
@@ -7,7 +8,6 @@ import {
   nextTick,
   ref,
   shallowRef,
-  type Component,
 } from "vue";
 import { routeCacheKey } from "@/app/routeCacheKey";
 
@@ -59,9 +59,7 @@ describe("routeCacheKey", () => {
     expect(routeCacheKey("/bible", 0)).toBe("/bible:0");
     expect(routeCacheKey("/bible", 1)).toBe("/bible:1");
     // 同一路由模板下的不同实体必须各自缓存，不能只按 name 区分。
-    expect(routeCacheKey("/projects/1/bible", 0)).not.toBe(
-      routeCacheKey("/projects/2/bible", 0),
-    );
+    expect(routeCacheKey("/projects/1/bible", 0)).not.toBe(routeCacheKey("/projects/2/bible", 0));
   });
 
   it("组合 key 下跨路由切换正常，且切回时复用旧实例", async () => {

@@ -189,7 +189,8 @@ function updateBrief(field: keyof PublicationBrief, value: string | string[]): v
 @use "../styles/mixins" as m;
 
 .publish {
-  max-width: 1000px;
+  // 设计稿内容区撑满可用宽度；仅在超宽屏上限封顶。
+  max-width: 1600px;
   min-width: 0;
   margin: 0 auto;
   padding: t.$space-6;
@@ -204,7 +205,8 @@ function updateBrief(field: keyof PublicationBrief, value: string | string[]): v
 
   &__title {
     margin: 0;
-    font-size: 1.5rem;
+    // 与作品内页同档：26px 衬线标题。
+    font-size: 1.625rem;
     font-weight: 600;
   }
 

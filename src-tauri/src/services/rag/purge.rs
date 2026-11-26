@@ -7,9 +7,8 @@
 
 use rusqlite::{Connection, params};
 
-use super::vector;
 use crate::error::AppError;
-use crate::infrastructure::db::DbState;
+use crate::infrastructure::db::{DbState, delete_vec_rows};
 
 /// 清空片段。`all` 为真时连通所有作品一起清（仅在老库整体重建时使用）。
 pub(super) fn clear_chunks(state: &DbState, project_id: &str, all: bool) -> Result<(), AppError> {
@@ -97,13 +96,7 @@ pub(super) fn delete_rows(conn: &Connection, ids: &[i64]) -> Result<(), AppError
     if ids.is_empty() {
         return Ok(());
     }
-    for table in vector::all_table_names(conn)? {
-        let sql = format!("delete from {table} where rowid = ?1");
-        let mut stmt = conn.prepare(&sql).map_err(AppError::from)?;
-        for id in ids {
-            stmt.execute(params![id]).map_err(AppError::from)?;
-        }
-    }
+    delete_vec_rows(conn, ids)?;
     let mut stmt = conn
         .prepare("delete from rag_chunk where id = ?1")
         .map_err(AppError::from)?;

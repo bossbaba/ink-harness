@@ -3,11 +3,10 @@
 //! 按 id 读/改/删单条设定的命令都要求声明作品，并在进入 service 前核对归属；
 //! 列表类命令本来就带 projectId，不需要额外校验。
 
-use super::ownership;
 use crate::commands::blocking;
 use crate::error::AppError;
 use crate::models::{ConsistencyIssue, NewStoryElement, StoryElement, StoryElementOverview};
-use crate::services::story_element;
+use crate::services::{ownership, story_element};
 
 #[tauri::command]
 pub async fn list_story_elements(
@@ -31,12 +30,13 @@ pub async fn get_story_element(
     project_id: String,
 ) -> Result<Option<StoryElement>, AppError> {
     blocking(app, move |state| {
-        // 归属不符时按「查不到」处理，不把别的作品的数据或存在性泄漏给调用方，
-        // 也保持既有契约：调用方原本就期望 null 表示没有这条设定。
-        if ownership::assert_element(state, &id, &project_id).is_err() {
-            return Ok(None);
+        // 归属不符与记录不存在都按「查不到」处理，不泄漏别的作品里有没有这条设定。
+        // 数据库故障必须原样往上抛：它是 not_found 之外的错误码，不能被伪装成空结果。
+        match ownership::assert_element(state, &id, &project_id) {
+            Ok(()) => story_element::get(state, &id),
+            Err(err) if err.code() == "not_found" => Ok(None),
+            Err(err) => Err(err),
         }
-        story_element::get(state, &id)
     })
     .await
 }

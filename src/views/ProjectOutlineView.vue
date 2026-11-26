@@ -171,6 +171,7 @@ const {
 @use "../styles/tokens" as t;
 
 .outline {
+  // 设计稿内容区撑满可用宽度；仅在超宽屏上限封顶。
   max-width: 1600px;
   min-width: 0;
   margin: 0 auto;
@@ -186,7 +187,8 @@ const {
 
   &__title {
     margin: 0;
-    font-size: 1.5rem;
+    // 设计稿 3:850：作品内页标题 26px 衬线。
+    font-size: 1.625rem;
     font-weight: 600;
   }
 
@@ -231,8 +233,9 @@ const {
 
 .outline-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: t.$space-4;
+  // 设计稿 3:865：伏笔追踪栏 246px，与主区分开 14px。
+  grid-template-columns: minmax(0, 1fr) 246px;
+  gap: 14px;
   margin-top: t.$space-3;
   align-items: start;
   min-width: 0;

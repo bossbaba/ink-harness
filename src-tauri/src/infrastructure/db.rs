@@ -8,7 +8,12 @@ use std::sync::{Mutex, MutexGuard, Once};
 use rusqlite::{Connection, ffi::sqlite3_auto_extension, params};
 
 mod schema;
+mod vector_tables;
 use schema::migrate;
+pub(crate) use vector_tables::delete_vec_rows;
+// 只有 rag 的边界测试需要直接枚举向量表名；非测试构建不导出，避免 unused_imports 警告。
+#[cfg(test)]
+pub(crate) use vector_tables::all_vec_table_names;
 
 /// sqlite-vec 导出的初始化符号签名与 rusqlite 期望的不同，需转成 auto extension 要求的 C 函数指针。
 type VecEntryPoint = unsafe extern "C" fn(
@@ -107,14 +112,7 @@ fn purge_orphan_chunks(biz: &Connection, vec: &Connection) -> Result<(), AppErro
 
     // 按维度分表后向量散落在 vec_rag_{dim} 里，只清旧表会留下幽灵向量：
     // 既占空间，又会在 KNN 里挤掉有效候选。
-    let vec_tables = crate::services::rag::all_table_names(vec)?;
-    for table in vec_tables {
-        let sql = format!("delete from {table} where rowid = ?1");
-        let mut stmt = vec.prepare(&sql).map_err(AppError::from)?;
-        for id in &ids {
-            stmt.execute(params![id]).map_err(AppError::from)?;
-        }
-    }
+    delete_vec_rows(vec, &ids)?;
 
     let tx = biz.unchecked_transaction().map_err(AppError::from)?;
     let mut stmt = tx

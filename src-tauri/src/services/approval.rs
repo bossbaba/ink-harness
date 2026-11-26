@@ -1,8 +1,9 @@
 //! 写操作的一次性审批令牌。
 //!
 //! 审批队列原本只在前端 TS 里，绕过界面的脚本可以直接调 IPC。这里给最高危的
-//! `call_mcp_tool`（按用户配置 spawn 本地进程）加一道后端闸门：调用必须带一枚
-//! 后端签发的令牌，令牌绑定工具名、参数摘要、作品/会话，5 分钟内有效且用后即焚。
+//! `call_mcp_tool`（按用户配置 spawn 本地进程）加一道后端闸门：令牌签发前必须先
+//! 经过原生确认框（见 `commands/mcp.rs`），令牌再绑定工具名、参数摘要、作品/会话，
+//! 5 分钟内有效且用后即焚。令牌本身只防参数漂移与重放，不是跨进程权限凭证。
 //!
 //! 令牌存在进程内存里而非数据库：重启后前端审批队列也要重新授权，
 //! 内存令牌随进程消失正好与「一次性」语义一致，也不需要额外的清理迁移。
@@ -73,7 +74,8 @@ pub fn issue(
     Ok(token)
 }
 
-/// 验签并消费令牌。任何一处不匹配都拒绝执行，且不消耗令牌（便于调用方重试）。
+/// 校验令牌与本次调用的绑定关系并消费它。任何一处不匹配都拒绝执行，
+/// 且不消耗令牌（便于调用方在修正参数后重试）。
 pub fn verify(
     token: &str,
     tool: &str,
@@ -85,8 +87,13 @@ pub fn verify(
     let entry = map
         .get_mut(token)
         .ok_or_else(|| AppError::validation("MCP 调用缺少有效的审批令牌"))?;
-    if entry.used || entry.expires_at <= Instant::now() {
-        return Err(AppError::validation("审批令牌已使用或已过期"));
+    // 过期项就地删除：只靠 issue 时清理的话，长期没有新审批时旧令牌会一直占着内存。
+    if entry.expires_at <= Instant::now() {
+        map.remove(token);
+        return Err(AppError::validation("审批令牌已过期"));
+    }
+    if entry.used {
+        return Err(AppError::validation("审批令牌已使用"));
     }
     if entry.tool != tool
         || entry.args_hash != args_hash(args)

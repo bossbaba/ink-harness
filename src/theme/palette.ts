@@ -4,13 +4,15 @@ import type { GlobalThemeOverrides } from "naive-ui";
  * 颜色单一真源。所有语义色只在此定义一次：
  * - 运行时注入到 CSS 自定义属性（供 Sass 组件通过 var(--*) 使用）
  * - 派生 Naive UI 的 themeOverrides（CSS-in-JS 无法读 CSS 变量）
- * 主色收敛为稳重翠绿：浅色 #0f8f52 / 深色 #3ddc91，保证正文与按钮上的对比度。
+ * 主色取 Ardot 设计稿的墨绿：浅色 #0a8a4b / 深色 #3ddc91，保证正文与按钮上的对比度。
  */
 
 export interface Palette {
   accent: string;
   accentHover: string;
   accentPressed: string;
+  /** 深绿：设计稿次级强调色，用于渐变末端、装饰块与深色文字强调。 */
+  accentDeep: string;
   success: string;
   warning: string;
   error: string;
@@ -25,44 +27,63 @@ export interface Palette {
   bgHover: string;
   /** 主色的低饱和衬底：图标底色、选中态背景。 */
   accentSoft: string;
+  /** 比 accentSoft 再实一档的选中底色，对应设计稿 #E4F0E8。 */
+  accentSoftStrong: string;
+  /** 侧栏底色：设计稿浅色侧栏比内容纸底略深一档。 */
+  sidebarBg: string;
   /** 错误色的低饱和衬底：错误提示块背景。 */
   errorSoft: string;
   /** 成功色的低饱和衬底：成功提示块背景。 */
   successSoft: string;
   textPrimary: string;
   textSoft: string;
+  /** 设计稿正文灰 #6A7168：页头说明与区块描述等长句用，比 textSoft 更轻。 */
+  textMuted: string;
   textFaint: string;
   border: string;
   divider: string;
+  /** 表单控件描边：暗色下必须比卡面亮一档，否则输入框看起来没有边框。 */
+  controlBorder: string;
+  /** 表单控件 hover 描边：比常态再亮一点，给可输入区域明确反馈。 */
+  controlBorderHover: string;
 }
 
 export const palettes: Record<"light" | "dark", Palette> = {
   light: {
-    accent: "#0f8f52",
-    accentHover: "#1ea363",
-    accentPressed: "#0b7342",
+    // 与 Ardot 设计稿「浅色 · 纸墨」取色一致；主题家族仍是墨绿，没有换色系。
+    accent: "#0a8a4b",
+    accentHover: "#0e9c56",
+    accentPressed: "#076b3b",
+    accentDeep: "#076b3b",
     success: "#00897b",
     warning: "#e8a317",
     error: "#d4342a",
-    bgApp: "#f7f5f0",
-    bgSurface: "#fffdf8",
-    bgSunken: "#efece4",
+    bgApp: "#f5f3ec",
+    bgSurface: "#fffdf7",
+    bgSunken: "#f0eee6",
     bgElevated: "#ffffff",
     onAccent: "#ffffff",
-    bgHover: "rgba(31, 30, 29, 0.06)",
-    accentSoft: "rgba(15, 143, 82, 0.10)",
+    bgHover: "rgba(35, 41, 31, 0.06)",
+    accentSoft: "#e8f3ec",
+    accentSoftStrong: "#e4f0e8",
+    sidebarBg: "#f0eee6",
     errorSoft: "rgba(212, 52, 42, 0.10)",
     successSoft: "rgba(0, 137, 123, 0.10)",
-    textPrimary: "#1f1e1d",
-    textSoft: "#4a4844",
-    textFaint: "#8c8880",
-    border: "#dedbd2",
-    divider: "rgba(31, 30, 29, 0.1)",
+    textPrimary: "#23291f",
+    textSoft: "#5d655c",
+    textMuted: "#6a7168",
+    textFaint: "#90998e",
+    border: "#e6e3d8",
+    divider: "rgba(35, 41, 31, 0.1)",
+    // 浅色沿用设计稿边框 #E6E3D8，保持现有观感不变。
+    controlBorder: "#e6e3d8",
+    controlBorderHover: "#c9c4b6",
   },
   dark: {
     accent: "#3ddc91",
     accentHover: "#5ce6a6",
     accentPressed: "#2bc67f",
+    accentDeep: "#2bc67f",
     success: "#26a69a",
     warning: "#f0b429",
     error: "#ef5350",
@@ -73,13 +94,19 @@ export const palettes: Record<"light" | "dark", Palette> = {
     onAccent: "#0c2018",
     bgHover: "rgba(236, 233, 226, 0.08)",
     accentSoft: "rgba(61, 220, 145, 0.14)",
+    accentSoftStrong: "rgba(61, 220, 145, 0.2)",
+    sidebarBg: "#141312",
     errorSoft: "rgba(239, 83, 80, 0.14)",
     successSoft: "rgba(38, 166, 154, 0.14)",
     textPrimary: "#ece9e2",
     textSoft: "#b8b3a9",
+    textMuted: "#a8a398",
     textFaint: "#7e7970",
     border: "#3a3734",
     divider: "rgba(236, 233, 226, 0.12)",
+    // 暗色卡面是 #262422，通用边框 #3a3734 对比太弱，表单单独提亮到可辨认的一档。
+    controlBorder: "rgba(236, 233, 226, 0.28)",
+    controlBorderHover: "rgba(236, 233, 226, 0.45)",
   },
 };
 
@@ -87,6 +114,7 @@ const CSS_VAR_MAP: Record<keyof Palette, string> = {
   accent: "--accent",
   accentHover: "--accent-hover",
   accentPressed: "--accent-pressed",
+  accentDeep: "--accent-deep",
   success: "--success",
   warning: "--warning",
   error: "--error",
@@ -97,13 +125,18 @@ const CSS_VAR_MAP: Record<keyof Palette, string> = {
   onAccent: "--on-accent",
   bgHover: "--bg-hover",
   accentSoft: "--accent-soft",
+  accentSoftStrong: "--accent-soft-strong",
+  sidebarBg: "--sidebar-bg",
   errorSoft: "--error-soft",
   successSoft: "--success-soft",
   textPrimary: "--text-primary",
   textSoft: "--text-soft",
+  textMuted: "--text-muted",
   textFaint: "--text-faint",
   border: "--border",
   divider: "--divider",
+  controlBorder: "--control-border",
+  controlBorderHover: "--control-border-hover",
 };
 
 /** 把调色板写入根元素的 CSS 变量，供 Sass 组件与样式层统一引用。 */
@@ -149,7 +182,20 @@ export function naiveOverrides(p: Palette): GlobalThemeOverrides {
       borderRadius: "9px",
       borderRadiusSmall: "6px",
       fontFamily:
-        '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "PingFang SC", "Microsoft YaHei", sans-serif',
+        '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif',
+    },
+    // 输入框与下拉框的边框是完整 border 字符串，必须显式覆盖：
+    // common.borderColor 在暗色下过暗，会让控件轮廓直接消失（Select 用 InternalSelection）。
+    Input: {
+      border: `1px solid ${p.controlBorder}`,
+      borderHover: `1px solid ${p.controlBorderHover}`,
+      borderFocus: `1px solid ${p.accent}`,
+    },
+    InternalSelection: {
+      border: `1px solid ${p.controlBorder}`,
+      borderHover: `1px solid ${p.controlBorderHover}`,
+      borderFocus: `1px solid ${p.accent}`,
+      borderActive: `1px solid ${p.accent}`,
     },
     Button: { borderRadiusMedium: "9px", fontWeight: "500" },
     DataTable: {

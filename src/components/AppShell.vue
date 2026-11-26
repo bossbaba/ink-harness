@@ -10,11 +10,16 @@ import { useAppStore } from "@/stores/app";
 import { useProjectStore } from "@/stores/project";
 
 /**
- * 应用外壳：标题栏 + 左侧导航 + 内容插槽。
- * 这里最关键的是按路由作用域切换侧栏——全局页显示全局菜单，进入某个作品后
- * 换成该作品的二级导航并带「返回工作台」，两者不混排，保证功能页面唯一性。
- * 专注模式下标题栏与侧栏全部隐藏，只留正文和一个毛玻璃悬浮退出按钮。
- * AI 对话面板归写作台所有（作品作用域），外壳不再常驻占位面板。
+ * 应用外壳：全高侧栏（含品牌区） + 右侧舞台（顶栏 + 内容）。
+ *
+ * 布局严格对齐 Ardot 设计稿节点 3:196「01 工作台」的权威结构：
+ * - 侧栏 248×900 贴满整个窗口高度，品牌区在侧栏最顶部（56px）；
+ * - 顶栏 1192×64 位于 x=248，只在右侧内容舞台上方，与纸底内容区连成一片；
+ * - 顶栏无底部分隔线，页面名在左侧剩余空间居中，右侧是模型状态/主题/设置。
+ * 这和旧版「顶栏横跨全宽、侧栏在顶栏下方」是结构性差异，不能靠调数值补。
+ *
+ * 侧栏按路由作用域切换：全局页显示全局菜单，进入某个作品后换成该作品的二级导航
+ * 并带「返回工作台」，两者不混排。专注模式下侧栏与顶栏全部隐藏，只留正文。
  */
 const app = useAppStore();
 const route = useRoute();
@@ -23,13 +28,12 @@ const router = useRouter();
 const { currentModelLabel, currentModelDetail } = useCurrentModel();
 
 // 主题按钮显示的是「切换后」的图标：当前浅色则给出月亮，暗示点下去进入深色；反之给太阳。
-const appearanceIcon = computed(() => (app.appearance === "light" ? "moon" : "sun"));
-// 专注模式按钮的 tooltip 同样显示「切换后」的动作文案。
-const focusTitle = computed(() => (app.focusMode ? "退出专注模式" : "进入专注模式"));
+const appearanceIcon = computed(() => (app.appearance === "light" ? "theme" : "sun"));
 
 /**
- * macOS 上标题栏用 Overlay 样式，系统红绿灯直接画在我们的标题栏里。
- * 这时左侧要给红绿灯留出安全区，否则「墨」标会压在按钮上；浏览器预览没有红绿灯。
+ * macOS 上标题栏用 Overlay 样式，系统红绿灯直接画在窗口左上角。
+ * 非专注模式下红绿灯压在侧栏品牌区上方，侧栏要整体下移让位；
+ * 专注模式下侧栏消失，改由页面头部的 --page-header-inset 让位。
  */
 const hasTrafficLights = (() => {
   if (typeof window === "undefined") return false;
@@ -56,7 +60,7 @@ function isGlobalActive(path: string): boolean {
 const activeProjectNav = computed(() => projectNavItems.find((item) => item.name === route.name));
 
 /**
- * 标题栏中间的作用域标签。
+ * 顶栏中间的作用域标签。
  * 在作品路由下按二级路由显示「作品 · 大纲 / 作品 · 设定库」，让用户一眼看出当前是实体内视角；
  * 全局路由下显示命中的菜单名，都没命中（如首页）则回落「工作台」。
  */
@@ -91,7 +95,7 @@ watch(
 
 <template>
   <!--
-    专注模式没有标题栏，作品页的面包屑会顶到窗口左上角、压在 macOS 红绿灯上。
+    专注模式没有侧栏与标题栏，作品页的面包屑会顶到窗口左上角、压在 macOS 红绿灯上。
     这里把「红绿灯安全区」作为 CSS 变量下发给页面，由需要贴顶的头部自行让位。
   -->
   <div
@@ -101,75 +105,43 @@ watch(
       'shell--focus-lights': app.focusMode && hasTrafficLights,
     }"
   >
-    <header
-      v-if="!app.focusMode"
-      class="titlebar"
-      :class="{ 'titlebar--lights': hasTrafficLights }"
-      data-tauri-drag-region
-    >
-      <div class="titlebar__brand" data-tauri-drag-region>
-        <span class="titlebar__mark">墨</span>
-        <span class="titlebar__name serif">INK-HARNESS</span>
+    <!-- 设计稿 3:197：侧栏贴满窗口全高，品牌区是它的第一个子元素。 -->
+    <aside v-if="!app.focusMode" class="sidebar" :class="{ 'sidebar--lights': hasTrafficLights }">
+      <div class="brand" data-tauri-drag-region>
+        <span class="brand__mark">墨</span>
+        <span class="brand__name">INK-HARNESS</span>
       </div>
-      <div class="titlebar__center" data-tauri-drag-region>
-        <span class="titlebar__project">{{ activeLabel }}</span>
-      </div>
-      <div class="titlebar__actions">
-        <NTooltip>
-          <template #trigger>
-            <NTag
-              class="model-badge"
-              size="small"
-              :bordered="false"
-              round
-              @click="router.push('/models')"
-            >
-              {{ currentModelLabel }}
-            </NTag>
-          </template>
-          {{ currentModelDetail }}（点击前往模型管理）
-        </NTooltip>
-        <NTooltip>
-          <template #trigger>
-            <NButton quaternary size="small" class="tool-button" @click="app.toggleAppearance()">
-              <AppIcon :name="appearanceIcon" :size="16" />
-            </NButton>
-          </template>
-          {{ app.appearance === "light" ? "切换到深色" : "切换到浅色" }}
-        </NTooltip>
-        <NTooltip>
-          <template #trigger>
-            <NButton quaternary size="small" class="tool-button" @click="app.toggleFocusMode()">
-              <AppIcon name="focus" :size="16" />
-            </NButton>
-          </template>
-          {{ focusTitle }}
-        </NTooltip>
-      </div>
-    </header>
 
-    <div class="body">
-      <aside v-if="!app.focusMode" class="sidebar">
-        <template v-if="isProjectRoute">
-          <RouterLink to="/" class="nav__item nav__back">
-            <AppIcon name="chevron-left" :size="15" />
-            <span class="nav__label">返回工作台</span>
+      <template v-if="isProjectRoute">
+        <RouterLink to="/" class="nav__item nav__back">
+          <AppIcon name="chevron-left" :size="15" />
+          <span class="nav__label">返回工作台</span>
+        </RouterLink>
+        <div class="sidebar__section">当前作品</div>
+        <!-- 设计稿在「当前作品」下放一张带图标的作品名卡片，点它回到工作台。 -->
+        <button class="project-chip" type="button" @click="router.push('/')">
+          <span class="project-chip__icon" aria-hidden="true">
+            <AppIcon name="workspace" :size="16" />
+          </span>
+          <span class="project-chip__name">{{ project?.title ?? "作品" }}</span>
+        </button>
+        <nav class="nav">
+          <RouterLink
+            v-for="item in projectNavItems"
+            :key="item.key"
+            :to="{ name: item.name, params: { projectId } }"
+            class="nav__item"
+            :class="{ 'nav__item--active': route.name === item.name }"
+          >
+            <AppIcon class="nav__icon" :name="item.icon" :size="18" />
+            <span class="nav__label">{{ item.label }}</span>
           </RouterLink>
-          <div class="sidebar__section">当前作品</div>
-          <nav class="nav">
-            <RouterLink
-              v-for="item in projectNavItems"
-              :key="item.key"
-              :to="{ name: item.name, params: { projectId } }"
-              class="nav__item"
-              :class="{ 'nav__item--active': route.name === item.name }"
-            >
-              <AppIcon class="nav__icon" :name="item.icon" :size="16" />
-              <span class="nav__label">{{ item.label }}</span>
-            </RouterLink>
-          </nav>
-        </template>
-        <nav v-else class="nav">
+        </nav>
+      </template>
+      <template v-else>
+        <!-- 与作品侧栏呼应：全局导航也给出分组标题，用户一眼看出这是系统级功能。 -->
+        <div class="sidebar__section">工作空间</div>
+        <nav class="nav">
           <!-- 侧栏导航项用 NButton text 变体，保留原有列表式排版；文案已可见，不再重复 title。 -->
           <NButton
             v-for="item in navItems"
@@ -180,15 +152,58 @@ watch(
             :class="{ 'nav__item--active': isGlobalActive(item.path) }"
             @click="open(item)"
           >
-            <AppIcon class="nav__icon" :name="item.icon" :size="16" />
+            <AppIcon class="nav__icon" :name="item.icon" :size="18" />
             <span class="nav__label">{{ item.label }}</span>
           </NButton>
         </nav>
-        <NButton text block class="nav__item nav__focus" @click="app.toggleFocusMode()">
-          <AppIcon class="nav__icon" name="focus" :size="16" />
-          <span class="nav__label">专注模式</span>
-        </NButton>
-      </aside>
+      </template>
+
+      <NButton text block class="nav__item nav__focus" @click="app.toggleFocusMode()">
+        <AppIcon class="nav__icon" name="focus" :size="18" />
+        <span class="nav__label">专注模式</span>
+      </NButton>
+    </aside>
+
+    <!-- 设计稿 3:229/3:236：顶栏与主内容区同属右侧舞台，顶栏不是全宽。 -->
+    <div class="stage">
+      <header v-if="!app.focusMode" class="titlebar" data-tauri-drag-region>
+        <div class="titlebar__center" data-tauri-drag-region>
+          <span class="titlebar__project">{{ activeLabel }}</span>
+        </div>
+        <div class="titlebar__actions">
+          <NTooltip>
+            <template #trigger>
+              <NTag
+                class="model-badge"
+                size="small"
+                :bordered="false"
+                round
+                @click="router.push('/models')"
+              >
+                {{ currentModelLabel }}
+              </NTag>
+            </template>
+            {{ currentModelDetail }}（点击前往模型管理）
+          </NTooltip>
+          <NTooltip>
+            <template #trigger>
+              <NButton quaternary size="small" class="tool-button" @click="app.toggleAppearance()">
+                <AppIcon :name="appearanceIcon" :size="18" />
+              </NButton>
+            </template>
+            {{ app.appearance === "light" ? "切换到深色" : "切换到浅色" }}
+          </NTooltip>
+          <NTooltip>
+            <template #trigger>
+              <!-- 设计稿顶栏右侧是「模型状态 + 主题 + 设置」；设置直达模型管理（系统设置页）。 -->
+              <NButton quaternary size="small" class="tool-button" @click="router.push('/models')">
+                <AppIcon name="settings" :size="18" />
+              </NButton>
+            </template>
+            系统设置（模型管理）
+          </NTooltip>
+        </div>
+      </header>
 
       <main ref="contentRef" class="content">
         <slot />
@@ -216,10 +231,22 @@ watch(
 <style scoped lang="scss">
 @use "../styles/tokens" as t;
 @use "../styles/mixins" as m;
+// 导航样式按设计稿拆到同目录片段，scoped 作用域仍由本组件提供。
+@use "./AppShell.nav";
 
+// :deep 只能写在 SFC 里：NButton 把 slot 内容包进 .n-button__content，图标与文字在这一层做 flex。
+.nav__item.nav__item :deep(.n-button__content) {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+}
+
+// 设计稿 3:196：侧栏与右侧舞台横向并排，侧栏吃满全高。
 .shell {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   width: 100%;
   height: 100%;
   background: var(--bg-app);
@@ -232,73 +259,79 @@ watch(
   }
 }
 
-.titlebar {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+// 右侧舞台：顶栏 + 内容，纵向排列。顶栏宽度因此天然等于「窗口宽 - 侧栏宽」。
+.stage {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+// 设计稿 3:198：侧栏顶部品牌区，56px 高，标记与文字间距 10px。
+.brand {
+  display: flex;
   align-items: center;
-  height: 52px;
-  padding: 0 t.$space-4;
-  border-bottom: 1px solid var(--divider);
-  // 先给一个实色兜底，再叠毛玻璃：Webview 不支持 color-mix 时也不会露出背景。
-  background: var(--bg-surface);
-  background: color-mix(in srgb, var(--bg-surface) 86%, transparent);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  user-select: none;
+  gap: 10px;
+  flex-shrink: 0;
+  height: 56px;
 
-  // macOS 红绿灯占据左上角约 72px，避免品牌标识和按钮被压住。
-  &--lights {
-    padding-left: 84px;
-  }
-
-  &__brand {
-    display: flex;
-    align-items: center;
-    gap: t.$space-3;
-    min-width: 0;
-  }
   &__mark {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    width: 26px;
-    height: 26px;
-    border-radius: t.$radius-md;
-    // 渐变 + 内高光让「墨」印更立体，比纯色块更有质感。
-    background: linear-gradient(135deg, var(--accent-hover), var(--accent-pressed));
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    background: var(--accent);
     color: var(--on-accent);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.28),
-      0 2px 8px var(--accent-soft);
     font-family: t.$font-serif;
-    font-size: 13px;
+    font-size: 16px;
+    font-weight: 700;
   }
+
   &__name {
     @include m.ellipsis;
     font-size: 13px;
     font-weight: 600;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
   }
+}
+
+// 设计稿 3:229：顶栏是纸底，与内容区连成一片；无分隔线；左右内边距 24px。
+.titlebar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: t.$space-4;
+  height: 64px;
+  padding: 0 t.$space-5;
+  background: var(--bg-app);
+  user-select: none;
+
   &__center {
-    justify-self: center;
+    flex: 1;
     min-width: 0;
   }
+
+  // 设计稿 3:230：页面名在 fill_container 的剩余空间里居中，13px Medium 墨字。
   &__project {
     @include m.ellipsis;
     display: block;
-    max-width: 42vw;
+    text-align: center;
     font-size: 13px;
     font-weight: 500;
-    color: var(--text-soft);
+    color: var(--text-primary);
   }
+
   &__actions {
-    justify-self: end;
     display: flex;
     align-items: center;
-    gap: t.$space-1;
+    gap: t.$space-4;
+    flex-shrink: 0;
   }
 }
 
@@ -331,120 +364,81 @@ watch(
   }
 }
 
-.body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
-
+// 设计稿 3:197：侧栏 248px 全高，四边 16px 内边距，条目间距 6px。
 .sidebar {
   display: flex;
   flex-direction: column;
-  width: 220px;
+  width: 248px;
   flex-shrink: 0;
-  padding: t.$space-3 t.$space-2;
+  gap: 6px;
+  padding: t.$space-4;
   border-right: 1px solid var(--divider);
-  background: var(--bg-sunken);
+  background: var(--sidebar-bg, var(--bg-sunken));
   user-select: none;
 
+  // macOS 红绿灯占据左上角约 28px，侧栏整体下移让开品牌区。
+  &--lights {
+    padding-top: 40px;
+  }
+
   &__section {
-    margin: t.$space-4 t.$space-3 t.$space-2;
-    font-size: 10px;
+    margin: t.$space-4 0 t.$space-2;
+    font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.12em;
     color: var(--text-faint);
   }
 }
 
-.nav {
+// 设计稿里的作品名卡片：浅色卡面 + 主色图标，点它回工作台。
+.project-chip {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: t.$space-2;
+  width: 100%;
+  min-height: 46px;
+  margin: 0 0 t.$space-2;
+  padding: t.$space-2 t.$space-3;
+  border: 1px solid var(--divider);
+  border-radius: t.$radius-md;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color t.$duration t.$ease, box-shadow t.$duration t.$ease;
 
-  // 双写类名是为了压过 NButton 注入的 padding/字号样式，保留侧栏列表项的原生排版。
-  &__item.nav__item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    min-height: 36px;
-    padding: t.$space-2 t.$space-3;
-    border: none;
-    border-radius: t.$radius-md;
-    background: transparent;
-    color: var(--text-soft);
-    font-size: 13px;
-    text-align: left;
-    text-decoration: none;
-    cursor: pointer;
-    white-space: normal;
-    // 选中态的左侧指示条相对本项定位。
-    position: relative;
-    transition: background 160ms t.$ease, color 160ms t.$ease;
-
-    &:hover {
-      background: var(--bg-hover);
-      color: var(--text-primary);
-    }
-
-    // 选中态：淡色填充 + 强调色文字 + 左侧竖条，明确「当前在哪一页」。
-    &--active,
-    &.nav__item--active {
-      background: var(--accent-soft);
-      color: var(--accent);
-      font-weight: 600;
-
-      &::before {
-        content: "";
-        position: absolute;
-        top: 50%;
-        left: 0;
-        width: 3px;
-        height: 16px;
-        border-radius: 0 2px 2px 0;
-        background: var(--accent);
-        transform: translateY(-50%);
-      }
-    }
-
-    // NButton 把 slot 内容包进 .n-button__content，图标与文字要在这一层做 flex。
-    :deep(.n-button__content) {
-      display: flex;
-      align-items: center;
-      justify-content: flex-start;
-      gap: 10px;
-      width: 100%;
-    }
+  &:hover {
+    border-color: var(--accent);
+    box-shadow: 0 2px 8px var(--accent-soft);
   }
 
   &__icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 18px;
-    opacity: 0.9;
+    flex: 0 0 auto;
+    width: 26px;
+    height: 26px;
+    border-radius: t.$radius-sm;
+    background: var(--accent-soft);
+    color: var(--accent);
   }
 
-  &__back {
-    margin-bottom: t.$space-1;
-  }
-
-  // 专注模式与上方导航用分隔线隔开，双写类名压过 NButton 的边框样式。
-  &__focus.nav__item {
-    margin-top: auto;
-    border-top: 1px solid var(--divider);
-    border-radius: 0;
+  &__name {
+    @include m.ellipsis;
+    min-width: 0;
   }
 }
 
 .content {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow: auto;
-  // 顶部极淡的主色环境光：给长页面一个纵深起点，也让内容区与标题栏自然衔接。
-  background:
-    radial-gradient(120% 360px at 50% -120px, var(--accent-soft), transparent 72%),
-    var(--bg-app);
+  // 设计稿的内容区是干净的纸底，纵深交给页面内的卡片与 Hero 面板，不再叠全局环境光。
+  background: var(--bg-app);
   @include m.thin-scrollbar;
 }
 

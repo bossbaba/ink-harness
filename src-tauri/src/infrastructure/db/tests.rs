@@ -2,6 +2,7 @@
 
 use super::purge_orphan_chunks;
 use super::schema::{ensure_column, migrate, SCHEMA_VERSION};
+use super::init_schema;
 use rusqlite::Connection;
 
 /// 老库的 chapter 表没有 act 列，迁移必须补上，且重复执行保持幂等。
@@ -162,6 +163,29 @@ fn migrate_repairs_missing_columns_when_version_is_ahead() {
         .query_row("pragma user_version", [], |row| row.get(0))
         .unwrap();
     assert_eq!(version, SCHEMA_VERSION);
+}
+
+/// 版本号已经到 9、却因为迁移中断少了 meta_revision 的库也必须能自愈：
+/// 大纲乐观锁直接读这一列，缺列会让缓存的大纲页一保存就报错。
+#[test]
+fn migrate_repairs_meta_revision_when_version_is_ahead() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_schema(&conn).unwrap();
+    conn.execute_batch(
+        "alter table chapter drop column meta_revision;
+         pragma user_version = 9;",
+    )
+    .unwrap();
+
+    migrate(&conn).unwrap();
+
+    // 空库没有作品行，插章会撞外键；只要读取语句能编译就说明列已经补回。
+    conn.prepare("select meta_revision from chapter where id = 'ch'")
+        .expect("补列后读取语句应当可用");
+    let version: i64 = conn
+        .query_row("pragma user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, SCHEMA_VERSION, "结构自愈不能回退版本号");
 }
 
 /// 手动验证用：在真实老库的**副本**上跑一次完整迁移，确认缺列被补齐、数据仍在。

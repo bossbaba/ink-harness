@@ -24,16 +24,20 @@ export interface ProjectNavItem {
   name: string;
 }
 
-/** 全局导航：只放真正有全局页面的功能。 */
+/**
+ * 全局导航：只放真正有全局页面的功能。
+ * 顺序按设计稿母版 3:363：工作台 → 统计 → 设定库 → 模型管理 → Agent → MCP。
+ */
 export const GLOBAL_NAV: GlobalNavItem[] = [
   { key: "workspace", label: "工作台", icon: "workspace", path: "/" },
   { key: "stats", label: "统计", icon: "stats", path: "/stats" },
   { key: "bible", label: "设定库", icon: "bible", path: "/bible" },
   { key: "models", label: "模型管理", icon: "models", path: "/models" },
   // Agent 的两个全局配置页与模型管理同级：它们对所有作品生效，不属于某部作品。
-  { key: "agent-roles", label: "Agent 角色", icon: "models", path: "/agent-roles" },
-  { key: "agent-eval", label: "Agent 评测", icon: "stats", path: "/agent-eval" },
-  { key: "mcp-tools", label: "MCP 工具", icon: "models", path: "/mcp-tools" },
+  // 图标改用设计稿里的专属矢量，不再借用模型/统计图标。
+  { key: "agent-roles", label: "Agent 角色", icon: "agentRole", path: "/agent-roles" },
+  { key: "agent-eval", label: "Agent 评测", icon: "agentEval", path: "/agent-eval" },
+  { key: "mcp-tools", label: "MCP 工具", icon: "mcp", path: "/mcp-tools" },
 ];
 
 /** 作品内二级导航：每一项都有对应子路由，不存在禁用占位。 */

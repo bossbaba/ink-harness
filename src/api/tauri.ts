@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   AgentEvalRun,
   AgentMessageRecord,
@@ -130,17 +131,21 @@ export const tauriApi = {
   createChapter: (input: NewChapter) => call<Chapter>("create_chapter", { input }),
   updateChapter: (chapter: Chapter) => call<void>("update_chapter", { chapter }),
   /** 只改摘要：避免摘要自动保存把标题/幕次/状态一起整对象覆盖。 */
-  updateChapterSummary: (id: string, summary: string) =>
-    call<void>("update_chapter_summary", { id, summary }),
-  deleteChapter: (id: string) => call<void>("delete_chapter", { id }),
-  createScene: (input: NewScene) => call<Scene>("create_scene", { input }),
-  updateScene: (scene: Scene) => call<void>("update_scene", { scene }),
-  deleteScene: (id: string) => call<void>("delete_scene", { id }),
+  updateChapterSummary: (id: string, summary: string, projectId: string) =>
+    call<void>("update_chapter_summary", { id, summary, projectId }),
+  deleteChapter: (id: string, projectId: string) => call<void>("delete_chapter", { id, projectId }),
+  createScene: (input: NewScene, projectId: string) =>
+    call<Scene>("create_scene", { input, projectId }),
+  updateScene: (scene: Scene, projectId: string) =>
+    call<void>("update_scene", { scene, projectId }),
+  deleteScene: (id: string, projectId: string) => call<void>("delete_scene", { id, projectId }),
   createForeshadow: (input: NewForeshadow) => call<Foreshadow>("create_foreshadow", { input }),
   updateForeshadow: (foreshadow: Foreshadow) => call<void>("update_foreshadow", { foreshadow }),
-  deleteForeshadow: (id: string) => call<void>("delete_foreshadow", { id }),
+  deleteForeshadow: (id: string, projectId: string) =>
+    call<void>("delete_foreshadow", { id, projectId }),
   moveChapter: (input: MoveChapterInput) => call<void>("move_chapter", { input }),
-  moveScene: (input: MoveSceneInput) => call<void>("move_scene", { input }),
+  moveScene: (input: MoveSceneInput, projectId: string) =>
+    call<void>("move_scene", { input, projectId }),
   buildProjectContext: (projectId: string) => call<string>("build_project_context", { projectId }),
 
   // 写作台：章节正文按章读取/保存，版本快照单独一组命令。
@@ -255,3 +260,25 @@ export const tauriApi = {
    */
   cancelChat: (requestId: string) => call<void>("cancel_chat", { requestId }),
 };
+
+/**
+ * 注册关窗守卫：有未保存内容时先让调用方落盘，再销毁窗口。
+ *
+ * 原生窗口 API 只在这一层用，业务 composable 不直接 import `@tauri-apps/*`；
+ * 浏览器预览与单测环境没有 Tauri 内部对象，直接返回空操作，行为与以前一致。
+ */
+export async function guardWindowClose(
+  hasUnsaved: () => boolean,
+  onGuardedClose: () => Promise<void>,
+): Promise<() => void> {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+    return () => {};
+  }
+  const win = getCurrentWindow();
+  return win.onCloseRequested(async (event) => {
+    if (!hasUnsaved()) return;
+    event.preventDefault();
+    await onGuardedClose();
+    await win.destroy();
+  });
+}

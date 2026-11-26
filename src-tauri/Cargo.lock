@@ -3,6 +3,23 @@
 version = 4
 
 [[package]]
+name = "Ink-Harness"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "keyring",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sqlite-vec",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tokio",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1648,23 +1665,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f4200d433cbd5178df7797c9c2e75b348b728e39631cf14520d1e2fc424201f4"
 dependencies = [
  "cfb",
-]
-
-[[package]]
-name = "ink-harness"
-version = "0.1.0"
-dependencies = [
- "futures-util",
- "keyring",
- "reqwest 0.12.28",
- "rusqlite",
- "serde",
- "serde_json",
- "sqlite-vec",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tokio",
 ]
 
 [[package]]

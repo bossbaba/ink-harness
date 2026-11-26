@@ -3,11 +3,10 @@
 //! 所有按 id 定位资源的命令都要求调用方显式声明作品，并在进入 service 前
 //! 核对该资源确实属于这个作品，避免跨作品串数据。
 
-use super::ownership;
 use crate::commands::blocking;
 use crate::error::AppError;
 use crate::models::{ChapterContent, DraftVersion, DraftVersionBrief, SaveContentInput};
-use crate::services::draft;
+use crate::services::{draft, ownership};
 
 #[tauri::command]
 pub async fn get_chapter_content(

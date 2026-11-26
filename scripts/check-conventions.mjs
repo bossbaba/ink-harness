@@ -5,7 +5,8 @@
  * 1. 手写的 src/**、tests/**、src-tauri/src/** 单文件不超过 500 行（自动生成文件不在此列）；
  * 2. composables / views 不直接 import `@/api/tauri`（必须经 services 层）；
  * 3. components 不直接 import `@/services/*` 的运行时符号（类型导入允许，运行时必须走 props/emit）；
- * 4. `preset="card"` 的 NModal 必须显式给宽度（否则会撑满整个窗口）。
+ * 4. composables / views / components 不直连 `@tauri-apps/*`（原生通道只在 src/api 收口）；
+ * 5. `preset="card"` 的 NModal 必须显式给宽度（否则会撑满整个窗口）。
  *
  * 退出码非 0 表示有违规；输出每条违规的文件与行号，便于直接定位。
  */
@@ -58,6 +59,27 @@ const LAYER_RULES = [
     // import type ... from "@/services/..." 是纯类型，运行时无副作用，允许。
     pattern: /^\s*import\s+(?!type\b)[^;]*from\s+["']@\/services\//m,
   },
+  {
+    label: "业务层直连 Tauri 原生包",
+    dirs: [
+      join(ROOT, "src/services"),
+      join(ROOT, "src/composables"),
+      join(ROOT, "src/views"),
+      join(ROOT, "src/components"),
+    ],
+    // 只认真正的 import / import()，不靠裸字符串匹配，避免误伤测试与注释。
+    pattern: /^\s*import\s+[^;]*from\s+["']@tauri-apps\//m,
+  },
+  {
+    label: "业务层动态导入 Tauri 原生包",
+    dirs: [
+      join(ROOT, "src/services"),
+      join(ROOT, "src/composables"),
+      join(ROOT, "src/views"),
+      join(ROOT, "src/components"),
+    ],
+    pattern: /\bimport\s*\(\s*["']@tauri-apps\//m,
+  },
 ];
 
 for (const rule of LAYER_RULES) {
@@ -73,7 +95,7 @@ for (const rule of LAYER_RULES) {
   }
 }
 
-// 4. 弹窗宽度约束：card 预设没有默认宽度上限，漏写就会横跨全屏、输入框被拉散。
+// 5. 弹窗宽度约束：card 预设没有默认宽度上限，漏写就会横跨全屏、输入框被拉散。
 //    统一要求用 utils/modal.ts 的 modalStyle(...)（旧的内联 :style 带 width 也放行）。
 for (const file of collect(join(ROOT, "src"), [".vue"])) {
   const text = readFileSync(file, "utf8");

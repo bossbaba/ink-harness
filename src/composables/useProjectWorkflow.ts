@@ -222,14 +222,17 @@ export function useProjectWorkflow(projectId: string) {
             status: "planned",
           });
           for (const scene of chapter.scenes) {
-            await outlineService.createScene({
-              chapterId: created.id,
-              title: scene.title,
-              pov: scene.pov,
-              location: scene.location,
-              timeMark: scene.timeMark,
-              summary: scene.summary,
-            });
+            await outlineService.createScene(
+              {
+                chapterId: created.id,
+                title: scene.title,
+                pov: scene.pov,
+                location: scene.location,
+                timeMark: scene.timeMark,
+                summary: scene.summary,
+              },
+              current.id,
+            );
           }
         }
       }

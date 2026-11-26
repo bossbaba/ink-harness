@@ -21,3 +21,5 @@ src-tauri/ub-check/target
 *.log
 .codebuddy/
 .mimocode/
+# 本地工作日志，只留在开发机，不随提交推送
+.workbuddy/

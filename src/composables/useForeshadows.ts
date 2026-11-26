@@ -110,7 +110,7 @@ export function useForeshadows(deps: {
     deps.busy.value = true;
     deps.error.value = "";
     try {
-      await outlineService.removeForeshadow(foreshadow.id);
+      await outlineService.removeForeshadow(foreshadow.id, deps.projectId.value);
       await deps.reload();
     } catch (err) {
       deps.error.value = String(err);

@@ -3,23 +3,31 @@
 // 所有颜色/字体/间距/圆角/阴影的唯一来源，主题桥接层与组件均引用此文件。
 // ─────────────────────────────────────────────────────────────
 
-// 纸墨色板
-$paper: #f7f5f0;
-$paper-raised: #fffdf8;
-$paper-sunken: #efece4;
-$ink: #1f1e1d;
-$ink-soft: #4a4844;
-$ink-faint: #8c8880;
+// 纸墨色板：与 Ardot 设计稿「浅色 · 纸墨」逐一对齐。
+// 主题家族未变（仍是墨绿），只是把编译期兜底收敛到设计稿取色。
+$paper: #f5f3ec;
+$paper-raised: #fffdf7;
+$paper-sunken: #f0eee6;
+$ink: #23291f;
+$ink-soft: #5d655c;
+// 设计稿正文灰 #6A7168：比 ink-soft 浅一档，专门给页头说明、区块描述等长句使用。
+$ink-muted: #6a7168;
+$ink-faint: #90998e;
 // 主色由 src/theme/palette.ts 单一真源在运行时注入（--accent 等）。
 // 以下 Sass 颜色仅为编译期兜底，数值须与 palette.light 保持一致。
-// 主色从高饱和荧光绿收敛为更深、更稳的翠绿，文字与白底按钮都有足够对比度。
-$accent: #0f8f52;
-$accent-hover: #1ea363;
-$accent-pressed: #0b7342;
+// 品牌绿取设计稿 #0A8A4B；悬停提亮一档，按下/深装饰用设计稿深绿 #076B3B。
+$accent: #0a8a4b;
+$accent-hover: #0e9c56;
+$accent-pressed: #076b3b;
+$accent-deep: #076b3b;
 $success: #00897b;
 $warning: #e8a317;
 $error: #d4342a;
-$divider: rgba(31, 30, 29, 0.1);
+$border: #e6e3d8;
+$divider: rgba(35, 41, 31, 0.1);
+// 表单控件描边的编译期兜底，运行时由 palette.ts 注入同名 CSS 变量覆盖。
+$control-border: #e6e3d8;
+$control-border-hover: #c9c4b6;
 
 // 抬升一层的表面：卡片悬浮、弹层等需要比普通 surface 更亮的底色。
 $bg-elevated: #ffffff;
@@ -32,6 +40,7 @@ $font-sans:
   BlinkMacSystemFont,
   "SF Pro Text",
   "Inter",
+  "Noto Sans SC",
   "PingFang SC",
   "Microsoft YaHei",
   sans-serif;
@@ -40,8 +49,10 @@ $font-mono: "SF Mono", "JetBrains Mono", Menlo, monospace;
 
 // 语义底色的编译期兜底：运行时由 palette.ts 注入同名 CSS 变量覆盖。
 // 这些低饱和底色撑起 macOS 的 hover / 选中 / 状态分组，不要在组件里另写 rgba。
-$bg-hover: rgba(31, 30, 29, 0.06);
-$accent-soft: rgba(15, 143, 82, 0.1);
+// accent-soft 直接用设计稿浅绿 #E8F3EC，比半透明主色更稳定（不会受父级底色影响）。
+$bg-hover: rgba(35, 41, 31, 0.06);
+$accent-soft: #e8f3ec;
+$accent-soft-strong: #e4f0e8;
 $error-soft: rgba(212, 52, 42, 0.1);
 $success-soft: rgba(0, 137, 123, 0.1);
 

@@ -26,6 +26,12 @@ pub(super) const SCHEMA_VERSION: i64 = 9;
 /// 也能安全地从第 1 步开始跑。
 pub(super) fn migrate(conn: &Connection) -> Result<(), AppError> {
     let current: i64 = conn.query_row("pragma user_version", [], |row| row.get(0))?;
+
+    // 结构自愈先于版本推进：历史上出现过「user_version 已写入但列没补上」的库，
+    // 早返回会让这类库永远缺列。建表和补列都是幂等的，每次启动跑一遍代价可忽略。
+    init_schema(conn)?;
+    backfill_columns(conn)?;
+
     if current >= SCHEMA_VERSION {
         return Ok(());
     }
@@ -98,12 +104,8 @@ pub(super) fn migrate(conn: &Connection) -> Result<(), AppError> {
     }
 
     if current < 3 {
-        // 自愈步骤：曾有一版把 user_version 提到 2 却没真正补上 `chapter.content_revision`
-        //（版本号先推进、补列后补），这类库的 `current < 2` 分支再也不会执行，
-        // 打开写作台就报 `no such column: content_revision`。
-        // 这里重跑一遍完全幂等的建表 + 补列 + 建唯一索引，不论版本号是否对得上都能补齐结构。
-        init_schema(conn)?;
-        backfill_columns(conn)?;
+        // 结构补齐已在函数开头统一做过，这里只推进版本号：曾有一版把 user_version
+        // 提到 2 却没补 `chapter.content_revision`，早期分支再也不会执行。
         conn.pragma_update(None, "user_version", 3)
             .map_err(AppError::from)?;
     }
@@ -282,7 +284,7 @@ fn create_agent_tables(conn: &Connection) -> Result<(), AppError> {
 
 /// 幂等补齐「后加的列与派生索引」。
 ///
-/// 与 v1/v2 分支里的补列内容重复是有意的：迁移必须能对任意残缺的旧库自愈，
+/// 每次启动都先于版本号判断执行：迁移必须能对任意残缺的旧库自愈，
 /// 不能依赖 `user_version` 已经如实反映结构。新增列时除了在版本分支里加，
 /// 也要在这里加一份，否则历史上版本号超前的库永远补不上。
 fn backfill_columns(conn: &Connection) -> Result<(), AppError> {

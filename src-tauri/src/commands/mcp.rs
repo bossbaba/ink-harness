@@ -8,6 +8,7 @@ use crate::error::AppError;
 use crate::services::{approval, mcp};
 use crate::services::mcp_protocol::{McpServerConfig, McpToolInfo};
 use tauri::Manager;
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 #[tauri::command]
 pub async fn list_mcp_servers(app: tauri::AppHandle) -> Result<Vec<McpServerConfig>, AppError> {
@@ -39,14 +40,34 @@ pub async fn list_mcp_tools(app: tauri::AppHandle) -> Result<Vec<McpToolInfo>, A
     Ok(mcp::list_tools_for(&servers).await)
 }
 
-/// 作者审批通过后由前端签发；后端只认这里发出的令牌，绕过界面的脚本拿不到。
+/// 签发一次性令牌前弹出原生确认框：这一步不经过 webview，脚本即使直接调 IPC
+/// 也必须让用户在本机对话框里点「允许一次」。令牌本身只保证执行参数与确认时一致，
+/// 不是跨进程的权限凭证；真正的人机闸门是这次原生确认。
 #[tauri::command]
 pub async fn issue_mcp_approval(
+    app: tauri::AppHandle,
     tool: String,
     arguments: serde_json::Value,
     project_id: String,
     session_id: String,
 ) -> Result<String, AppError> {
+    let args_text = serde_json::to_string(&arguments).unwrap_or_default();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .message(format!("即将执行外部工具 {tool}，参数：{args_text}\n\n只允许这一次。"))
+        .title("外部工具调用确认")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "允许一次".into(),
+            "取消".into(),
+        ))
+        .show(|approved| {
+            let _ = tx.send(approved);
+        });
+    // 回调式弹窗不阻塞 async 运行时；对端消失（窗口已关）时按拒绝处理。
+    if !rx.await.unwrap_or(false) {
+        return Err(AppError::validation("已取消 MCP 调用"));
+    }
     approval::issue(&tool, &arguments, &project_id, &session_id)
 }
 

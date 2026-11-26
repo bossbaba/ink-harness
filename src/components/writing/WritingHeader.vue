@@ -104,8 +104,8 @@ const emit = defineEmits<{
   align-items: flex-start;
   justify-content: space-between;
   gap: t.$space-4;
-  padding: t.$space-4 t.$space-6;
-  border-bottom: 1px solid var(--divider, #{t.$divider});
+  // 设计稿 3:919：页头在卡片区之外，只靠 14px 间距与三栏分开，不再画分隔线。
+  padding: 0;
 
   &__titles {
     min-width: 0;
@@ -113,7 +113,8 @@ const emit = defineEmits<{
 
   &__title {
     margin: 0;
-    font-size: 1.5rem;
+    // 设计稿 3:921：作品内页标题 26px 衬线。
+    font-size: 1.625rem;
     font-weight: 600;
   }
 
@@ -124,14 +125,21 @@ const emit = defineEmits<{
     gap: t.$space-2;
     margin: t.$space-2 0 0;
     font-size: 11px;
-    color: var(--text-soft, #{t.$ink-soft});
+    color: var(--text-muted, #{t.$ink-muted});
   }
 
   &__actions {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: t.$space-2;
+    gap: 6px;
+
+    // 设计稿 3:923：工具栏按钮 28px 高、10px 字，整组保持同一档。
+    :deep(.n-button) {
+      height: 28px;
+      padding: 0 t.$space-3;
+      font-size: 11px;
+    }
   }
 
   // 章节下拉只在窄屏出现，宽屏用左侧列表即可。

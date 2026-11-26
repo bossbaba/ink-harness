@@ -56,12 +56,13 @@ export function useChapterSummary(options: ChapterSummaryOptions) {
   /** 把摘要与基线一起写回去；手动编辑和自动生成走同一条持久化路径。 */
   async function persist(value: string): Promise<void> {
     const chapter = options.chapter();
-    if (!chapter) return;
+    const project = options.project();
+    if (!chapter || !project) return;
     saving.value = true;
     try {
       // 只写摘要字段：摘要会被自动更新，不能顺手把整份章节（标题/幕次/状态）写回去，
-      // 否则会用缓存里的旧值覆盖正文保存刚推进的状态。
-      await outlineService.updateChapterSummary(chapter.id, value);
+      // 否则会用缓存里的旧值覆盖正文保存刚推进的状态。作品 id 必须显式传，后端据此核归属。
+      await outlineService.updateChapterSummary(chapter.id, value, project.id);
       const next: SummaryMeta = {
         wordCount: chapter.wordCount,
         generatedAt: new Date().toISOString(),

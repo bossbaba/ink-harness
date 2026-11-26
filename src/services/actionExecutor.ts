@@ -8,6 +8,7 @@ import type {
   ToolContext,
   ToolObservation,
 } from "@/types";
+import { getScopedStorage } from "@/utils/localStorageStore";
 
 /**
  * 动作执行器：把模型给出的工具调用安全地变成观察结果。
@@ -38,17 +39,12 @@ interface StoredAction {
   error: string;
 }
 
-function storage(): Storage | null {
-  // 单测跑在 node 环境，没有 localStorage；此时自动退化为纯内存队列。
-  return typeof localStorage === "undefined" ? null : localStorage;
-}
-
 /** 读取某作用域的待审批快照；结构不对或损坏时当作空队列。 */
 function readStored(key: string): StoredAction[] {
-  const store = storage();
+  const store = getScopedStorage(PENDING_STORAGE_PREFIX);
   if (!store) return [];
   try {
-    const raw = store.getItem(PENDING_STORAGE_PREFIX + key);
+    const raw = store.get(key);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -69,12 +65,12 @@ function readStored(key: string): StoredAction[] {
 
 /** 写回快照；没有待审批项时直接删键，避免留空壳占用存储。 */
 function persistQueue(key: string, queue: PendingToolAction[]): void {
-  const store = storage();
+  const store = getScopedStorage(PENDING_STORAGE_PREFIX);
   if (!store) return;
   const pending = queue.filter((item) => item.status === "pending");
   try {
     if (pending.length === 0) {
-      store.removeItem(PENDING_STORAGE_PREFIX + key);
+      store.remove(key);
       return;
     }
     const snapshot: StoredAction[] = pending.map((item) => ({
@@ -84,7 +80,7 @@ function persistQueue(key: string, queue: PendingToolAction[]): void {
       args: item.args,
       error: item.error,
     }));
-    store.setItem(PENDING_STORAGE_PREFIX + key, JSON.stringify(snapshot));
+    store.set(key, JSON.stringify(snapshot));
   } catch {
     // 配额满或隐私模式：丢失持久化不影响本轮审批。
   }
@@ -307,15 +303,13 @@ export function discardPending(ctx: ToolContext): void {
 export function resetPendingForTest(): void {
   pendingByScope.clear();
   pendingSeq = 0;
-  const store = storage();
+  const store = getScopedStorage(PENDING_STORAGE_PREFIX);
   if (!store) return;
   try {
-    const keys: string[] = [];
-    for (let i = 0; i < store.length; i += 1) {
-      const key = store.key(i);
-      if (key?.startsWith(PENDING_STORAGE_PREFIX)) keys.push(key);
+    // keys() 返回的是带前缀的完整键，remove() 接收相对键，先去掉前缀。
+    for (const fullKey of store.keys()) {
+      store.remove(fullKey.slice(PENDING_STORAGE_PREFIX.length));
     }
-    for (const key of keys) store.removeItem(key);
   } catch {
     // 测试环境清理失败可忽略，不影响断言。
   }

@@ -17,21 +17,27 @@ export const outlineService = {
 
   createChapter: (input: NewChapter): Promise<Chapter> => tauriApi.createChapter(input),
   updateChapter: (chapter: Chapter): Promise<void> => tauriApi.updateChapter(chapter),
-  updateChapterSummary: (id: string, summary: string): Promise<void> =>
-    tauriApi.updateChapterSummary(id, summary),
-  removeChapter: (id: string): Promise<void> => tauriApi.deleteChapter(id),
+  updateChapterSummary: (id: string, summary: string, projectId: string): Promise<void> =>
+    tauriApi.updateChapterSummary(id, summary, projectId),
+  removeChapter: (id: string, projectId: string): Promise<void> =>
+    tauriApi.deleteChapter(id, projectId),
 
-  createScene: (input: NewScene): Promise<Scene> => tauriApi.createScene(input),
-  updateScene: (scene: Scene): Promise<void> => tauriApi.updateScene(scene),
-  removeScene: (id: string): Promise<void> => tauriApi.deleteScene(id),
+  createScene: (input: NewScene, projectId: string): Promise<Scene> =>
+    tauriApi.createScene(input, projectId),
+  updateScene: (scene: Scene, projectId: string): Promise<void> =>
+    tauriApi.updateScene(scene, projectId),
+  removeScene: (id: string, projectId: string): Promise<void> =>
+    tauriApi.deleteScene(id, projectId),
 
   createForeshadow: (input: NewForeshadow): Promise<Foreshadow> => tauriApi.createForeshadow(input),
   updateForeshadow: (foreshadow: Foreshadow): Promise<void> =>
     tauriApi.updateForeshadow(foreshadow),
-  removeForeshadow: (id: string): Promise<void> => tauriApi.deleteForeshadow(id),
+  removeForeshadow: (id: string, projectId: string): Promise<void> =>
+    tauriApi.deleteForeshadow(id, projectId),
 
   moveChapter: (input: MoveChapterInput): Promise<void> => tauriApi.moveChapter(input),
-  moveScene: (input: MoveSceneInput): Promise<void> => tauriApi.moveScene(input),
+  moveScene: (input: MoveSceneInput, projectId: string): Promise<void> =>
+    tauriApi.moveScene(input, projectId),
 
   buildContext: (projectId: string): Promise<string> => tauriApi.buildProjectContext(projectId),
 };

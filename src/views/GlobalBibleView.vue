@@ -162,7 +162,8 @@ const {
 @use "../styles/mixins" as m;
 
 .global-bible {
-  max-width: 1400px;
+  // 设计稿内容区撑满可用宽度；仅在超宽屏上限封顶。
+  max-width: 1600px;
   min-width: 0;
   margin: 0 auto;
   padding: t.$space-6;
@@ -177,7 +178,8 @@ const {
 
   &__title {
     margin: 0;
-    font-size: 1.5rem;
+    // 设计稿 3:418：全局页标题 30px 衬线，与作品内页 26px 拉开层级。
+    font-size: 1.875rem;
     font-weight: 600;
   }
 
@@ -195,7 +197,8 @@ const {
 
 .global-grid {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  // 设计稿 3:420：筛选栏 340px，与详情面板间隔 16px。
+  grid-template-columns: 340px minmax(0, 1fr);
   gap: t.$space-4;
   margin-top: t.$space-5;
   align-items: start;

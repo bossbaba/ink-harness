@@ -174,7 +174,8 @@ onReactivated(() => void load());
 
 .stats {
   container-type: inline-size;
-  max-width: 1000px;
+  // 设计稿内容区撑满可用宽度；仅在超宽屏上限封顶。
+  max-width: 1600px;
   margin: 0 auto;
   padding: t.$space-6;
 
