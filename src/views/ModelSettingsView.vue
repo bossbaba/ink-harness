@@ -215,19 +215,15 @@ const routeOptions: SegmentOption[] = [
 
     <section class="panel routing">
       <h2 class="panel__title">任务路由</h2>
+      <!-- 设计稿 3:527：说明只讲路由口径，隐私限制属于作品设置，不在这里重复。 -->
       <p class="panel__hint">
-        可以先指定一个「默认模型」固定所有 AI
-        动作；不指定时，路由再按任务需求与下面的策略自动挑模型。
-        作品隐私设为「仅本地」时，无论哪种设置都只用本地模型。
+        可以指定一个默认模型；未指定时，路由再按任务需求与下面的策略自动选择模型。
       </p>
       <div class="routing__default">
         <div>
           <p class="routing__strategy-label">默认模型</p>
-          <p class="routing__strategy-hint">
-            选定后，构思、写作、审稿、摘要、出版等所有 AI
-            动作都固定使用这个模型，界面顶栏也会显示当前所用模型。
-            清除后恢复按策略自动选择。
-          </p>
+          <!-- 设计稿 3:531：提示压缩成一句，具体任务清单在本卡片底部展示。 -->
+          <p class="routing__strategy-hint">构思、审稿、缩改写等；留空则全部由路由自动选择。</p>
         </div>
         <NSelect
           class="routing__default-select"
@@ -247,10 +243,7 @@ const routeOptions: SegmentOption[] = [
       <div class="routing__strategy">
         <div>
           <p class="routing__strategy-label">全局策略</p>
-          <p class="routing__strategy-hint">
-            质量优先用大上下文模型，成本优先用便宜/本地模型，隐私优先只挑本地。改完立即对所有 AI
-            动作生效。
-          </p>
+          <p class="routing__strategy-hint">按优先级与上下文长度，优先使用较优模型。</p>
         </div>
         <SegmentedControl
           size="small"
@@ -319,21 +312,32 @@ const routeOptions: SegmentOption[] = [
 }
 
 .stats {
-  display: flex;
+  // 设计稿 3:482：三个状态做成一段式标签栏，首段浅绿高亮；这里只展示状态，不做切换。
+  display: inline-flex;
   flex-wrap: wrap;
-  gap: t.$space-3;
+  gap: 4px;
   margin-top: t.$space-4;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--bg-control, #{t.$paper-sunken});
 
   &__item {
-    padding: 4px 10px;
-    border: 1px solid var(--divider, #{t.$divider});
-    border-radius: 999px;
-    background: var(--bg-surface);
+    padding: 5px 12px;
+    border-radius: 6px;
     font-size: 11px;
     color: var(--text-soft, #{t.$ink-soft});
 
+    &:first-child {
+      background: var(--accent-soft, #{t.$accent-soft});
+      color: var(--accent, #{t.$accent});
+
+      strong {
+        color: var(--accent, #{t.$accent});
+      }
+    }
+
     strong {
-      margin-left: 2px;
+      margin-left: 4px;
       color: var(--text-primary, #{t.$ink});
     }
   }
@@ -423,10 +427,14 @@ const routeOptions: SegmentOption[] = [
     color: var(--text-primary, #{t.$ink});
   }
 
+  // 设计稿 3:503：分组标题后的数量放在浅绿胶囊里，不只是一串灰字。
   &__count {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--accent-soft, #{t.$accent-soft});
     font-size: 11px;
     font-weight: 400;
-    color: var(--text-faint, #{t.$ink-faint});
+    color: var(--accent, #{t.$accent});
   }
 }
 

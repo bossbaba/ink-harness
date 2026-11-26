@@ -273,11 +273,12 @@ async function handleRestore(versionId: string): Promise<void> {
 
       <div class="writing__main">
         <LoadingState v-if="contentLoading" variant="inline" text="正在载入正文…" />
+        <!-- 设计稿 3:943/3:946：空状态文案按稿收紧，行动入口直接叫「去大纲创建」。 -->
         <WritingEmptyState
           v-else-if="!activeChapterId"
-          title="还没有选择章节。"
-          hint="在左侧点一章开始写；还没有章节可以点列表顶部的「＋」直接新建。"
-          action-label="去大纲创建章节"
+          title="还没有选择章节"
+          hint="在左侧点击一章开始写，或点击列表顶部的「＋」直接新建。"
+          action-label="去大纲创建"
           @action="goOutline"
         />
         <WritingEmptyState
@@ -384,6 +385,7 @@ async function handleRestore(versionId: string): Promise<void> {
 
   &__body {
     display: grid;
+    min-width: 0;
     // 设计稿 3:930：章节 196px + 编辑器弹性 + Copilot 300px，栏间 12px。
     grid-template-columns: 196px minmax(0, 1fr);
     gap: 12px;

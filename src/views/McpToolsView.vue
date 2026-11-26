@@ -63,7 +63,7 @@ onMounted(() => void load());
     <PageHeader
       eyebrow="全局设置"
       title="MCP 外部工具"
-      subtitle="配置 stdio 工具服务，扩展 Agent 能调用的能力；每个外部工具都要你审批后才执行。"
+      subtitle="配置 stdio 工具服务，扩展 Agent 能调用的能力；每个外部工具都要你审批后才会执行。"
     >
       <template #actions>
         <NButton size="small" :loading="discovering" @click="refreshTools">刷新工具</NButton>
@@ -82,6 +82,8 @@ onMounted(() => void load());
         icon="models"
         title="还没有 MCP 服务"
         description="添加一个 stdio 工具服务（如 npx -y @modelcontextprotocol/server-filesystem），Agent 就能调用它的工具。"
+        action-label="添加服务"
+        @action="openCreate"
       />
       <ul v-else class="mcp__list">
         <li v-for="server in servers" :key="server.id" class="mcp__server">
@@ -110,7 +112,8 @@ onMounted(() => void load());
     <section class="mcp__card">
       <div class="mcp__head">
         <h2 class="mcp__section">发现的工具</h2>
-        <span class="mcp__hint">{{ tools.length }} 个</span>
+        <!-- 设计稿 3:706：工具数量用小胶囊收在标题右侧，不占整行说明的位置。 -->
+        <NTag size="small" :bordered="false">{{ tools.length }} 个</NTag>
       </div>
       <p v-if="tools.length === 0" class="mcp__hint">
         还没有发现工具。配置服务后点「刷新工具」；外部工具默认都要审批。

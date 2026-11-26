@@ -2,6 +2,7 @@
 import { NButton, NEmpty, NInput, NSelect, NTag } from "naive-ui";
 import AppEmpty from "@/components/common/AppEmpty.vue";
 import LoadingState from "@/components/common/LoadingState.vue";
+import PageHeader from "@/components/common/PageHeader.vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import { useGlobalBible } from "@/composables/useGlobalBible";
 import type { KindFilter } from "@/composables/useStoryBible";
@@ -31,14 +32,12 @@ const {
 
 <template>
   <div class="global-bible">
-    <header class="global-bible__header">
-      <div>
-        <h1 class="global-bible__title serif">全局设定库</h1>
-        <p class="global-bible__subtitle">
-          汇总所有作品的设定，仅用于浏览；编辑请进入对应作品的设定库。
-        </p>
-      </div>
-    </header>
+    <!-- 设计稿 3:416：全局视角的眉标 + 30px 标题 + 说明，统一走 PageHeader。 -->
+    <PageHeader
+      eyebrow="全局视角"
+      title="全局设定库"
+      subtitle="汇总所有作品的设定，仅用于浏览；编辑请进入对应作品的设定库。"
+    />
 
     <p v-if="error" class="global-bible__error">{{ error }}</p>
 
@@ -97,49 +96,61 @@ const {
 
       <section class="panel panel--detail">
         <template v-if="selected">
+          <!-- 设计稿 3:448：类型与名称同一行，进入作品页是主操作，用主按钮。 -->
           <div class="detail-head">
-            <div>
-              <NTag size="small" :bordered="false">{{ kindLabel(selected.kind) }}</NTag>
+            <div class="detail-head__identity">
+              <NTag size="small" :bordered="false" type="success">
+                {{ kindLabel(selected.kind) }}
+              </NTag>
               <h2 class="detail-head__title serif">{{ selected.name }}</h2>
-              <p class="detail-head__project">所属作品：{{ selected.projectTitle }}</p>
             </div>
-            <NButton size="small" @click="openProject(selected)"> 进入该作品设定库 </NButton>
+            <NButton size="small" type="primary" @click="openProject(selected)">
+              进入该作品设定库
+            </NButton>
           </div>
+          <p class="detail-head__project">所属作品：{{ selected.projectTitle }}</p>
 
+          <!-- 设计稿 3:456：字段名在上、浅底值块在下，值块统一 9px 圆角与纸灰底色。 -->
           <div class="detail-body">
             <section class="detail-section">
               <h3 class="detail-section__title">摘要</h3>
-              <p>{{ selected.summary || "暂无摘要" }}</p>
+              <div class="detail-section__value">
+                <p>{{ selected.summary || "暂无摘要" }}</p>
+              </div>
             </section>
             <section v-if="selected.detail.aliases?.length" class="detail-section">
               <h3 class="detail-section__title">别名</h3>
-              <p>{{ selected.detail.aliases.join("、") }}</p>
+              <div class="detail-section__value">
+                <p>{{ selected.detail.aliases.join("、") }}</p>
+              </div>
             </section>
             <section v-if="selected.kind === 'event'" class="detail-section">
               <h3 class="detail-section__title">时间范围</h3>
-              <p>{{ selected.detail.timeStart || "?" }} — {{ selected.detail.timeEnd || "?" }}</p>
+              <div class="detail-section__value">
+                <p>{{ selected.detail.timeStart || "?" }} — {{ selected.detail.timeEnd || "?" }}</p>
+              </div>
             </section>
             <section v-if="selected.detail.notes" class="detail-section">
               <h3 class="detail-section__title">补充备注</h3>
-              <p>{{ selected.detail.notes }}</p>
+              <div class="detail-section__value">
+                <p>{{ selected.detail.notes }}</p>
+              </div>
             </section>
             <section class="detail-section">
               <h3 class="detail-section__title">关联设定</h3>
-              <NEmpty
-                v-if="!selected.detail.relations?.length"
-                class="detail-section__empty"
-                size="small"
-                :show-icon="false"
-                description="暂无关联。"
-              />
-              <p
-                v-for="relation in selected.detail.relations"
-                :key="relation.targetId"
-                class="relation"
-              >
-                <NTag size="tiny" :bordered="false">{{ relationTypeLabel(relation.type) }}</NTag>
-                {{ relationName(relation.targetId) }}
-              </p>
+              <div class="detail-section__value detail-section__value--relations">
+                <p v-if="!selected.detail.relations?.length" class="detail-section__placeholder">
+                  暂无关联设定
+                </p>
+                <p
+                  v-for="relation in selected.detail.relations"
+                  :key="relation.targetId"
+                  class="relation"
+                >
+                  <NTag size="tiny" :bordered="false">{{ relationTypeLabel(relation.type) }}</NTag>
+                  {{ relationName(relation.targetId) }}
+                </p>
+              </div>
             </section>
           </div>
         </template>
@@ -169,28 +180,10 @@ const {
   padding: t.$space-6;
   container-type: inline-size;
 
-  &__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: t.$space-4;
-  }
-
-  &__title {
-    margin: 0;
-    // 设计稿 3:418：全局页标题 30px 衬线，与作品内页 26px 拉开层级。
-    font-size: 1.875rem;
-    font-weight: 600;
-  }
-
-  &__subtitle,
+  // 页头已交给 PageHeader，这里只保留只读页的异常文案。
   &__error {
     margin: t.$space-2 0 0;
     font-size: 12px;
-    color: var(--text-soft, #{t.$ink-soft});
-  }
-
-  &__error {
     color: var(--error, #{t.$error});
   }
 }
@@ -268,7 +261,8 @@ const {
   }
 
   &--active {
-    background: var(--bg-sunken, #{t.$paper-sunken});
+    // 设计稿 3:441：选中条目用浅绿而非灰底，和全局浏览的只读语义保持一致。
+    background: var(--accent-soft, #{t.$accent-soft});
   }
 
   &__head {
@@ -311,7 +305,8 @@ const {
   }
 
   &.item--active {
-    background: var(--bg-sunken, #{t.$paper-sunken});
+    // 设计稿 3:441：选中条目用浅绿而非灰底，和全局浏览的只读语义保持一致。
+    background: var(--accent-soft, #{t.$accent-soft});
   }
 
   // 名称行与作品名在 .n-button__content 这一层纵向排列。
@@ -327,19 +322,29 @@ const {
 
 .detail-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: t.$space-3;
-  padding-bottom: t.$space-3;
-  border-bottom: 1px solid var(--divider, #{t.$divider});
+  min-width: 0;
+
+  // 设计稿 3:449：类型标签与名称同一行，名称可能很长，只让它省略。
+  &__identity {
+    display: flex;
+    align-items: center;
+    gap: t.$space-2;
+    min-width: 0;
+  }
 
   &__title {
-    margin: t.$space-1 0 0;
-    font-size: 1.15rem;
+    margin: 0;
+    font-size: 1.25rem;
+    @include m.ellipsis;
   }
 
   &__project {
-    margin: t.$space-1 0 0;
+    margin: t.$space-2 0 0;
+    padding-bottom: t.$space-3;
+    border-bottom: 1px solid var(--divider, #{t.$divider});
     font-size: 11px;
     color: var(--text-faint, #{t.$ink-faint});
   }
@@ -354,10 +359,10 @@ const {
 
 .detail-section {
   &__title {
-    margin: 0 0 t.$space-1;
+    margin: 0 0 t.$space-2;
     font-size: 11px;
     font-weight: 600;
-    color: var(--text-soft, #{t.$ink-soft});
+    color: var(--text-muted, #{t.$ink-muted});
   }
 
   p {
@@ -366,7 +371,19 @@ const {
     line-height: 1.7;
   }
 
-  &__empty {
+  // 设计稿 3:459：值块是无描边的浅底矩形，9px 圆角、12px 内边距。
+  &__value {
+    min-height: 40px;
+    padding: t.$space-3;
+    border-radius: 9px;
+    background: var(--bg-control, #{t.$paper-sunken});
+
+    &--relations {
+      min-height: 60px;
+    }
+  }
+
+  &__placeholder {
     color: var(--text-faint, #{t.$ink-faint});
   }
 }

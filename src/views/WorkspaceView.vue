@@ -86,16 +86,25 @@ function openModels(): void {
       </div>
       <!-- 设计稿右侧的文档插画：纯装饰，不参与交互；用 SVG 保证任意缩放下都清晰。 -->
       <div class="hero__art" aria-hidden="true">
+        <!-- 插画的填充全部走主题变量，暗色模式跟着换色，不在这里硬编码设计稿色值。 -->
         <svg viewBox="0 0 132 96" fill="none" xmlns="http://www.w3.org/2000/svg">
           <title>文档完成示意</title>
-          <rect x="14" y="10" width="104" height="76" rx="8" fill="#E8F3EC" />
-          <rect x="22" y="4" width="104" height="76" rx="8" fill="#FFFDF7" stroke="#E6E3D8" />
-          <rect x="34" y="20" width="40" height="5" rx="2.5" fill="#0A8A4B" />
-          <rect x="34" y="34" width="72" height="4" rx="2" fill="#E6E3D8" />
-          <rect x="34" y="44" width="60" height="4" rx="2" fill="#E6E3D8" />
-          <rect x="34" y="54" width="66" height="4" rx="2" fill="#E6E3D8" />
-          <rect x="34" y="64" width="44" height="4" rx="2" fill="#E6E3D8" />
-          <circle cx="104" cy="70" r="17" fill="#0A8A4B" />
+          <!-- 用 style 而不是 SVG 呈现属性承载 var()，兼容 Tauri 使用的 WebKit 内核。 -->
+          <rect x="14" y="10" width="104" height="76" rx="8" style="fill: var(--accent-soft)" />
+          <rect
+            x="22"
+            y="4"
+            width="104"
+            height="76"
+            rx="8"
+            style="fill: var(--bg-surface); stroke: var(--border)"
+          />
+          <rect x="34" y="20" width="40" height="5" rx="2.5" style="fill: var(--accent)" />
+          <rect x="34" y="34" width="72" height="4" rx="2" style="fill: var(--border)" />
+          <rect x="34" y="44" width="60" height="4" rx="2" style="fill: var(--border)" />
+          <rect x="34" y="54" width="66" height="4" rx="2" style="fill: var(--border)" />
+          <rect x="34" y="64" width="44" height="4" rx="2" style="fill: var(--border)" />
+          <circle cx="104" cy="70" r="17" style="fill: var(--accent)" />
           <path
             d="m97 70 5 5 9-10"
             stroke="#fff"

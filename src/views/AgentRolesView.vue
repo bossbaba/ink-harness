@@ -81,10 +81,10 @@ onMounted(() => void load());
     <PageHeader
       eyebrow="全局设置"
       title="Agent 角色"
-      subtitle="定义身份提示词与可用工具；换角色不换模型，随时可以在写作台切换。"
+      subtitle="定义身份提示词与可用工具；切换角色不换模型，随时可以在写作台切换。"
     >
       <template #actions>
-        <NButton size="small" type="primary" @click="openCreate">新建角色</NButton>
+        <NButton size="small" type="primary" @click="openCreate">新增角色</NButton>
       </template>
     </PageHeader>
 
@@ -98,6 +98,8 @@ onMounted(() => void load());
       @add="handleAddPreset"
     />
 
+    <!-- 设计稿 3:590：预设区与自建角色区分开，标题点明下面这张卡只放已添加的角色。 -->
+    <h2 class="roles__section">已添加角色</h2>
     <section class="roles__card">
       <LoadingState v-if="loading && roles.length === 0" variant="inline" text="正在读取角色…" />
       <AppEmpty
@@ -214,6 +216,13 @@ onMounted(() => void load());
     margin: 0 0 t.$space-3;
     font-size: 12px;
     color: var(--error, #{t.$error});
+  }
+
+  &__section {
+    margin: 0 0 t.$space-3;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary, #{t.$ink});
   }
 
   &__card {

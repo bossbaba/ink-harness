@@ -102,8 +102,8 @@ async function submit() {
 
     <template #footer>
       <NSpace justify="end">
-        <NButton :disabled="busy" @click="close">取消</NButton>
-        <NButton type="primary" :loading="busy" @click="submit">创建作品</NButton>
+        <NButton size="small" :disabled="busy" @click="close">取消</NButton>
+        <NButton size="small" type="primary" :loading="busy" @click="submit">创建作品</NButton>
       </NSpace>
     </template>
   </NModal>
@@ -120,8 +120,10 @@ async function submit() {
 
 .row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  // 用 minmax 而不是裸 1fr：长作品名不会把其中一列撑宽，弹窗保持固定宽度。
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: t.$space-4;
+  min-width: 0;
 }
 
 .field {

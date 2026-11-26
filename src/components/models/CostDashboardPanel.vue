@@ -34,8 +34,9 @@ const taskLabel = (kind: string): string => TASK_KIND_LABEL[kind] ?? "其他";
     <div class="dashboard__bar">
       <div>
         <h2 class="dashboard__title">Token 与成本</h2>
+        <!-- 设计稿 3:398：说明只讲口径，不写预算细节；预算输入保留在右侧，供本机配置。 -->
         <p class="dashboard__hint">
-          上游返回用量时按任务与模型记录；费用按当前模型单价估算，改价不改写历史。
+          上游模型服务按 tokens 与请求计费；费用按当前价格估算，仅供参考，不写入历史。
         </p>
       </div>
       <span class="dashboard__spacer" />
@@ -58,7 +59,7 @@ const taskLabel = (kind: string): string => TASK_KIND_LABEL[kind] ?? "其他";
     <template v-else>
       <div class="dashboard__metrics">
         <div class="metric">
-          <span class="metric__label">调用次数</span>
+          <span class="metric__label">请求次数</span>
           <strong class="metric__value">{{ stats.calls }}</strong>
         </div>
         <div class="metric">
@@ -72,7 +73,8 @@ const taskLabel = (kind: string): string => TASK_KIND_LABEL[kind] ?? "其他";
             {{ stats.completionTokens.toLocaleString() }}
           </strong>
         </div>
-        <div class="metric">
+        <!-- 设计稿 3:409：费用卡用浅绿底色与主色数字，和其余三项的纸色卡拉开层级。 -->
+        <div class="metric metric--cost">
           <span class="metric__label">估算费用</span>
           <strong class="metric__value">${{ cost.toFixed(4) }}</strong>
         </div>
@@ -253,11 +255,19 @@ const taskLabel = (kind: string): string => TASK_KIND_LABEL[kind] ?? "其他";
 }
 
 .metric {
+  // 设计稿 3:400：成本四项是无描边的浅底卡（12px 圆角），不是带边框的小卡片。
   padding: t.$space-3;
-  border: 1px solid var(--divider, #{t.$divider});
-  border-radius: t.$radius-md;
-  background: var(--bg-app);
+  border-radius: 12px;
+  background: var(--bg-control, #{t.$paper-sunken});
   min-width: 0;
+
+  &--cost {
+    background: var(--accent-soft, #{t.$accent-soft});
+
+    .metric__value {
+      color: var(--accent, #{t.$accent});
+    }
+  }
 
   &__label {
     display: block;

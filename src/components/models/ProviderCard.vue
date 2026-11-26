@@ -32,17 +32,32 @@ const hiddenCount = computed(() => Math.max(0, props.provider.models.length - 6)
 <template>
   <article class="provider" :class="{ 'provider--off': !props.provider.enabled }">
     <header class="provider__head">
-      <div class="provider__title-row">
+      <div class="provider__identity">
         <!-- 启用状态圆点用 NBadge dot，颜色取语义变量，避免业务组件里写死色值。 -->
         <NBadge dot :color="props.provider.enabled ? 'var(--accent)' : 'var(--text-faint)'" />
-        <h3 class="provider__name">{{ props.provider.name }}</h3>
-        <NTag
-          size="tiny"
-          :bordered="false"
-          :type="props.provider.source === 'local' ? 'success' : 'info'"
-        >
-          {{ props.provider.source === "local" ? "本地" : "云端" }}
-        </NTag>
+        <div class="provider__text">
+          <!-- 设计稿 3:507：名称与接口地址同一行，摘要另起一行；本地源不再重复打「本地」标签。 -->
+          <p class="provider__line">
+            <strong class="provider__name">{{ props.provider.name }}</strong>
+            <NTag
+              v-if="props.provider.source !== 'local'"
+              size="tiny"
+              :bordered="false"
+              type="info"
+            >
+              云端
+            </NTag>
+            <span class="provider__dot">·</span>
+            <!-- 接口地址较长会被截断，悬浮用 NTooltip 给出完整地址。 -->
+            <NTooltip>
+              <template #trigger>
+                <span class="provider__url">{{ props.provider.baseUrl }}</span>
+              </template>
+              {{ props.provider.baseUrl }}
+            </NTooltip>
+          </p>
+          <p class="provider__meta">{{ props.provider.models.length }} 个已启用模型</p>
+        </div>
       </div>
       <NSwitch
         size="small"
@@ -52,23 +67,18 @@ const hiddenCount = computed(() => Math.max(0, props.provider.models.length - 6)
       />
     </header>
 
-    <!-- 接口地址较长会被截断，悬浮用 NTooltip 给出完整地址。 -->
-    <NTooltip>
-      <template #trigger>
-        <p class="provider__url">{{ props.provider.baseUrl }}</p>
-      </template>
-      {{ props.provider.baseUrl }}
-    </NTooltip>
-    <p class="provider__meta">
-      {{ props.provider.models.length }} 个已启用模型 ·
-      {{ props.provider.apiKeyRef ? "已保存密钥" : "未配置密钥" }}
-    </p>
-
     <div v-if="visibleModels.length" class="provider__models">
-      <NTag v-for="model in visibleModels" :key="model.id" size="tiny" :bordered="false">
+      <!-- 设计稿 3:511：已启用模型用浅绿标签，和 Provider 状态圆点保持同一语义色。 -->
+      <NTag
+        v-for="model in visibleModels"
+        :key="model.id"
+        size="tiny"
+        :bordered="false"
+        type="success"
+      >
         {{ model.displayName || model.id }}
       </NTag>
-      <NTag v-if="hiddenCount" class="provider__more" size="tiny" round :bordered="false">
+      <NTag v-if="hiddenCount" size="tiny" :bordered="false" type="success">
         +{{ hiddenCount }}
       </NTag>
     </div>
@@ -144,23 +154,44 @@ const hiddenCount = computed(() => Math.max(0, props.provider.models.length - 6)
     gap: t.$space-2;
   }
 
-  &__title-row {
+  &__identity {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: t.$space-2;
     min-width: 0;
   }
 
-  &__name {
+  &__text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  &__line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
     margin: 0;
+    font-size: 12px;
+  }
+
+  &__name {
+    flex-shrink: 0;
     font-size: 13px;
     font-weight: 600;
     color: var(--text-primary, #{t.$ink});
     @include m.ellipsis;
   }
 
+  &__dot {
+    flex-shrink: 0;
+    color: var(--text-faint, #{t.$ink-faint});
+  }
+
   &__url {
-    margin: 0;
+    min-width: 0;
     font-size: 11px;
     color: var(--text-soft, #{t.$ink-soft});
     @include m.ellipsis;
@@ -168,7 +199,7 @@ const hiddenCount = computed(() => Math.max(0, props.provider.models.length - 6)
 
   &__meta {
     margin: 0;
-    font-size: 10px;
+    font-size: 11px;
     color: var(--text-faint, #{t.$ink-faint});
   }
 

@@ -87,18 +87,19 @@ onReactivated(() => void load());
 
     <p v-if="error" class="stats__error">{{ error }}</p>
 
-    <section class="stats__card">
-      <h2 class="stats__section">作品与正文</h2>
-      <LoadingState v-if="loading && !stats" variant="inline" text="正在统计…" />
-      <template v-else-if="stats">
-        <div class="stats__metrics">
-          <StatCard label="作品数" :value="stats.projects" emphasis />
-          <StatCard label="章节数" :value="stats.chapters" />
-          <StatCard label="总字数" :value="stats.totalWords.toLocaleString()" />
-          <StatCard label="设定条目" :value="stats.storyElements" />
-          <StatCard label="场景 / 伏笔" :value="`${stats.scenes} / ${stats.foreshadows}`" />
-        </div>
+    <LoadingState v-if="loading && !stats" variant="inline" text="正在统计…" />
+    <template v-else-if="stats">
+      <!-- 设计稿 3:347：五张指标卡是独立的一排，不塞进「作品与正文」卡片里形成双层卡面。 -->
+      <div class="stats__metrics">
+        <StatCard label="作品数" :value="stats.projects" emphasis />
+        <StatCard label="章节数" :value="stats.chapters" />
+        <StatCard label="总字数" :value="stats.totalWords.toLocaleString()" />
+        <StatCard label="设定条目" :value="stats.storyElements" />
+        <StatCard label="场景 / 伏笔" :value="`${stats.scenes} / ${stats.foreshadows}`" />
+      </div>
 
+      <section class="stats__card">
+        <h2 class="stats__section">作品与正文</h2>
         <AppEmpty
           v-if="totalWorks === 0"
           class="stats__empty"
@@ -138,8 +139,8 @@ onReactivated(() => void load());
             </p>
           </div>
         </div>
-      </template>
-    </section>
+      </section>
+    </template>
 
     <!-- 成本面板自身已带卡片外壳，这里只保留间距，避免出现「卡片套卡片」。 -->
     <section class="stats__panel">

@@ -53,7 +53,7 @@ const emit = defineEmits<{
           <span>全书 {{ formatCount(totalWords) }} 字</span>
           <WritingSaveStatus :state="saveState" :saved-at="lastSavedAt" />
         </template>
-        <template v-else>从左侧选一章开始写，正文会在停笔后自动保存。</template>
+        <template v-else>从左侧选择章节开始写，正文会在停笔后自动保存。</template>
       </p>
     </div>
 

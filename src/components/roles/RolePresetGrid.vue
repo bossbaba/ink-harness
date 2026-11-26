@@ -31,9 +31,8 @@ function isAdded(preset: AgentRolePreset): boolean {
   <section class="presets">
     <header class="presets__head">
       <h2 class="presets__title">预设角色</h2>
-      <p class="presets__hint">
-        挑一个身份直接添加，之后提示词和工具都能改；不添加也不影响使用默认角色。
-      </p>
+      <!-- 设计稿 3:562：提示强调「预设可复制成自建角色」，避免用户以为预设只能只读使用。 -->
+      <p class="presets__hint">选择一个角色预设，即可在写作台调用；已添加的角色可直接使用。</p>
     </header>
 
     <ul class="presets__grid">
@@ -105,8 +104,11 @@ function isAdded(preset: AgentRolePreset): boolean {
     align-items: flex-start;
     gap: t.$space-3;
     min-width: 0;
+    // 设计稿 3:564：预设卡是纸白卡面 + 分隔线，68px 高，和下方列表卡保持同一层级。
+    min-height: 68px;
     padding: t.$space-3;
-    background: var(--bg-sunken, #{t.$paper-sunken});
+    background: var(--bg-surface, #{t.$paper-raised});
+    border: 1px solid var(--divider, #{t.$divider});
     border-radius: t.$radius-md;
   }
 
