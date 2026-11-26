@@ -305,9 +305,10 @@ async function copyReport(): Promise<void> {
     // 限制行长：一行读完的分工说明比铺满 1000px 更好读。
     max-width: 640px;
     margin: t.$space-2 0 0;
-    font-size: 12px;
+    // 设计稿 3:975：页头说明 11px 正文灰。
+    font-size: 11px;
     line-height: 1.7;
-    color: var(--text-soft, #{t.$ink-soft});
+    color: var(--text-muted, #{t.$ink-muted});
   }
 
   &__error {
@@ -327,9 +328,10 @@ async function copyReport(): Promise<void> {
 
 .controls {
   margin-top: t.$space-4;
-  // 工具条只放控件，纵向压到 12px：上一版 16px 让它看起来像内容卡而不是条。
-  padding: t.$space-3 t.$space-4;
-  @include m.card-surface(var(--bg-surface));
+  // 设计稿 3:981：范围选择是一条浅灰工具条，不是内容卡；控件统一 28px 高。
+  padding: t.$space-2 t.$space-3;
+  border-radius: t.$radius-lg;
+  background: var(--bg-sunken);
 
   &__row {
     display: flex;
@@ -337,6 +339,11 @@ async function copyReport(): Promise<void> {
     align-items: center;
     gap: t.$space-3;
     min-width: 0;
+
+    :deep(.n-button) {
+      height: 28px;
+      font-size: 11px;
+    }
   }
 
   &__chapter {

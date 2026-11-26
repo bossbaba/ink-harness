@@ -159,6 +159,12 @@ const emit = defineEmits<{ start: [] }>();
   padding: t.$space-4;
   @include m.card-surface(var(--bg-surface));
 
+  // 设计稿 3:975：引导卡内的主操作压到 28px，与页头工具条同一档。
+  :deep(.n-button) {
+    height: 28px;
+    font-size: 11px;
+  }
+
   &__head {
     display: flex;
     align-items: flex-start;

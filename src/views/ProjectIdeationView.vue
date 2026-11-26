@@ -82,10 +82,6 @@ function draftLabel(): string {
         <p class="ideation__subtitle">
           分步回答几个问题，AI 会整理成书名、梗概、简介、读者画像与三幕骨架；每一步都可以回头修改。
         </p>
-        <!-- 草稿状态就贴在说明下面：作者最关心「填的东西会不会丢」，这里直接给答案。 -->
-        <p class="ideation__draft" :class="{ 'ideation__draft--error': draftError }">
-          {{ draftLabel() }}
-        </p>
       </div>
       <NButton size="small" :disabled="!project" @click="openOutline">打开大纲</NButton>
     </header>
@@ -145,6 +141,9 @@ function draftLabel(): string {
             <span v-if="!canNext" class="actions__hint">
               先填写{{ step === 0 ? "你的灵感" : "主角" }}再继续。
             </span>
+            <span class="ideation__draft" :class="{ 'ideation__draft--error': draftError }">
+              {{ draftLabel() }}
+            </span>
             <span class="actions__spacer" />
             <NButton v-if="step < 2" size="small" type="primary" :disabled="!canNext" @click="next">
               下一步
@@ -183,6 +182,13 @@ function draftLabel(): string {
     align-items: flex-start;
     justify-content: space-between;
     gap: t.$space-4;
+
+    // 设计稿页头按钮统一 28px 高、11px 字，整组按钮保持同一档。
+    :deep(.n-button) {
+      height: 28px;
+      padding: 0 t.$space-3;
+      font-size: 11px;
+    }
   }
 
   &__title {
@@ -195,16 +201,17 @@ function draftLabel(): string {
   &__subtitle,
   &__error {
     margin: t.$space-2 0 0;
-    font-size: 12px;
+    // 设计稿页头说明 11px 正文灰，与 26px 标题拉开层级。
+    font-size: 11px;
     line-height: 1.7;
-    color: var(--text-soft, #{t.$ink-soft});
+    color: var(--text-muted, #{t.$ink-muted});
   }
 
-  // 草稿状态比正文说明更次要：11px、faint，只在保存失败时转成错误色。
+  // 设计稿 3:735：草稿状态落在表单卡片底部的操作行，11px faint，失败才转错误色。
   &__draft {
-    margin: t.$space-1 0 0;
     font-size: 11px;
     line-height: 1.6;
+    white-space: nowrap;
     color: var(--text-faint, #{t.$ink-faint});
 
     &--error {
@@ -218,10 +225,12 @@ function draftLabel(): string {
 
   &__body {
     display: grid;
-    grid-template-columns: 220px minmax(0, 1fr);
+    // 设计稿 3:733：步骤栏 218px，右侧表单自适应。
+    grid-template-columns: 218px minmax(0, 1fr);
     gap: t.$space-4;
     margin-top: t.$space-5;
-    align-items: start;
+    // 设计稿两栏卡片等高；窄屏退化为单列时自然按内容排布。
+    align-items: stretch;
     min-width: 0;
 
     @container (max-width: 780px) {
@@ -235,7 +244,7 @@ function draftLabel(): string {
   flex-direction: column;
   gap: t.$space-4;
   min-width: 0;
-  min-height: 360px;
+  // 内容决定高度：设计稿的表单卡约 288px，固定下限会在前两步留下大片空白。
   padding: t.$space-5;
   @include m.card-surface(var(--bg-surface));
 }

@@ -22,7 +22,7 @@ const lengthOptions: Array<{ label: string; value: NovelLength }> = [
         <NInput
           v-model:value="answers.inspiration"
           type="textarea"
-          :rows="3"
+          :rows="4"
           placeholder="例如：一个能听见他人记忆的调音师，被迫为杀死自己师父的凶手调琴。"
         />
         <span class="field__hint">不用完整，写出最想写的那个画面或冲突即可。</span>

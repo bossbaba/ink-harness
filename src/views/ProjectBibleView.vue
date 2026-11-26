@@ -141,6 +141,13 @@ const {
     align-items: flex-start;
     justify-content: space-between;
     gap: t.$space-4;
+
+    // 设计稿页头按钮统一 28px 高、11px 字，整组按钮保持同一档。
+    :deep(.n-button) {
+      height: 28px;
+      padding: 0 t.$space-3;
+      font-size: 11px;
+    }
   }
 
   &__title {
@@ -153,8 +160,9 @@ const {
   &__subtitle,
   &__error {
     margin: t.$space-2 0 0;
-    font-size: 12px;
-    color: var(--text-soft, #{t.$ink-soft});
+    // 设计稿页头说明 11px 正文灰，与 26px 标题拉开层级。
+    font-size: 11px;
+    color: var(--text-muted, #{t.$ink-muted});
   }
 
   &__error {

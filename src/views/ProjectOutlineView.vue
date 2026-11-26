@@ -89,9 +89,16 @@ const {
 
     <template v-else-if="projectTitle">
       <div class="stats">
-        <span class="stats__item">章节 <strong>{{ stats.chapters }}</strong></span>
-        <span class="stats__item">场景 <strong>{{ stats.scenes }}</strong></span>
-        <span class="stats__item">未回收伏笔 <strong>{{ stats.pendingForeshadows }}</strong></span>
+        <span class="stats__item"
+          ><span class="stats__label">章节</span><strong>{{ stats.chapters }}</strong></span
+        >
+        <span class="stats__item"
+          ><span class="stats__label">场景</span><strong>{{ stats.scenes }}</strong></span
+        >
+        <span class="stats__item"
+          ><span class="stats__label">未回收伏笔</span
+          ><strong>{{ stats.pendingForeshadows }}</strong></span
+        >
         <span class="stats__hint">拖拽章节跨幕移动，拖拽场景跨章调整。</span>
       </div>
 
@@ -183,6 +190,13 @@ const {
     align-items: flex-start;
     justify-content: space-between;
     gap: t.$space-4;
+
+    // 设计稿页头按钮统一 28px 高、11px 字，整组按钮保持同一档。
+    :deep(.n-button) {
+      height: 28px;
+      padding: 0 t.$space-3;
+      font-size: 11px;
+    }
   }
 
   &__title {
@@ -195,8 +209,9 @@ const {
   &__subtitle,
   &__error {
     margin: t.$space-2 0 0;
-    font-size: 12px;
-    color: var(--text-soft, #{t.$ink-soft});
+    // 设计稿页头说明 11px 正文灰，与 26px 标题拉开层级。
+    font-size: 11px;
+    color: var(--text-muted, #{t.$ink-muted});
   }
 
   &__error {
@@ -212,6 +227,9 @@ const {
   margin-top: t.$space-5;
 
   &__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     padding: 4px 10px;
     border: 1px solid var(--divider, #{t.$divider});
     border-radius: 999px;
@@ -220,9 +238,14 @@ const {
     color: var(--text-soft, #{t.$ink-soft});
 
     strong {
-      margin-left: 2px;
       color: var(--text-primary, #{t.$ink});
     }
+  }
+
+  // 设计稿 3:869：标签是主色，数值保持墨色，统计条才不会是一排灰字。
+  &__label {
+    color: var(--accent);
+    font-weight: 500;
   }
 
   &__hint {

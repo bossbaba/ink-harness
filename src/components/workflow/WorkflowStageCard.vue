@@ -148,6 +148,12 @@ function copyArtifact(): void {
   padding: t.$space-4;
   @include m.card-surface(var(--bg-surface));
 
+  // 设计稿阶段卡内的操作统一 28px 高、11px 字；外层整卡时卡面由页面提供。
+  :deep(.n-button) {
+    height: 28px;
+    font-size: 11px;
+  }
+
   &__chapter label {
     display: flex;
     flex-direction: column;

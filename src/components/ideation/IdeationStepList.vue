@@ -41,6 +41,9 @@ const emit = defineEmits<(e: "select", index: number) => void>();
   display: flex;
   flex-direction: column;
   gap: t.$space-1;
+  width: 100%;
+  // 设计稿 3:733：步骤卡与右侧表单卡等高，页面用 stretch 对齐两栏。
+  height: 100%;
   min-width: 0;
   padding: t.$space-3;
   @include m.card-surface(var(--bg-surface));
@@ -70,8 +73,9 @@ const emit = defineEmits<(e: "select", index: number) => void>();
   }
 
   &--active {
-    background: var(--bg-sunken);
-    color: var(--text-primary, #{t.$ink});
+    // 设计稿选中步骤是浅绿药丸 + 主色文字，和侧栏选中态保持一套语言。
+    background: var(--accent-soft-strong, var(--accent-soft));
+    color: var(--accent);
   }
 
   &__index {
@@ -132,8 +136,15 @@ const emit = defineEmits<(e: "select", index: number) => void>();
   }
 
   &.step--active {
-    background: var(--bg-sunken);
-    color: var(--text-primary, #{t.$ink});
+    background: var(--accent-soft-strong, var(--accent-soft));
+    color: var(--accent);
+  }
+
+  // 当前步骤的序号做成主色实心圆，设计稿里白字绿底最醒目。
+  &.step--active .step__index {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--bg-surface);
   }
 }
 </style>

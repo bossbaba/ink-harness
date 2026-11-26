@@ -117,7 +117,8 @@ const emit = defineEmits<{
   }
 
   &--active {
-    background: var(--accent-soft);
+    // 设计稿选中项是更实的浅绿药丸，用 accent-soft-strong 和普通 hover 拉开层级。
+    background: var(--accent-soft-strong, var(--accent-soft));
   }
 
   &__icon {
@@ -178,7 +179,8 @@ const emit = defineEmits<{
   }
 
   &.element-item--active {
-    background: var(--accent-soft);
+    // 设计稿选中项是更实的浅绿药丸，用 accent-soft-strong 和普通 hover 拉开层级。
+    background: var(--accent-soft-strong, var(--accent-soft));
   }
 
   // 图标、正文与计数在 .n-button__content 这一层横向排列。
