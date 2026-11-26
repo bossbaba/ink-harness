@@ -267,6 +267,23 @@ export interface NewAgentRole {
   tools?: string;
 }
 
+/**
+ * 评测页进行中状态：done 是已完成用例数，title 是当前正在跑的用例。
+ * phase 区分「准备数据 / 正在跑 / 正在停止」，避免只有一个百分比时看不出卡在哪一步。
+ */
+export interface AgentEvalProgressState {
+  phase: "idle" | "preparing" | "running" | "stopping";
+  done: number;
+  total: number;
+  title: string;
+}
+
+/** 进度面板里的单个用例：状态由已完成数推导，不额外维护一份易失真的选中态。 */
+export interface AgentEvalProgressStep {
+  title: string;
+  status: "done" | "active" | "pending";
+}
+
 /** 评测里单个用例的结果，落库时序列化成 details。 */
 export interface AgentEvalCaseResult {
   caseId: string;
@@ -296,6 +313,13 @@ export interface AgentEvalRun {
   /** 逐例明细 JSON 字符串。 */
   details: string;
   createdAt: string;
+}
+
+/** 评测历史表格的一行：落库记录加上页面派生的通过率、明细与趋势。 */
+export interface AgentEvalHistoryRow extends AgentEvalRun {
+  rate: number;
+  cases: AgentEvalCaseResult[];
+  delta: number | null;
 }
 
 /** 追加评测结果入参（id/createdAt 由后端生成）。 */

@@ -44,4 +44,37 @@ describe("collectToolCalls", () => {
     expect(calls[0].arguments).toEqual({});
     expect(calls[0].parseError).toBe("");
   });
+
+  it("同一 index 被复用于下一次调用时拆成两条，不把参数拼坏", () => {
+    // Ollama 偶发把两次调用都标成 index=0，旧实现会拼成 `{"query":".."}{}`。
+    const chunks: ToolCallChunk[] = [
+      { index: 0, id: "a", name: "search_notes", arguments: '{"query":"江游 芯片"}' },
+      { index: 0, id: "b", name: "get_project", arguments: "{}" },
+    ];
+    const calls = collectToolCalls(chunks);
+    expect(calls.map((call) => call.name)).toEqual(["search_notes", "get_project"]);
+    expect(calls.map((call) => call.parseError)).toEqual(["", ""]);
+    expect(calls[0].arguments).toEqual({ query: "江游 芯片" });
+    expect(calls[1].arguments).toEqual({});
+  });
+
+  it("arguments 里连写多个对象时取第一段，不让整次调用被拒", () => {
+    const calls = collectToolCalls([
+      { index: 0, id: "x", name: "get_project", arguments: '{"query":"江游 芯片"}{}' },
+    ]);
+    expect(calls[0].parseError).toBe("");
+    expect(calls[0].arguments).toEqual({ query: "江游 芯片" });
+    expect(calls[0].rawArguments).toBe('{"query":"江游 芯片"}{}');
+  });
+
+  it("补发的完整 arguments 帧不会重复拼到原参数后面", () => {
+    const chunks: ToolCallChunk[] = [
+      { index: 0, id: "x", name: "read_chapter", arguments: '{"chapterId":"c1"}' },
+      { index: 0, id: "", name: "", arguments: '{"chapterId":"c1"}' },
+    ];
+    const calls = collectToolCalls(chunks);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].arguments).toEqual({ chapterId: "c1" });
+    expect(calls[0].parseError).toBe("");
+  });
 });

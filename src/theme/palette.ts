@@ -18,6 +18,8 @@ export interface Palette {
   error: string;
   bgApp: string;
   bgSurface: string;
+  /** 表单控件底色：设计稿下拉框 #F8F7F1，比卡面略深，保证控件边界可见。 */
+  bgControl: string;
   bgSunken: string;
   /** 抬升表面：悬浮卡片与浮层底色，比普通 surface 再亮一层。 */
   bgElevated: string;
@@ -60,6 +62,8 @@ export const palettes: Record<"light" | "dark", Palette> = {
     error: "#d4342a",
     bgApp: "#f5f3ec",
     bgSurface: "#fffdf7",
+    // Ardot「下拉」节点填充色：无描边控件靠这层底色与卡面区分。
+    bgControl: "#f8f7f1",
     bgSunken: "#f0eee6",
     bgElevated: "#ffffff",
     onAccent: "#ffffff",
@@ -89,6 +93,7 @@ export const palettes: Record<"light" | "dark", Palette> = {
     error: "#ef5350",
     bgApp: "#1c1b1a",
     bgSurface: "#262422",
+    bgControl: "#2f2c29",
     bgSunken: "#141312",
     bgElevated: "#2f2c29",
     onAccent: "#0c2018",
@@ -120,6 +125,7 @@ const CSS_VAR_MAP: Record<keyof Palette, string> = {
   error: "--error",
   bgApp: "--bg-app",
   bgSurface: "--bg-surface",
+  bgControl: "--bg-control",
   bgSunken: "--bg-sunken",
   bgElevated: "--bg-elevated",
   onAccent: "--on-accent",

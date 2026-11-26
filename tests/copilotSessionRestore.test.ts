@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { nextNewChatTitle } from "@/composables/newChatTitle";
 import { toMessages } from "@/composables/useCopilotMessaging";
 import type { AgentMessageRecord } from "@/types";
 
@@ -61,5 +62,21 @@ describe("toMessages 会话恢复", () => {
     ]);
     expect(messages.map((item) => item.role)).toEqual(["user", "assistant", "assistant"]);
     expect(messages[1].content).toBe("回答");
+  });
+});
+
+describe("新建对话标题", () => {
+  it("没有同名会话时用「新对话」，已命名的会话不影响", () => {
+    expect(nextNewChatTitle([])).toBe("新对话");
+    expect(nextNewChatTitle(["第一章续写"])).toBe("新对话");
+  });
+
+  it("已有空会话时递增序号，连点「+」也能看出新建了几条", () => {
+    expect(nextNewChatTitle(["新对话"])).toBe("新对话 2");
+    expect(nextNewChatTitle(["新对话", "新对话 2"])).toBe("新对话 3");
+  });
+
+  it("始终保留「新对话」前缀，首条消息后仍会被自动命名为首句问题", () => {
+    expect(nextNewChatTitle(["新对话", "新对话 2", "新对话 3"])).toBe("新对话 4");
   });
 });

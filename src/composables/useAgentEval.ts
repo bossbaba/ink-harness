@@ -10,7 +10,15 @@ import { agentRoleService, parseRoleTools } from "@/services/agentRoleService";
 import { modelRouter } from "@/services/modelRouter";
 import { outlineService } from "@/services/outlineService";
 import { projectService } from "@/services/projectService";
-import type { AgentEvalCaseResult, AgentEvalRun, AgentRole, Project } from "@/types";
+import type {
+  AgentEvalCaseResult,
+  AgentEvalHistoryRow,
+  AgentEvalProgressState,
+  AgentEvalProgressStep,
+  AgentEvalRun,
+  AgentRole,
+  Project,
+} from "@/types";
 
 /** 把落库的 details JSON 解析回逐例明细；老记录或坏数据返回空数组，不抛异常。 */
 export function parseDetails(raw: string): AgentEvalCaseResult[] {
@@ -47,7 +55,13 @@ export function useAgentEval() {
   const includeReview = ref(false);
   const loading = ref(false);
   const running = ref(false);
-  const progress = ref("");
+  /** 结构化进度：界面据此画进度条与用例步骤，不再是只能塞在一行里的文案。 */
+  const progressState = ref<AgentEvalProgressState>({
+    phase: "idle",
+    done: 0,
+    total: 0,
+    title: "",
+  });
   const error = ref("");
   const result = ref<RunAgentEvalResult | null>(null);
   const history = ref<AgentEvalRun[]>([]);
@@ -58,7 +72,7 @@ export function useAgentEval() {
   let cancelled = false;
 
   const canRun = computed(() => !running.value && projectId.value !== "");
-  const historyRows = computed(() => {
+  const historyRows = computed<AgentEvalHistoryRow[]>(() => {
     // history 已按作品过滤且时间倒序：当前项的「上一次」就是紧随其后的那一条。
     return history.value.map((run, index) => {
       const prior = history.value[index + 1];
@@ -76,6 +90,36 @@ export function useAgentEval() {
   const rateDelta = computed(() => {
     if (!result.value || previousRate.value === null) return null;
     return passRate(result.value.passed, result.value.cases.length) - previousRate.value;
+  });
+
+  /** 兼容原来的一行文案，便于日志与其它调用方继续按字符串读取。 */
+  const progress = computed(() => {
+    const state = progressState.value;
+    if (state.phase === "preparing") return "准备中…";
+    if (state.phase === "stopping") return "正在停止…";
+    if (state.phase === "running") {
+      return state.title
+        ? `${state.done}/${state.total} · 正在跑：${state.title}`
+        : "正在整理结果…";
+    }
+    return "";
+  });
+
+  /** 进度条百分比：准备阶段为 0，最后一个用例结束后立刻到 100。 */
+  const progressPercent = computed(() => {
+    const state = progressState.value;
+    return state.total > 0 ? Math.min(100, Math.round((state.done / state.total) * 100)) : 0;
+  });
+
+  /** 把用例标题按已完成数标成「已完成 / 进行中 / 待运行」，不另存一份状态。 */
+  const progressSteps = computed<AgentEvalProgressStep[]>(() => {
+    const titles = AGENT_EVAL_CASES.map((item) => item.title);
+    if (includeReview.value) titles.push(AGENT_EVAL_REVIEW_CASE.title);
+    const { done, phase } = progressState.value;
+    return titles.map((title, index) => ({
+      title,
+      status: index < done ? "done" : index === done && phase !== "idle" ? "active" : "pending",
+    }));
   });
 
   /**
@@ -145,7 +189,13 @@ export function useAgentEval() {
     cancelled = false;
     error.value = "";
     result.value = null;
-    progress.value = "准备中…";
+    // 用例数在准备阶段就确定：进度条的分母先给出来，避免一开始就显示 0/0。
+    progressState.value = {
+      phase: "preparing",
+      done: 0,
+      total: AGENT_EVAL_CASES.length + (includeReview.value ? 1 : 0),
+      title: "",
+    };
 
     try {
       // 章节由作者指定；选「不指定章节」时读章节用例自动跳过。
@@ -174,9 +224,8 @@ export function useAgentEval() {
         supportsTools,
         cases,
         onProgress: (done, total, title) => {
-          progress.value = title
-            ? `${done}/${total} · 正在跑：${title}`
-            : `${done}/${total} · 完成`;
+          // 最后一例结束时 title 为空：保留 100% 进度，文案由 progress 派生为「整理结果」。
+          progressState.value = { phase: "running", done, total, title };
         },
         shouldStop: () => cancelled,
       });
@@ -204,14 +253,14 @@ export function useAgentEval() {
       error.value = `运行评测失败：${String(err)}`;
     } finally {
       running.value = false;
-      progress.value = "";
+      progressState.value = { phase: "idle", done: 0, total: 0, title: "" };
     }
   }
 
   /** 取消：只置标记，当前用例跑完后循环会在下一例开始前退出。 */
   function cancel(): void {
     cancelled = true;
-    progress.value = "正在停止…";
+    progressState.value = { ...progressState.value, phase: "stopping" };
   }
 
   return {
@@ -225,6 +274,9 @@ export function useAgentEval() {
     loading,
     running,
     progress,
+    progressState,
+    progressPercent,
+    progressSteps,
     error,
     result,
     history,

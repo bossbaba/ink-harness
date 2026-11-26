@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { NButton, NCheckbox, NSelect, NTag } from "naive-ui";
 import { computed, onMounted } from "vue";
-import AppEmpty from "@/components/common/AppEmpty.vue";
-import LoadingState from "@/components/common/LoadingState.vue";
 import PageHeader from "@/components/common/PageHeader.vue";
+import AgentEvalHistoryTable from "@/components/eval/AgentEvalHistoryTable.vue";
+import AgentEvalProgress from "@/components/eval/AgentEvalProgress.vue";
 import { useAgentEval } from "@/composables/useAgentEval";
 
 /**
@@ -22,10 +22,11 @@ const {
   includeReview,
   loading,
   running,
-  progress,
+  progressState,
+  progressPercent,
+  progressSteps,
   error,
   result,
-  history,
   historyRows,
   rateDelta,
   canRun,
@@ -67,16 +68,11 @@ function deltaType(delta: number | null): "success" | "warning" | "default" {
   return delta > 0 ? "success" : "warning";
 }
 
-/** 差值文案：带正负号，读者一眼看出变好还是变差。 */
+/** 差值文案：箭头表方向，绝对值交给读者判断，避免「↓ -20%」这种双重否定。 */
 function deltaText(delta: number | null): string {
   if (delta === null) return "无历史可比";
   if (delta === 0) return "与上次持平";
-  return `${delta > 0 ? "↑ +" : "↓ "}${delta}% 较上次`;
-}
-
-/** 时间戳只显示到分钟：评测历史看的是顺序与趋势，秒级精度没有意义。 */
-function shortTime(value: string): string {
-  return value ? value.replace("T", " ").slice(0, 16) : "—";
+  return `${delta > 0 ? "↑" : "↓"} ${Math.abs(delta)}% 较上次`;
 }
 
 onMounted(() => void load());
@@ -115,15 +111,22 @@ onMounted(() => void load());
             :disabled="running"
           />
         </label>
-        <label class="eval__field">
-          <span class="eval__label">角色</span>
-          <NSelect v-model:value="roleId" size="small" :options="roleOptions" :disabled="running" />
-        </label>
-        <div class="eval__actions">
-          <NButton v-if="!running" size="small" type="primary" :disabled="!canRun" @click="run">
-            开始评测
-          </NButton>
-          <NButton v-else size="small" @click="cancel">停止</NButton>
+        <div class="eval__role-row">
+          <label class="eval__field">
+            <span class="eval__label">角色</span>
+            <NSelect
+              v-model:value="roleId"
+              size="small"
+              :options="roleOptions"
+              :disabled="running"
+            />
+          </label>
+          <div class="eval__actions">
+            <NButton v-if="!running" size="small" type="primary" :disabled="!canRun" @click="run">
+              开始评测
+            </NButton>
+            <NButton v-else size="small" @click="cancel">停止</NButton>
+          </div>
         </div>
         <label class="eval__field eval__field--check">
           <NCheckbox v-model:checked="includeReview" :disabled="running" size="small">
@@ -131,10 +134,13 @@ onMounted(() => void load());
           </NCheckbox>
         </label>
       </div>
-      <p v-if="progress" class="eval__progress">{{ progress }}</p>
-      <p class="eval__hint">
-        用例覆盖读作品、列设定、读章节、检索与写候选五条链路；章节只影响读章节用例，换模型或改提示词后跑一遍对比通过率。
-      </p>
+      <!-- 长用例要跑几十秒，进度面板让「正在跑 / 跑到第几条」一眼可见。 -->
+      <AgentEvalProgress
+        v-if="running"
+        :state="progressState"
+        :steps="progressSteps"
+        :percent="progressPercent"
+      />
     </section>
 
     <section v-if="result" class="eval__card">
@@ -176,38 +182,19 @@ onMounted(() => void load());
     <section class="eval__card">
       <div class="eval__head">
         <h2 class="eval__section">评测历史</h2>
-        <NButton size="small" quaternary :loading="loading" @click="load">刷新</NButton>
+        <NButton
+          class="eval__refresh"
+          size="small"
+          type="primary"
+          quaternary
+          :loading="loading"
+          @click="load"
+        >
+          刷新
+        </NButton>
       </div>
 
-      <LoadingState v-if="loading && history.length === 0" variant="inline" text="正在读取历史…" />
-      <AppEmpty
-        v-else-if="history.length === 0"
-        icon="stats"
-        title="还没有评测记录"
-        description="选一部作品点「开始评测」，跑完会自动存一条记录，之后换模型可以对比。"
-      />
-
-      <ul v-else class="eval__history">
-        <li v-for="row in historyRows" :key="row.id" class="eval__history-row">
-          <span class="eval__history-time">{{ shortTime(row.createdAt) }}</span>
-          <span class="eval__history-model">{{ row.model || "未记录模型" }}</span>
-          <span class="eval__history-role">{{ row.roleName || "默认角色" }}</span>
-          <NTag size="small" :bordered="false" :type="rateType(row.rate)">
-            {{ row.rate }}%（{{ row.passed }}/{{ row.total }}）
-          </NTag>
-          <NTag
-            v-if="row.delta !== null"
-            size="small"
-            :bordered="false"
-            :type="deltaType(row.delta)"
-          >
-            {{ deltaText(row.delta) }}
-          </NTag>
-          <span class="eval__history-meta">
-            {{ row.rounds }} 轮 · {{ row.tokens || "—" }} tokens · {{ row.durationMs }} ms
-          </span>
-        </li>
-      </ul>
+      <AgentEvalHistoryTable :rows="historyRows" :loading="loading" />
     </section>
   </div>
 </template>
@@ -221,7 +208,8 @@ onMounted(() => void load());
   // 设计稿内容区撑满可用宽度；仅在超宽屏上限封顶。
   max-width: 1600px;
   margin: 0 auto;
-  padding: t.$space-6;
+  // 设计稿主内容区内边距 32px（space-6 + space-2）。
+  padding: calc(#{t.$space-6} + #{t.$space-2});
 
   &__error {
     margin: 0 0 t.$space-3;
@@ -232,27 +220,72 @@ onMounted(() => void load());
 
   &__card {
     @include m.card-surface(var(--bg-surface));
-    padding: t.$space-4;
-    margin-bottom: t.$space-4;
+    // 设计稿运行配置卡内边距 22px、历史卡 20px，取 22px 兼顾两者。
+    padding: calc(#{t.$space-5} - 2px);
+    margin-bottom: calc(#{t.$space-4} + 2px);
   }
 
   &__section {
-    margin: 0 0 t.$space-3;
-    font-size: 14px;
+    margin: 0 0 calc(#{t.$space-3} + 2px);
+    font-size: 15px;
     font-weight: 600;
   }
 
   &__form {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
-    gap: t.$space-3;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: calc(#{t.$space-4} + #{t.$space-1});
+    row-gap: t.$space-3;
     align-items: end;
+
+    // 设计稿的下拉是「无描边 + 纸色底 + 深色文字」的整块控件；Naive UI 默认
+    // disabled 会把已选文字压成浅灰，看起来像没填。这里覆盖主题变量，让运行中
+    // 仍然能读出当前作品/章节/角色，同时保留 disabled 的交互含义。
+    :deep(.n-base-selection) {
+      // Naive UI 把这些变量以内联 style 写在根节点上，必须 !important 才能覆盖。
+      --n-color: var(--bg-control, #{t.$paper}) !important;
+      --n-color-disabled: var(--bg-control, #{t.$paper}) !important;
+      --n-text-color: var(--text-primary, #{t.$ink}) !important;
+      --n-text-color-disabled: var(--text-primary, #{t.$ink}) !important;
+      --n-placeholder-color: var(--text-faint, #{t.$ink-faint}) !important;
+      --n-placeholder-color-disabled: var(--text-faint, #{t.$ink-faint}) !important;
+      --n-arrow-color: var(--text-primary, #{t.$ink}) !important;
+      --n-arrow-color-disabled: var(--text-primary, #{t.$ink}) !important;
+      --n-border: none !important;
+      --n-border-hover: none !important;
+      --n-border-focus: none !important;
+      --n-border-radius: #{t.$radius-md} !important;
+      --n-font-size: 11px !important;
+      // 标签本身是 36px 高且 align-items:center；上下padding设 0 才能真正垂直居中，
+      // 给上下各 10px 反而会让 16.5px 行高超出容器、视觉上偏下。
+      --n-height: 36px !important;
+      --n-padding-single-top: 0 !important;
+      --n-padding-single-bottom: 0 !important;
+      --n-padding-single-left: 12px !important;
+      --n-padding-single-right: 12px !important;
+      min-height: 36px;
+      border-radius: t.$radius-md;
+      background: var(--bg-control, #{t.$paper});
+    }
+  }
+
+  // 设计稿里角色独占一行，开始/停止按钮贴在其右侧，避免四列把下拉压窄。
+  &__role-row {
+    display: flex;
+    grid-column: 1 / -1;
+    align-items: flex-end;
+    gap: calc(#{t.$space-4} + #{t.$space-1});
+    min-width: 0;
+
+    .eval__field {
+      flex: 1;
+    }
   }
 
   &__field {
     display: flex;
     flex-direction: column;
-    gap: t.$space-2;
+    gap: calc(#{t.$space-2} - 2px);
     min-width: 0;
 
     // 审稿开关没有上方标签，靠跨整行与上方字段拉开距离。
@@ -262,21 +295,34 @@ onMounted(() => void load());
   }
 
   &__label {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-primary, #{t.$ink});
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-muted, #{t.$ink-muted});
   }
 
   &__actions {
     display: flex;
+    flex-shrink: 0;
     gap: t.$space-2;
+
+    :deep(.n-button) {
+      min-height: 36px;
+      padding: 0 14px;
+      border-radius: t.$radius-md;
+      font-size: 11px;
+    }
   }
 
-  &__progress,
-  &__hint {
-    margin: t.$space-3 0 0;
-    font-size: 11px;
-    color: var(--text-faint, #{t.$ink-faint});
+  // 设计稿勾选项：14px 方框、4px 圆角、10px 次级文字。
+  &__field--check {
+    :deep(.n-checkbox) {
+      --n-size: 14px !important;
+      --n-border-radius: 4px !important;
+      --n-font-size: 10px !important;
+      --n-text-color: var(--text-muted, #{t.$ink-muted}) !important;
+      --n-text-color-disabled: var(--text-muted, #{t.$ink-muted}) !important;
+      --n-color: var(--bg-control, #{t.$paper}) !important;
+    }
   }
 
   &__head {
@@ -284,11 +330,15 @@ onMounted(() => void load());
     flex-wrap: wrap;
     align-items: center;
     gap: t.$space-2;
-    margin-bottom: t.$space-3;
+    margin-bottom: calc(#{t.$space-2} + 2px);
   }
 
-  &__cases,
-  &__history {
+  &__refresh {
+    margin-left: auto;
+    font-size: 11px;
+  }
+
+  &__cases {
     display: flex;
     flex-direction: column;
     gap: t.$space-2;
@@ -339,36 +389,6 @@ onMounted(() => void load());
     color: var(--text-soft, #{t.$ink-soft});
   }
 
-  &__history-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: t.$space-2;
-    padding: t.$space-2 t.$space-3;
-    background: var(--bg-sunken, #{t.$paper-sunken});
-    border-radius: t.$radius-sm;
-    font-size: 12px;
-    min-width: 0;
-  }
-
-  &__history-time,
-  &__history-meta {
-    font-size: 11px;
-    color: var(--text-faint, #{t.$ink-faint});
-  }
-
-  &__history-model,
-  &__history-role {
-    @include m.ellipsis;
-    // flex 子项必须显式 min-width: 0 才会真正省略；max-width 只负责封顶。
-    min-width: 0;
-    max-width: 220px;
-    color: var(--text-primary, #{t.$ink});
-  }
-
-  &__history-meta {
-    margin-left: auto;
-  }
 }
 
 // 中等容器两列（操作按钮换到第二行），窄容器单列；四列在 900px 内会把下拉压得过窄。
@@ -386,6 +406,16 @@ onMounted(() => void load());
 
     &__form {
       grid-template-columns: minmax(0, 1fr);
+    }
+
+    // 窄容器里按钮换到角色下方并右对齐，保持与主操作同栅格节奏。
+    &__role-row {
+      flex-wrap: wrap;
+    }
+
+    &__actions {
+      width: 100%;
+      justify-content: flex-end;
     }
   }
 }

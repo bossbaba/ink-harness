@@ -151,6 +151,34 @@ export function parseLooseJson(text: string): unknown {
   return null;
 }
 
+/** 只接受 JSON 对象；数组、null、标量都不是工具参数。 */
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * 工具参数专用：取文本里第一个能解析的 JSON 对象。
+ *
+ * 模型偶尔把两次调用的参数连着写进同一个 arguments（如 `{"query":"..."}{}`），
+ * 或在对象前后带一句说明；整段严格解析必然失败，但第一段对象通常是有效的，
+ * 直接判失败会让同一次工具调用永远不执行。这里按括号配对逐个尝试，
+ * 拿到第一个对象就返回，剩余内容留在 rawArguments 里供排查。
+ */
+export function parseFirstJsonObject(text: string): Record<string, unknown> | null {
+  const cleaned = stripFences(text);
+  for (const variant of [cleaned, repairBareQuotes(cleaned)]) {
+    const direct = asObject(tryParse(variant));
+    if (direct) return direct;
+    for (const chunk of scanObjects(variant)) {
+      const value = asObject(tryParse(chunk));
+      if (value) return value;
+    }
+  }
+  return null;
+}
+
 /**
  * 读出模型输出里的条目数组。
  * 整段能解析就用整段；解析不了（某条引号没转义、或被截断）就逐条抠对象，拿到一条算一条。

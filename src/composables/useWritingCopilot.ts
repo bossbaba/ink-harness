@@ -1,4 +1,5 @@
 import { computed, ref } from "vue";
+import { nextNewChatTitle } from "@/composables/newChatTitle";
 import { useAgentActions } from "@/composables/useAgentActions";
 import { useCopilotMessaging } from "@/composables/useCopilotMessaging";
 import { useCopilotSession } from "@/composables/useCopilotSession";
@@ -181,11 +182,11 @@ export function useWritingCopilot(options: WritingCopilotOptions) {
       return;
     }
     if (action.type === "new") {
-      // 已经停在一个空的「新对话」里就不重复建，否则连点几下会堆出一排空标签。
-      const current = session.sessions.value.find((item) => item.id === session.currentId.value);
-      if (current && current.title === "新对话" && messaging.messages.value.length === 0) return;
+      // 点「+」总是新建：此前按标题判重会拦掉「当前已是空的新对话」的点击，
+      // 用户看到的就是按钮没反应。标题带序号，连点也能看出新建了几条。
+      const title = nextNewChatTitle(session.sessions.value.map((item) => item.title));
       messaging.clearMessages();
-      await session.createNew();
+      await session.createNew(title);
       return;
     }
     if (action.type === "switch") {

@@ -35,4 +35,12 @@ describe("AGENT_ROLE_PRESETS", () => {
       expect(preset.toolNames.length, `${preset.name} 没有限定工具`).toBeGreaterThan(0);
     }
   });
+
+  it("去AI味编辑只提交候选文本，不直接落库改正文", () => {
+    // 这个预设的用途是改写，误开 apply_edits 会绕过作者审批把替换写进章节。
+    const preset = AGENT_ROLE_PRESETS.find((item) => item.key === "ai-flavor-remover");
+    expect(preset).toBeDefined();
+    expect(preset?.toolNames).toContain("propose_text");
+    expect(preset?.toolNames).not.toContain("apply_edits");
+  });
 });

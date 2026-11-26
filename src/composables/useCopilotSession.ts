@@ -156,10 +156,10 @@ export function useCopilotSession(projectId: string) {
     error.value = "";
     try {
       const sid = await ensureSession(question);
-      // 点「+」时建的是空会话，标题还叫「新对话」；发第一条消息后用首句问题命名，
+      // 点「+」建的是空会话，标题形如「新对话」「新对话 2」；发第一条消息后用首句命名，
       // 标签栏里才分得清谁是谁。已经命名的会话不再改动，尊重作者手动改过的标题。
       const named = sessions.value.find((item) => item.id === sid);
-      if (named && named.title === "新对话") {
+      if (named?.title.startsWith("新对话")) {
         await rename(sid, question.replace(/\s+/g, " ").slice(0, 24));
       }
       // 消息 id 由前端生成：同一毫秒内两条消息会撞主键，加序号区分。

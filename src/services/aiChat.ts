@@ -9,6 +9,7 @@ import type {
   ToolCallChunk,
   ToolDefinition,
 } from "@/types";
+import { parseFirstJsonObject } from "@/utils/looseJson";
 
 /**
  * 流式对话的统一入口。
@@ -50,25 +51,58 @@ export interface ChatRunResult {
   model?: string;
 }
 
+/** 正在接收分片的一次调用；同一 index 可能被上游重复用于下一次调用。 */
+interface ToolCallDraft {
+  index: number;
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+/** arguments 已经是一个完整对象：再收到从 `{` 开头的帧，多半是上游补发的完整副本。 */
+function isCompleteObject(text: string): boolean {
+  if (!text.trim()) return false;
+  try {
+    const value: unknown = JSON.parse(text);
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 把流式到达的工具分片按 index 拼成完整调用。
  *
  * OpenAI 的 arguments 是逐帧追加的 JSON 片段，id/name 只在首帧出现；
- * 这里取各分片里非空的 id/name（首帧值），arguments 按到达顺序拼接。
+ * 但同一 index 也可能被上游复用给下一次调用，此时 id/name 会变化，
+ * 必须另起一条，否则两次参数拼成 `{"query":"..."}{}` 这样的坏 JSON。
  * 解析失败不抛异常，而是把原文与原因放进结果，由执行器拒绝执行该工具。
  */
 export function collectToolCalls(chunks: ToolCallChunk[]): CollectedToolCall[] {
-  const byIndex = new Map<number, { id: string; name: string; arguments: string }>();
+  const drafts: ToolCallDraft[] = [];
   for (const chunk of chunks) {
-    const entry = byIndex.get(chunk.index) ?? { id: "", name: "", arguments: "" };
-    if (chunk.id) entry.id = chunk.id;
-    if (chunk.name) entry.name = chunk.name;
-    entry.arguments += chunk.arguments;
-    byIndex.set(chunk.index, entry);
+    // 只把分片归给 id/name 兼容的同 index 调用；变了就说明是新的一次调用。
+    let draft = [...drafts]
+      .reverse()
+      .find(
+        (item) =>
+          item.index === chunk.index &&
+          (!chunk.id || !item.id || item.id === chunk.id) &&
+          (!chunk.name || !item.name || item.name === chunk.name),
+      );
+    if (!draft) {
+      draft = { index: chunk.index, id: "", name: "", arguments: "" };
+      drafts.push(draft);
+    }
+    if (chunk.id) draft.id = chunk.id;
+    if (chunk.name) draft.name = chunk.name;
+    // 已有完整对象又来一帧完整对象时跳过，避免拼出两个连着的 JSON。
+    if (isCompleteObject(draft.arguments) && /^\s*[{[]/.test(chunk.arguments)) continue;
+    draft.arguments += chunk.arguments;
   }
-  return Array.from(byIndex.entries())
-    .sort(([a], [b]) => a - b)
-    .map(([, entry]) => {
+  return drafts
+    .sort((a, b) => a.index - b.index)
+    .map((entry) => {
       let parsed: Record<string, unknown> = {};
       let parseError = "";
       const text = entry.arguments.trim();
@@ -83,7 +117,14 @@ export function collectToolCalls(chunks: ToolCallChunk[]): CollectedToolCall[] {
             parseError = "工具参数不是 JSON 对象";
           }
         } catch (err) {
-          parseError = `工具参数解析失败：${String(err)}`;
+          // 模型可能把两次参数连写或带上一句说明：第一段对象可用就继续执行，
+          // 原文仍留在 rawArguments，真正无救时才记解析错误。
+          const salvaged = parseFirstJsonObject(text);
+          if (salvaged) {
+            parsed = scrubArgs(salvaged) as Record<string, unknown>;
+          } else {
+            parseError = `工具参数解析失败：${String(err)}`;
+          }
         }
       }
       return {

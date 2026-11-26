@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseLooseJson, parseLooseJsonArray } from "@/utils/looseJson";
+import { parseFirstJsonObject, parseLooseJson, parseLooseJsonArray } from "@/utils/looseJson";
 
 /**
  * 宽松 JSON 解析单测：覆盖模型输出最常见的三种「不是合法 JSON」的坏法，
@@ -47,5 +47,20 @@ describe("parseLooseJsonArray", () => {
 
   it("无内容时返回空数组", () => {
     expect(parseLooseJsonArray("没有结果")).toEqual([]);
+  });
+});
+
+describe("parseFirstJsonObject", () => {
+  it("连写多个对象时只取第一段", () => {
+    expect(parseFirstJsonObject('{"query":"江游 芯片"}{}')).toEqual({ query: "江游 芯片" });
+  });
+
+  it("忽略对象前后的说明文字，但不接受数组", () => {
+    expect(parseFirstJsonObject('好的：\n{"a":1}\n以上')).toEqual({ a: 1 });
+    expect(parseFirstJsonObject("[1,2]")).toBeNull();
+  });
+
+  it("没有完整对象时返回 null", () => {
+    expect(parseFirstJsonObject("这不是 JSON")).toBeNull();
   });
 });

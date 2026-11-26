@@ -51,8 +51,9 @@ function addRelation(): void {
     <template v-if="props.selected">
       <div class="detail-head">
         <div>
-          <NTag size="small" :bordered="false">{{ STORY_KIND_LABEL[draft.kind] }}</NTag>
-          <h2 class="detail-head__title serif">{{ draft.name || "未命名设定" }}</h2>
+          <h2 class="detail-head__title serif">
+            {{ STORY_KIND_LABEL[draft.kind] }} · {{ draft.name || "未命名设定" }}
+          </h2>
         </div>
         <NPopconfirm @positive-click="emit('delete')">
           <template #trigger>
@@ -217,8 +218,9 @@ function addRelation(): void {
   border-bottom: 1px solid var(--divider, #{t.$divider});
 
   &__title {
-    margin: t.$space-1 0 0;
-    font-size: 1.15rem;
+    margin: 0;
+    // 设计稿 3:775：详情标题是「类型 · 名称」连写，16px 衬线。
+    font-size: 1rem;
   }
 }
 
@@ -305,5 +307,11 @@ function addRelation(): void {
   display: flex;
   justify-content: flex-end;
   margin-top: t.$space-5;
+
+  // 设计稿详情卡右下角按钮 28px 高，与页头按钮同一档。
+  :deep(.n-button) {
+    height: 28px;
+    font-size: 11px;
+  }
 }
 </style>
