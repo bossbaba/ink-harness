@@ -79,8 +79,9 @@ function draftLabel(): string {
         <h1 class="ideation__title serif">
           {{ project ? `《${project.title}》· 构思向导` : "构思向导" }}
         </h1>
+        <!-- 设计稿 3:725：写明四步与草稿自动保存；「三幕骨架」按本仓实际产物用词，不照抄稿中的「三层」。 -->
         <p class="ideation__subtitle">
-          分步回答几个问题，AI 会整理成书名、梗概、简介、读者画像与三幕骨架；每一步都可以回头修改。
+          分步回答四个问题，AI 会整理成书名、梗概、简介、读者画像与三幕骨架；草稿自动保存。
         </p>
       </div>
       <NButton size="small" :disabled="!project" @click="openOutline">打开大纲</NButton>

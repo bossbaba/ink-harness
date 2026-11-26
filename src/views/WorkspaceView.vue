@@ -124,7 +124,8 @@ function openModels(): void {
           我的作品
           <NTag class="count" size="tiny" round :bordered="false">{{ projects.length }}</NTag>
         </h2>
-        <p class="section__hint">本地作品 · 点击卡片进入对应创作环节</p>
+        <!-- 设计稿 3:261：区块提示用「一览 + 点击进入」的完整句，和新卡片入口一致。 -->
+        <p class="section__hint">本地作品一览，点击进入对应创作环节</p>
       </div>
       <LoadingState v-if="projectsLoading" text="正在载入作品…" />
       <div v-else-if="projects.length === 0" class="empty">
@@ -170,6 +171,10 @@ function openModels(): void {
     <section class="status-grid">
       <StatCard variant="status" label="本地运行时">
         <span class="status-runtime">{{ backend }}</span>
+        <!-- 设计稿 3:285：状态卡除探测结果外还要说清数据只留在本机，降低首次使用顾虑。 -->
+        <template #footer>
+          <p class="status-note">数据仅保存在本机，不需要联网即可写作。</p>
+        </template>
       </StatCard>
       <StatCard variant="status" label="Ollama 服务">
         <NTag :type="ollamaRunning ? 'success' : 'default'" size="small" :bordered="false">
