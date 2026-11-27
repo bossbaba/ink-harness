@@ -340,8 +340,14 @@ export function useCopilotMessaging(options: CopilotMessagingOptions) {
       if (result.failure) {
         error.value = result.failure;
         messages.value[answerIndex].failed = true;
-      } else if (!messages.value[answerIndex].content) {
-        messages.value[answerIndex].content = result.answer || "（没有拿到结果）";
+      } else {
+        // 轮次标记已经写进气泡时，最终答案不能被丢掉——否则界面只剩一个「【第 1 轮】」，
+        // 看上去就像模型完全没反应。答案若已经在气泡里（最后一轮的正文）就不重复追加。
+        const answer = result.answer.trim();
+        const current = messages.value[answerIndex].content;
+        if (answer && !current.includes(answer)) {
+          messages.value[answerIndex].content = current ? `${current}\n\n${answer}` : answer;
+        }
       }
       // 会话记忆与轨迹落库：失败不影响对话展示；停止原因给看板算成功率。
       void options.persist({
@@ -393,7 +399,9 @@ export function useCopilotMessaging(options: CopilotMessagingOptions) {
     const block = [
       `【第 ${step.iteration} 轮】`,
       step.text ||
-        (step.calls.length ? `调用工具：${step.calls.map((c) => c.name).join("、")}` : ""),
+        (step.calls.length
+          ? `调用工具：${step.calls.map((c) => c.name).join("、")}`
+          : "（本轮模型没有返回内容）"),
       ...step.observations.map((o) => `→ ${o.toolName}：${o.content}`),
     ]
       .filter(Boolean)

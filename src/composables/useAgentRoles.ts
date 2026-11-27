@@ -55,14 +55,17 @@ export function useAgentRoles() {
 
   /**
    * 工具白名单选项：内置工具 + MCP 工具。
-   * MCP 工具名带 server 前缀（与后端限定名一致），且一律需审批，避免重名和越权。
+   * MCP 工具名带 server 前缀（与后端限定名一致）；第三方一律需审批，
+   * 应用自带的联网搜索是只读工具，白名单里也按 read 展示。
    */
   const toolOptions = computed(() => [
     ...AGENT_TOOL_OPTIONS,
     ...mcpTools.value.map((tool) => ({
       name: mcpQualifiedName(tool),
-      description: `[MCP:${tool.serverId}] ${tool.description || tool.name}`,
-      risk: "write" as const,
+      description: tool.builtin
+        ? tool.description
+        : `[MCP:${tool.serverId}] ${tool.description || tool.name}`,
+      risk: tool.builtin ? ("read" as const) : ("write" as const),
     })),
   ]);
 

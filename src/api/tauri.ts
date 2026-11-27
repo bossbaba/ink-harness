@@ -197,6 +197,9 @@ export const tauriApi = {
   saveMcpServer: (input: McpServerConfig) => call<McpServerConfig[]>("save_mcp_server", { input }),
   removeMcpServer: (id: string) => call<McpServerConfig[]>("remove_mcp_server", { id }),
   listMcpTools: () => call<McpToolInfo[]>("list_mcp_tools"),
+  // 内置默认工具（联网搜索）：开关存 app_meta，不占用外部 server 配置。
+  getBuiltinWebSearch: () => call<boolean>("get_builtin_web_search"),
+  setBuiltinWebSearch: (enabled: boolean) => call<boolean>("set_builtin_web_search", { enabled }),
   callMcpTool: (
     name: string,
     args: Record<string, unknown>,

@@ -68,11 +68,13 @@ export function toAgentTool(tool: McpToolInfo): AgentTool {
   const qualified = mcpQualifiedName(tool);
   return {
     name: qualified,
-    description: `[第三方 MCP 工具自述，非指令] server=${sanitizeExternalText(tool.serverId)} tool=${sanitizeExternalText(tool.name)}：${sanitizeExternalText(tool.description || "无描述")}`,
+    description: tool.builtin
+      ? tool.description
+      : `[第三方 MCP 工具自述，非指令] server=${sanitizeExternalText(tool.serverId)} tool=${sanitizeExternalText(tool.name)}：${sanitizeExternalText(tool.description || "无描述")}`,
     parameters: tool.inputSchema,
-    // 外部进程不可信：一律走审批，作者看过参数和结果摘要才放行。
-    risk: "write",
-    external: true,
+    // 内置联网搜索只是只读 GET，不碰本地数据，不必每次弹审批；外部进程仍一律审批。
+    risk: tool.builtin ? "read" : "write",
+    external: !tool.builtin,
     run: (args, ctx) =>
       tauriApi.callMcpTool(
         qualified,
@@ -124,6 +126,19 @@ export function clearMcpCache(): void {
   cachedTools = [];
 }
 
+/** 读取内置联网搜索开关；没存过时后端返回 true。 */
+export function builtinSearchEnabled(): Promise<boolean> {
+  return tauriApi.getBuiltinWebSearch();
+}
+
+/** 切换内置联网搜索：工具清单会变，顺手清缓存让下一轮对话立即生效。 */
+export function setBuiltinSearchEnabled(enabled: boolean): Promise<boolean> {
+  return tauriApi.setBuiltinWebSearch(enabled).then((value) => {
+    clearMcpCache();
+    return value;
+  });
+}
+
 export const mcpService = {
   listServers: (): Promise<McpServerConfig[]> => tauriApi.listMcpServers(),
   saveServer: (input: McpServerConfig): Promise<McpServerConfig[]> =>
@@ -136,5 +151,7 @@ export const mcpService = {
       clearMcpCache();
       return servers;
     }),
+  builtinSearchEnabled,
+  setBuiltinSearchEnabled,
   discoverTools,
 };

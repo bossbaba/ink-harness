@@ -1,7 +1,8 @@
 //! 模型网关领域服务：流式对话编排。
 //! 不依赖任何 Tauri 类型——流式输出通过回调注入，便于纯 Rust 单测。
 //!
-//! 纯解析逻辑已拆到同目录的 `gateway_sse.rs`（SSE/JSONL）与 `gateway_resolve.rs`
+//! 纯解析逻辑已拆到同目录的 `gateway_sse.rs`（SSE 方言）、`gateway_jsonl.rs`（Ollama 原生
+//! JSON Lines）、`gateway_stream.rs`（共用事件与 JSON 取值）与 `gateway_resolve.rs`
 //! （Provider 解析），本文件只保留「解析 → 隐私校验 → 重试 → 读流 → 回调」的编排主链路，
 //! 以控制单文件规模；那些模块各自的单测随代码一起迁移。
 
@@ -12,12 +13,30 @@ use tokio::time::timeout;
 
 use crate::error::AppError;
 use crate::infrastructure::{db::DbState, llm_http};
-use crate::models::chat::ChatMessage;
 use crate::models::{ChatChunk, ChatParams, TokenUsage};
-use crate::services::{cancel::CancelFlag, guardrails, project, provider_kind};
+use crate::services::{
+    cancel::CancelFlag, gateway_tools, guardrails, project, provider_kind,
+};
 
 use super::gateway_resolve::{ResolvedProvider, resolve_provider};
-use super::gateway_sse::{JsonlParser, ResponseParser, SseEvent, SseParser};
+use super::gateway_jsonl::JsonlParser;
+use super::gateway_sse::SseParser;
+use super::gateway_stream::SseEvent;
+
+/// 两种上游响应格式共用同一套事件，调用方不需要按方言分支。
+enum StreamParser {
+    Sse(SseParser),
+    Jsonl(JsonlParser),
+}
+
+impl StreamParser {
+    fn push(&mut self, chunk: &str) -> Vec<SseEvent> {
+        match self {
+            Self::Sse(parser) => parser.push(chunk),
+            Self::Jsonl(parser) => parser.push(chunk),
+        }
+    }
+}
 
 /// 发起流式对话，每收到一块就调用 `on_chunk`。
 /// `on_chunk` 由调用方（commands 层）注入，返回 false 表示接收端已断开，应立刻停止读取。
@@ -68,13 +87,9 @@ where
     // 把路由标识整串发过去，Ollama 会直接回 400 invalid model name。
     // 原生接口对多轮工具消息的 arguments 类型要求不同，必须按方言转换后再发。
     let messages = if native_ollama {
-        native_messages(&params.messages)
+        gateway_tools::native_messages(&params.messages)
     } else {
-        serde_json::to_value(&params.messages)
-            .unwrap_or(serde_json::Value::Array(Vec::new()))
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
+        gateway_tools::openai_messages(&params.messages)
     };
 
     let mut body = serde_json::json!({
@@ -105,6 +120,10 @@ where
     // 会把前后两次生成的半截内容拼在一起，比直接报错更糟。
     let client = llm_http::client();
     let mut attempt = 0u32;
+    // 有些模型标着支持工具调用，实际却拒绝我们发的 tools schema（如 mimo 的
+    // `tools.0.function.parameters is not valid type`）。这种 400 重试多少次都没用，
+    // 去掉 tools 再发一次让模型退回纯文本，由调用方的降级轨解析工具意图。
+    let mut dropped_tools = false;
     let response = loop {
         // 可能在重试退避里被取消：下一次发请求前先看标志，别再打一发。
         if cancel.map_or(false, |flag| flag.is_cancelled()) {
@@ -120,6 +139,19 @@ where
                 let status = response.status();
                 let retryable = llm_http::retryable_status(status);
                 let text = response.text().await.unwrap_or_default();
+                // 工具 schema 被拒：去掉 tools 与 tool_choice 原样重发一次。
+                // 只认明确提到 tools/function 的 400，避免把其它参数错误也悄悄降级。
+                let has_tools = body
+                    .get("tools")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|tools| !tools.is_empty());
+                if status.as_u16() == 400 && !dropped_tools && has_tools && gateway_tools::mentions_tool_schema(&text)
+                {
+                    eprintln!("模型拒绝 tools schema，去掉工具定义后重试：{}", truncate(&text, 160));
+                    gateway_tools::strip_tooling(&mut body);
+                    dropped_tools = true;
+                    continue;
+                }
                 if retryable && attempt + 1 < llm_http::MAX_ATTEMPTS {
                     eprintln!("模型请求返回 {status}，第 {} 次重试", attempt + 1);
                     tokio::time::sleep(llm_http::backoff(attempt)).await;
@@ -148,15 +180,20 @@ where
 
     // 流式解析委托给纯函数组件，便于单测；用量可能在结束帧之前的某块到达。
     let mut parser = if native_ollama {
-        ResponseParser::Jsonl(JsonlParser::new())
+        StreamParser::Jsonl(JsonlParser::new())
     } else {
-        ResponseParser::Sse(SseParser::new())
+        StreamParser::Sse(SseParser::new())
     };
     let mut usage: Option<TokenUsage> = None;
     // 凭据可能被切在两个 delta 的边界上，单块 scrub 两次都匹配不到。
     // 留一小段尾部到下一轮和新增文本拼起来再洗，确认安全的前半部分照常逐字推送。
     const TAIL_KEEP: usize = 32;
     let mut pending = String::new();
+    // 上游可能整条流什么都不给：端点方言不兼容、思考字段被拒、连接中途被截断。
+    // 这时前端拿到的 raw 是空串，界面只剩一个「【第 1 轮】」，作者无从判断发生了什么。
+    // 记下到底有没有产出，并留一段原始响应，出问题时回显出来才有排查价值。
+    let mut saw_output = false;
+    let mut raw_sample = String::new();
     let mut stream = response.bytes_stream();
     loop {
         // 长文本生成允许整体耗时很久，但连续 120 秒收不到任何字节就视为上游假死。
@@ -176,7 +213,12 @@ where
         };
         let Some(item) = next else { break };
         let bytes = item.map_err(|e| AppError::network(format!("读取流失败：{e}")))?;
-        let events = parser.push(&String::from_utf8_lossy(&bytes));
+        let text = String::from_utf8_lossy(&bytes);
+        // 诊断样本只留开头几百字：够看出端点返回的是什么方言，又不至于把整篇回复塞进错误信息。
+        if raw_sample.len() < RAW_SAMPLE_LIMIT {
+            raw_sample.push_str(&text);
+        }
+        let events = parser.push(&text);
         for event in events {
             match event {
                 SseEvent::Done => {
@@ -188,6 +230,14 @@ where
                         }
                         pending.clear();
                     }
+                    if !saw_output {
+                        return Err(empty_stream_error(
+                            &resolved.provider.name,
+                            &resolved.model,
+                            &resolved.provider.base_url,
+                            &guardrails::scrub(&raw_sample),
+                        ));
+                    }
                     return if on_chunk(ChatChunk::done()) {
                         Ok(usage)
                     } else {
@@ -195,6 +245,10 @@ where
                     };
                 }
                 SseEvent::Delta(text) => {
+                    // 以未脱敏的原文判断「上游到底有没有说话」：被脱敏规则清空不等于没输出。
+                    if !text.trim().is_empty() {
+                        saw_output = true;
+                    }
                     // 模型可能被提示词注入带去吐凭据，先把上一轮尾部和新文本合起来洗；
                     // 只推送确定安全的前缀，尾部继续留着应对下一次切分。
                     pending.push_str(&text);
@@ -213,6 +267,8 @@ where
                     pending.push_str(tail);
                 }
                 SseEvent::ToolCall(mut call) => {
+                    // 工具调用也是有效产出：模型可能整轮只调工具、不说话。
+                    saw_output = true;
                     // 工具参数同样会显示到界面并进入下一轮提示词，不能只洗正文 delta。
                     call.arguments = guardrails::scrub(&call.arguments);
                     if !on_chunk(ChatChunk::tool_call(call)) {
@@ -231,6 +287,14 @@ where
         }
     }
 
+    if !saw_output {
+        return Err(empty_stream_error(
+            &resolved.provider.name,
+            &resolved.model,
+            &resolved.provider.base_url,
+            &guardrails::scrub(&raw_sample),
+        ));
+    }
     if on_chunk(ChatChunk::done()) {
         Ok(usage)
     } else {
@@ -238,31 +302,22 @@ where
     }
 }
 
-/// 把消息转成 Ollama 原生 `/api/chat` 能接受的形状。
+/// 诊断样本最多保留的字节数：够看出端点返回的是什么，又不至于把整篇回复塞进错误信息。
+const RAW_SAMPLE_LIMIT: usize = 800;
+
+/// 上游整条流既没有正文也没有工具调用时构造可诊断的错误。
 ///
-/// 前端为了兼容 OpenAI，把 `assistant.tool_calls[].function.arguments` 传成 JSON **字符串**；
-/// 原生接口只认对象，收到字符串会直接 400（`Value looks like object, but can't find
-/// closing '}' symbol`），于是「工具调用 → 回填结果 → 再问一轮」的第二轮必挂。
-/// 这里解析成对象；解析不出来就给空对象——参数本来就坏了，不该让整轮对话失败。
-fn native_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
-    messages
-        .iter()
-        .map(|message| {
-            let mut value = serde_json::to_value(message).unwrap_or(serde_json::Value::Null);
-            let Some(calls) = value.get_mut("toolCalls").and_then(|item| item.as_array_mut()) else {
-                return value;
-            };
-            for call in calls {
-                let Some(args) = call.pointer_mut("/function/arguments") else {
-                    continue;
-                };
-                if let Some(text) = args.as_str() {
-                    *args = serde_json::from_str(text).unwrap_or_else(|_| serde_json::json!({}));
-                }
-            }
-            value
-        })
-        .collect()
+/// 这种情况前端拿到的是空回复，界面只会剩一个「【第 1 轮】」。
+/// 把 Provider、模型名、地址和原始响应片段一并回显，作者才能判断是端点方言不兼容还是模型真的没说话。
+fn empty_stream_error(provider_name: &str, model: &str, base_url: &str, sample: &str) -> AppError {
+    let detail = if sample.trim().is_empty() {
+        "上游没有返回任何可解析的数据。".to_string()
+    } else {
+        format!("上游响应片段：{}", truncate(sample, 200))
+    };
+    AppError::upstream(format!(
+        "模型「{provider_name}/{model}」（{base_url}）没有返回任何内容：既没有正文也没有工具调用。{detail}"
+    ))
 }
 
 fn truncate(s: &str, max: usize) -> &str {
@@ -279,58 +334,27 @@ mod tests {
     use super::*;
     use crate::models::chat::ChatMessage;
 
-    /// 原生接口要的是 arguments 对象；字符串原样发过去会被 400 拒掉，多轮工具调用根本走不完。
+    /// 空响应必须给出能定位问题的错误：光说「没有内容」，作者还是不知道该换模型还是换端点。
     #[test]
-    fn native_messages_turn_tool_arguments_into_objects() {
-        let messages = vec![
-            ChatMessage {
-                role: "assistant".to_string(),
-                content: String::new(),
-                tool_call_id: None,
-                name: None,
-                tool_calls: Some(serde_json::json!([{
-                    "id": "call_1",
-                    "type": "function",
-                    "function": { "name": "read_chapter", "arguments": "{\"withContent\":true}" }
-                }])),
-            },
-            ChatMessage {
-                role: "tool".to_string(),
-                content: "{\"title\":\"第一章\"}".to_string(),
-                tool_call_id: Some("call_1".to_string()),
-                name: Some("read_chapter".to_string()),
-                tool_calls: None,
-            },
-        ];
-
-        let converted = native_messages(&messages);
-        assert_eq!(
-            converted[0].pointer("/toolCalls/0/function/arguments"),
-            Some(&serde_json::json!({ "withContent": true }))
+    fn empty_stream_error_points_at_provider_model_and_sample() {
+        let err = empty_stream_error(
+            "本地 MiMo",
+            "mimo-v2.6-9b",
+            "http://127.0.0.1:8000/v1",
+            "data: {\"choices\":[{\"delta\":{\"reasoning\":\"只有思考\"}}]}",
         );
-        // 工具结果消息保持原样：原生接口同样接受 toolCallId/name 字段。
-        assert_eq!(converted[1]["role"], serde_json::json!("tool"));
-        assert_eq!(converted[1]["name"], serde_json::json!("read_chapter"));
+        assert!(err.message.contains("本地 MiMo"));
+        assert!(err.message.contains("mimo-v2.6-9b"));
+        assert!(err.message.contains("127.0.0.1:8000"));
+        // 原始片段要能看到，作者才能判断上游到底回了什么。
+        assert!(err.message.contains("reasoning"));
     }
 
-    /// 参数是被截断或乱码时不能把整轮请求打成 400，退化成空对象让对话继续。
+    /// 完全没有可解析数据时也要说清楚，不能只给一句空话。
     #[test]
-    fn native_messages_fall_back_to_empty_object_on_bad_arguments() {
-        let messages = vec![ChatMessage {
-            role: "assistant".to_string(),
-            content: String::new(),
-            tool_call_id: None,
-            name: None,
-            tool_calls: Some(serde_json::json!([{
-                "function": { "name": "read_chapter", "arguments": "{\"withContent\":" }
-            }])),
-        }];
-
-        let converted = native_messages(&messages);
-        assert_eq!(
-            converted[0].pointer("/toolCalls/0/function/arguments"),
-            Some(&serde_json::json!({}))
-        );
+    fn empty_stream_error_without_sample_still_explains() {
+        let err = empty_stream_error("本地", "m", "http://127.0.0.1:1/v1", "   ");
+        assert!(err.message.contains("没有返回任何可解析的数据"));
     }
 
     #[tokio::test]

@@ -17,7 +17,7 @@ import {
 } from "@/services/agentPlanner";
 import { filterToolDefinitions } from "@/services/agentRoleService";
 import { toToolDefinitions } from "@/services/agentTools";
-import { runChat } from "@/services/aiChat";
+import { EMPTY_REPLY_MESSAGE, runChat } from "@/services/aiChat";
 import type {
   AgentPlan,
   ChatMessage,
@@ -230,8 +230,12 @@ export async function runAgentLoop(
       };
     }
 
-    // 标准轨从流式分片拼调用；降级轨从文本里抠约定 JSON。
-    const calls = input.supportsTools ? result.toolCalls : parseFallbackCalls(result.raw);
+    // 标准轨从流式分片拼调用；分片解析为空时仍扫一遍文本——
+    // 有些模型标着支持 function calling，实际却把调用写成 JSON/XML 文本塞进回答里。
+    const calls =
+      input.supportsTools && result.toolCalls.length > 0
+        ? result.toolCalls
+        : parseFallbackCalls(result.raw);
     if (calls.length === 0) {
       const step: AgentStep = {
         iteration,
@@ -253,8 +257,11 @@ export async function runAgentLoop(
         messages.push({ role: "user", content: TOOL_RETRY_PROMPT });
         continue;
       }
+      // 模型整轮什么都没返回（思考型端点字段不兼容、上游截断、只给了工具却被拒）：
+      // 原样返回空串的话，界面只剩一个「【第 1 轮】」，作者看不出发生了什么。
+      // 这里给一句能看懂的话，界面才有东西可显示。
       return {
-        answer: result.raw,
+        answer: result.raw.trim() ? result.raw : EMPTY_REPLY_MESSAGE,
         reason: "no-tools",
         steps,
         failure: "",
@@ -430,7 +437,9 @@ export async function runAgentLoop(
   }
 
   return {
-    answer: "",
+    // 轮次用完仍没给出结论时也留一句说明：作者看到的只是一串轮次标记，
+    // 不知道是模型卡在工具循环里，还是被我们自己停下的。
+    answer: "（已达到轮次上限，模型仍在调用工具，没有给出最终结论。）",
     reason: "max-iterations",
     steps,
     failure: "",

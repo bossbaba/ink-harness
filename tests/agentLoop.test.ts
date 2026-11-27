@@ -154,6 +154,46 @@ describe("runAgentLoop", () => {
     expect(result.steps).toHaveLength(2);
   });
 
+  it("模型整轮没返回内容时给出可显示的兜底文案，不返回空串", async () => {
+    // 本地模型思考型端点常出现「什么都没返回」：界面若只拿到空串就只剩一个「【第 1 轮】」。
+    const runner = vi.fn().mockResolvedValue({
+      raw: "",
+      toolCalls: [],
+      failure: "",
+    } satisfies ChatRunResult);
+
+    const result = await runAgentLoop(base, runner);
+
+    expect(result.reason).toBe("no-tools");
+    expect(result.answer.trim()).not.toBe("");
+    expect(result.answer).toContain("模型没有返回内容");
+  });
+
+  it("达到轮次上限时也给出说明，作者才知道循环停在哪里", async () => {
+    let round = 0;
+    const runner = vi.fn().mockImplementation(async () => {
+      round += 1;
+      return {
+        raw: "",
+        toolCalls: [
+          {
+            id: `c${round}`,
+            name: "inspect_element",
+            arguments: { id: `e${round}` },
+            rawArguments: JSON.stringify({ id: `e${round}` }),
+            parseError: "",
+          },
+        ],
+        failure: "",
+      } satisfies ChatRunResult;
+    });
+
+    const result = await runAgentLoop({ ...base, maxIterations: 2 }, runner);
+
+    expect(result.reason).toBe("max-iterations");
+    expect(result.answer).toContain("轮次上限");
+  });
+
   it("作者在循环开始前点停止时立即退出且不发请求", async () => {
     const runner = vi.fn().mockResolvedValue({
       raw: "",

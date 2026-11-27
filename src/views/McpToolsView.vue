@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NButton, NInput, NModal, NPopconfirm, NTag } from "naive-ui";
+import { NButton, NInput, NModal, NPopconfirm, NSwitch, NTag } from "naive-ui";
 import { onMounted, ref } from "vue";
 import AppEmpty from "@/components/common/AppEmpty.vue";
 import LoadingState from "@/components/common/LoadingState.vue";
@@ -27,10 +27,12 @@ const {
   saving,
   error,
   isEmpty,
+  builtinEnabled,
   load,
   refreshTools,
   save,
   remove,
+  toggleBuiltin,
 } = useMcpServers();
 
 const editing = ref(false);
@@ -63,7 +65,7 @@ onMounted(() => void load());
     <PageHeader
       eyebrow="全局设置"
       title="MCP 外部工具"
-      subtitle="配置 stdio 工具服务，扩展 Agent 能调用的能力；每个外部工具都要你审批后才会执行。"
+      subtitle="内置联网搜索让写作时随时查资料；也可配置 stdio 服务扩展能力，外部工具会先经你审批。"
     >
       <template #actions>
         <NButton size="small" :loading="discovering" @click="refreshTools">刷新工具</NButton>
@@ -72,6 +74,31 @@ onMounted(() => void load());
     </PageHeader>
 
     <p v-if="error" class="mcp__error">{{ error }}</p>
+
+    <!-- 内置联网搜索不占 server 配置：随应用默认启用，作者可在这里一键关掉。 -->
+    <section class="mcp__card">
+      <div class="mcp__head">
+        <h2 class="mcp__section">默认工具</h2>
+        <div class="mcp__toggle">
+          <span class="mcp__hint">{{ builtinEnabled ? "已启用" : "已停用" }}</span>
+          <NSwitch
+            :value="builtinEnabled"
+            size="small"
+            @update:value="(enabled: boolean) => toggleBuiltin(enabled)"
+          />
+        </div>
+      </div>
+      <ul class="mcp__tools">
+        <li class="mcp__tool">
+          <NTag size="small" :bordered="false" type="success">默认</NTag>
+          <span class="mcp__tool-name">web_search</span>
+          <span class="mcp__tool-server">内置 · 免配置</span>
+          <span class="mcp__tool-desc">
+            写作时联网检索公开资料，核对事实、专有名词与背景；只读，无需审批。
+          </span>
+        </li>
+      </ul>
+    </section>
 
     <LoadingState v-if="loading" variant="inline" text="正在读取 MCP 配置…" />
 
@@ -120,7 +147,9 @@ onMounted(() => void load());
       </p>
       <ul v-else class="mcp__tools">
         <li v-for="tool in tools" :key="`${tool.serverId}__${tool.name}`" class="mcp__tool">
-          <NTag size="small" :bordered="false" type="warning">需审批</NTag>
+          <NTag size="small" :bordered="false" :type="tool.builtin ? 'success' : 'warning'">
+            {{ tool.builtin ? "默认" : "需审批" }}
+          </NTag>
           <span class="mcp__tool-name">{{ tool.name }}</span>
           <span class="mcp__tool-server">{{ tool.serverId }}</span>
           <span class="mcp__tool-desc">{{ tool.description || "（无描述）" }}</span>
@@ -205,6 +234,12 @@ onMounted(() => void load());
     margin: 0 0 t.$space-3;
     font-size: 14px;
     font-weight: 600;
+  }
+
+  &__toggle {
+    display: flex;
+    align-items: center;
+    gap: t.$space-2;
   }
 
   &__hint {

@@ -38,6 +38,9 @@ pub struct McpToolInfo {
     pub description: String,
     /// JSON Schema 对象（MCP 的 inputSchema 就是标准 JSON Schema）。
     pub input_schema: Value,
+    /// 应用自带的默认工具（如联网搜索）：可信、只读，前端不需要审批闸门。
+    #[serde(default)]
+    pub builtin: bool,
 }
 
 /// 构造 initialize 请求。protocolVersion 用 MCP 2024-11-05，主流 server 都兼容。
@@ -123,6 +126,8 @@ pub fn parse_tool_list(server_id: &str, result: &Value) -> Vec<McpToolInfo> {
                     .get("inputSchema")
                     .cloned()
                     .unwrap_or_else(|| json!({ "type": "object", "properties": {} })),
+                // tools/list 来自第三方进程，不能让它自称内置工具来绕过审批。
+                builtin: false,
             })
         })
         .collect()

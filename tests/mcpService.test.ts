@@ -4,25 +4,43 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * MCP 前端门面单测：锁定「外部工具一律需审批」「发现失败不阻塞」两条安全契约。
  * tauriApi 全部 mock，测试不依赖真实后端与 stdio server。
  */
-const { listMcpTools, callMcpTool, listMcpServers, saveMcpServer, removeMcpServer } = vi.hoisted(
-  () => ({
-    listMcpTools: vi.fn(),
-    callMcpTool: vi.fn(),
-    listMcpServers: vi.fn(),
-    saveMcpServer: vi.fn(),
-    removeMcpServer: vi.fn(),
-  }),
-);
+const {
+  listMcpTools,
+  callMcpTool,
+  listMcpServers,
+  saveMcpServer,
+  removeMcpServer,
+  getBuiltinWebSearch,
+  setBuiltinWebSearch,
+} = vi.hoisted(() => ({
+  listMcpTools: vi.fn(),
+  callMcpTool: vi.fn(),
+  listMcpServers: vi.fn(),
+  saveMcpServer: vi.fn(),
+  removeMcpServer: vi.fn(),
+  getBuiltinWebSearch: vi.fn(),
+  setBuiltinWebSearch: vi.fn(),
+}));
 
 vi.mock("@/api/tauri", () => ({
-  tauriApi: { listMcpTools, callMcpTool, listMcpServers, saveMcpServer, removeMcpServer },
+  tauriApi: {
+    listMcpTools,
+    callMcpTool,
+    listMcpServers,
+    saveMcpServer,
+    removeMcpServer,
+    getBuiltinWebSearch,
+    setBuiltinWebSearch,
+  },
 }));
 
 import {
+  builtinSearchEnabled,
   cachedMcpTools,
   clearMcpCache,
   discoverTools,
   mcpQualifiedName,
+  setBuiltinSearchEnabled,
   toAgentTool,
 } from "@/services/mcpService";
 import type { McpToolInfo } from "@/types";
@@ -65,6 +83,32 @@ describe("mcpQualifiedName / toAgentTool", () => {
     expect(description).not.toContain("<");
     expect(description).not.toContain("</system>");
     expect(description.length).toBeLessThan(260);
+  });
+
+  it("内置联网搜索是只读工具：不标第三方自述、不需审批令牌", async () => {
+    const builtin: McpToolInfo = {
+      serverId: "builtin-web-search",
+      name: "web_search",
+      description: "联网检索公开资料",
+      inputSchema: { type: "object", properties: { query: { type: "string" } } },
+      builtin: true,
+    };
+    const agentTool = toAgentTool(builtin);
+    expect(agentTool.name).toBe("builtin-web-search__web_search");
+    expect(agentTool.risk).toBe("read");
+    expect(agentTool.external).toBe(false);
+    expect(agentTool.description).toBe("联网检索公开资料");
+    callMcpTool.mockResolvedValue("检索结果");
+    await expect(
+      agentTool.run({ query: "测试" }, { projectId: "p1", sessionId: "s1" }),
+    ).resolves.toBe("检索结果");
+    expect(callMcpTool).toHaveBeenCalledWith(
+      "builtin-web-search__web_search",
+      { query: "测试" },
+      "p1",
+      "s1",
+      "",
+    );
   });
 
   it("run 用限定名调 IPC，并把审批上下文与令牌一并透传", async () => {
@@ -149,6 +193,18 @@ describe("discoverTools 缓存", () => {
     resolveOld([tool]);
     await pending;
     expect(cachedMcpTools()).toEqual([]);
+  });
+
+  it("切换内置联网搜索后清缓存，下一轮对话立即拿到新工具清单", async () => {
+    listMcpTools.mockResolvedValue([tool]);
+    await discoverTools();
+    expect(cachedMcpTools()).toEqual([tool]);
+    setBuiltinWebSearch.mockResolvedValue(false);
+    await expect(setBuiltinSearchEnabled(false)).resolves.toBe(false);
+    expect(setBuiltinWebSearch).toHaveBeenCalledWith(false);
+    expect(cachedMcpTools()).toEqual([]);
+    getBuiltinWebSearch.mockResolvedValue(true);
+    await expect(builtinSearchEnabled()).resolves.toBe(true);
   });
 
   it("强制刷新不复用在飞请求，且旧响应最后到达也不覆盖新结果", async () => {

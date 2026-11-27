@@ -110,6 +110,8 @@ pub fn run() {
             commands::mcp::save_mcp_server,
             commands::mcp::remove_mcp_server,
             commands::mcp::list_mcp_tools,
+            commands::mcp::get_builtin_web_search,
+            commands::mcp::set_builtin_web_search,
             commands::mcp::call_mcp_tool,
             commands::mcp::issue_mcp_approval,
             commands::workflow::apply_workflow,

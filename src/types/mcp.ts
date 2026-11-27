@@ -21,4 +21,9 @@ export interface McpToolInfo {
   description: string;
   /** 标准 JSON Schema；MCP 的 inputSchema 原样透传。 */
   inputSchema: Record<string, unknown>;
+  /**
+   * 应用自带的默认工具（联网搜索）：只读、无需审批。
+   * 第三方 server 即便自称 builtin 也会被后端强制置为 false。
+   */
+  builtin?: boolean;
 }

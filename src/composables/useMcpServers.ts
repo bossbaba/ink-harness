@@ -1,5 +1,5 @@
 import { computed, ref } from "vue";
-import { mcpService } from "@/services/mcpService";
+import { builtinSearchEnabled, mcpService, setBuiltinSearchEnabled } from "@/services/mcpService";
 import type { McpServerConfig, McpToolInfo } from "@/types";
 
 /**
@@ -55,6 +55,8 @@ export function useMcpServers() {
   const discovering = ref(false);
   const saving = ref(false);
   const error = ref("");
+  /** 内置联网搜索默认开启；作者可以在这里关掉，关掉后 Agent 工具清单同步移除。 */
+  const builtinEnabled = ref(true);
   const isEmpty = computed(() => servers.value.length === 0);
 
   /** 加载配置与已有工具缓存；工具发现较慢，由作者点「刷新工具」显式触发。 */
@@ -63,6 +65,7 @@ export function useMcpServers() {
     error.value = "";
     try {
       servers.value = await mcpService.listServers();
+      builtinEnabled.value = await builtinSearchEnabled();
       tools.value = await mcpService.discoverTools();
     } catch (err) {
       error.value = `读取 MCP 配置失败：${String(err)}`;
@@ -117,6 +120,17 @@ export function useMcpServers() {
     }
   }
 
+  /** 切换内置联网搜索；先写后端再同步工具清单，关闭时本地缓存也一起失效。 */
+  async function toggleBuiltin(enabled: boolean): Promise<void> {
+    error.value = "";
+    try {
+      builtinEnabled.value = await setBuiltinSearchEnabled(enabled);
+      tools.value = await mcpService.discoverTools(true);
+    } catch (err) {
+      error.value = `切换内置联网搜索失败：${String(err)}`;
+    }
+  }
+
   return {
     servers,
     tools,
@@ -125,9 +139,11 @@ export function useMcpServers() {
     saving,
     error,
     isEmpty,
+    builtinEnabled,
     load,
     refreshTools,
     save,
     remove,
+    toggleBuiltin,
   };
 }
